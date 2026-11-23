@@ -5007,10 +5007,29 @@
   <!-- Quiet Urban Luxury design system — loaded last so its rules win the
        cascade over the legacy inline styles above without needing !important. -->
   <link rel="stylesheet" href="assets/css/cascade-luxury.css?v=20261008a">
+
+  <!-- gs-core: RATING is the ONLY place the score, review count and verified date live; every [data-rating] node renders from it. -->
+  <script id="gs-core">
+  const RATING = { score: 4.97, count: 64, verifiedOn: '2026-11-23' };
+  (function () {
+    'use strict';
+    var MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    function fmtDate(iso) { var p = iso.split('-'); return (+p[2]) + ' ' + MON[+p[1] - 1] + ' ' + p[0]; }
+    function renderRating() {
+      var vals = { score: RATING.score.toFixed(2), count: String(RATING.count), verified: fmtDate(RATING.verifiedOn) };
+      Array.prototype.forEach.call(document.querySelectorAll('[data-rating]'), function (el) { var v = vals[el.getAttribute('data-rating')]; if (v != null) el.textContent = v; });
+      Array.prototype.forEach.call(document.querySelectorAll('[data-rating-label]'), function (el) {
+        el.setAttribute('aria-label', el.getAttribute('data-rating-label').replace(/\{(score|count|verified)\}/g, function (m, k) { return vals[k]; }));
+      });
+    }
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', renderRating); else renderRating();
+  }());
+  </script>
+
 </head>
 
 <body class="theme-quiet-luxury">
-  <a href="#hero" class="skip-link">Skip to main content</a>
+  <a href="#main" class="skip-link">Skip to main content</a>
 
   <!-- ============================================================
        STICKY HEADER
@@ -5024,7 +5043,10 @@
         <span class="logo-sub" aria-hidden="true">Cascade Reservations</span>
       </a>
 
-      <a href="#booking" class="btn btn-outline-gold header-cta">Book Direct</a>
+      <nav class="gs-nav" aria-label="Page sections">
+        <a href="#stories">The stories</a><a href="#photos">Photos</a><a href="#location">Location</a>
+      </nav>
+      <a href="#booking" class="btn btn-outline-gold header-cta" data-gs-book>Book direct</a>
 
     </div>
   </header>
@@ -5032,6 +5054,8 @@
   <!-- ============================================================
        HERO
   ============================================================ -->
+  <main id="main" class="gs-main" tabindex="-1">
+
   <section class="hero luxury-hero-grid" id="hero" aria-labelledby="hero-heading">
 
     <div class="hero-line-top" aria-hidden="true"></div>
@@ -5053,43 +5077,16 @@
     </div>
 
     <div class="hero-overlay" aria-hidden="true"></div>
+    <div class="gs-orb gs-o1" aria-hidden="true"></div><div class="gs-orb gs-o2" aria-hidden="true"></div>
     <div class="hero-grain" aria-hidden="true"></div>
 
     <div class="hero-content luxury-hero-copy">
 
-      <p class="eyebrow hero-eyebrow text-gold">A private stay in General Santos City</p>
-
-      <h1 class="hero-title" id="hero-heading">
-        Cascade
-        <span class="hero-title-line2">Hideaway</span>
-      </h1>
-
-      <p class="hero-tagline">
-        Hotel Comfort.<span class="hero-tagline-sep" aria-hidden="true">&middot;</span>Home Warmth.
-      </p>
-
-      <!-- Trust strip — two rows: badges + rating -->
-      <div class="hero-trust-strip" role="list" aria-label="Property highlights">
-
-        <!-- Row 1: Status badges (centered, prominent) -->
-        <div class="hero-trust-badges" role="listitem" aria-label="Airbnb recognition">
-          <span class="hero-trust-badge">
-            Guest Favorite
-          </span>
-          <span class="hero-trust-badge-sep" aria-hidden="true">·</span>
-          <span class="hero-trust-badge">Superhost</span>
-        </div>
-
-        <!-- Row 2: Star rating pill -->
-        <div class="hero-trust-rating" role="listitem" aria-label="4.98 out of 5 from 45 reviews on Airbnb, verified 24 Aug 2026">
-          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
-          <strong>4.98</strong>
-          <span class="hero-trust-rating-sep" aria-hidden="true">·</span>
-          45 Reviews
-        </div>
-
-      </div>
-
+      <span class="gs-greet" id="gsGreet">Welcome to GenSan</span>
+      <p class="gs-eb gs-eb--cover">Guest Stories &middot; General Santos</p>
+      <h1 class="hero-title gs-quote" id="hero-heading">“Our home away from home in <em>GenSan.</em>”</h1>
+      <p class="gs-attrib">Bianca, on her third stay</p>
+      <p class="gs-cover-chip">Book direct, no platform fees<span data-price-only="save"></span></p>
     </div>
 
     <!-- Hero Booking Card — airline-style glass morphism widget -->
@@ -5097,6 +5094,10 @@
 
       <div class="hero-bk-inner">
 
+        <div class="gs-dock-meta" role="group" data-rating-label="{score} out of 5 from {count} reviews on Airbnb, verified {verified}">
+          <span><span class="gs-star" aria-hidden="true">&#9733;</span> <span data-rating="score"></span> &middot; <span data-rating="count"></span> reviews</span>
+          <span>Guest Favorite</span>
+        </div>
         <p class="hero-bk-eyebrow">Select dates &middot; No charge yet</p>
 
         <div class="hero-bk-fields">
@@ -5145,8 +5146,9 @@
         <div class="hero-bk-error" id="qbwError" role="alert" aria-live="assertive"></div>
 
         <button type="button" class="hero-bk-cta" id="qbwSubmit">
-          Check dates
+          Check today’s price
         </button>
+        <p class="gs-dock-sub">Book direct &middot; no platform fees<span data-price-only="from"></span></p>
 
         <p class="hero-location" aria-hidden="true">
           <svg viewBox="0 0 9 12" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
@@ -5163,871 +5165,166 @@
   </section>
 
   <!-- ============================================================
-       WHY BOOK DIRECT — first content after hero (v2 brief)
-  ============================================================ -->
-  <section class="why-direct-section" id="why-direct" aria-labelledby="why-direct-heading">
-    <div class="container">
-
-      <div class="why-direct-header ch-reveal">
-        <p class="eyebrow" style="color:rgb(28 16 6 / 0.68);">Direct booking</p>
-        <h2 class="section-heading" id="why-direct-heading">
-          The same home.<br>A better deal.
-        </h2>
-        <p class="why-direct-intro">
-          The rate you see is the rate you pay. No platform between you and your host &#x2014; no service charge layered on at checkout. The same home, the same team, your money going toward the stay itself.
-        </p>
-      </div>
-
-      <div class="why-direct-grid" role="list">
-
-        <article class="why-direct-item ch-reveal" role="listitem">
-          <span class="why-direct-num" aria-hidden="true">01</span>
-          <h3 class="why-direct-item-heading">One rate. Nothing added.</h3>
-          <p class="why-direct-item-body">
-            The rate you see is the rate you pay. Cleaning is built in, there is no service markup, and checkout holds no surprises. What you select is your total.
-          </p>
-        </article>
-
-        <article class="why-direct-item ch-reveal" role="listitem">
-          <span class="why-direct-num" aria-hidden="true">02</span>
-          <h3 class="why-direct-item-heading">Instant answers, a real host behind them</h3>
-          <p class="why-direct-item-body">
-            Cassy, our concierge, answers right away, and Marifel and the team see every message.
-          </p>
-        </article>
-
-        <article class="why-direct-item ch-reveal" role="listitem">
-          <span class="why-direct-num" aria-hidden="true">03</span>
-          <h3 class="why-direct-item-heading">Pay your way</h3>
-          <p class="why-direct-item-body">
-            GCash or bank transfer.
-            A 50% reservation fee is reviewed with availability before confirmation; the balance is due at least one day before check-in. No card required.
-          </p>
-        </article>
-
-      </div>
-
-      <div class="why-direct-cta ch-reveal">
-        <a href="#booking" class="btn btn-gold">Reserve Your Stay</a>
-        <span class="why-direct-cta-note">Book direct &#x2014; personal service, nothing hidden</span>
-      </div>
-
-    </div>
-  </section>
-
-  <!-- ============================================================
-       ABOUT
-  ============================================================ -->
-  <section class="about-section" id="about" aria-labelledby="about-heading">
-    <div class="container">
-      <div class="about-inner">
-
-        <div class="about-text">
-
-          <div class="section-label section-label--light ch-reveal">
-            <span class="eyebrow text-gold">The Property</span>
-          </div>
-
-          <h2 class="section-heading ch-reveal" id="about-heading">
-            A Calm Space,
-            <span class="heading-em">Thoughtfully Prepared.</span>
-          </h2>
-
-          <span class="gold-rule-sm ch-reveal" style="margin-block: var(--space-m);" aria-hidden="true"></span>
-
-          <p class="about-body is-lead ch-reveal">
-            A calm space where the details are handled before you arrive &mdash; so the moment
-            you walk in, the only thing left to do is settle in.
-          </p>
-
-          <p class="about-body ch-reveal">
-            The bed is dressed in hotel-grade linens, pressed and ready. The kitchen is stocked
-            with every essential so you're never running out for basics at 7 AM. The fiber
-            broadband handles video calls, streaming, and remote work without hesitation.
-          </p>
-
-          <p class="about-body ch-reveal">
-            Inside a quiet, gated community just minutes from SM GenSan and Robinsons Place &mdash;
-            private enough to properly rest, close enough that everything you need is a short drive away.
-          </p>
-
-          <p class="about-body ch-reveal">
-            Prepared the way a careful host prepares for someone they want to come back.
-          </p>
-
-          <div class="about-signature ch-reveal">
-            <span class="about-signature-rule" aria-hidden="true"></span>
-            <span class="about-signature-text">Marifel &amp; The Cascade Team</span>
-          </div>
-
-          <div class="about-proof ch-reveal">
-            <div class="proof-badge">
-              <span class="proof-star" aria-hidden="true">★</span>
-              <span class="proof-num">4.98</span>
-              <span class="proof-label">45 reviews</span>
-            </div>
-            <span class="proof-sep" aria-hidden="true"></span>
-            <div class="proof-badge">
-              <span class="proof-label">Guest Favorite</span>
-            </div>
-            <span class="proof-sep" aria-hidden="true"></span>
-            <div class="proof-badge">
-              <span class="proof-label">Superhost</span>
-            </div>
-          </div>
-
-        </div>
-
-        <div class="about-photo-wrap ch-reveal">
-          <div class="about-photo-frame">
-            <!-- IMG_10 — Copy of Sofa and Bed.jpg — studio living/sleeping overview -->
-            <img
-              src="assets/images/stay/studio-tv.webp" srcset="assets/images/stay/studio-tv-480.webp 480w, assets/images/stay/studio-tv-960.webp 960w, assets/images/stay/studio-tv.webp 1400w"
-              sizes="(min-width: 1024px) 40vw, 100vw"
-              alt="The studio: sofa, smart TV and queen bed in one bright, open room"
-              width="1400"
-              height="1050"
-              loading="lazy"
-              decoding="async"
-            >
-            <div class="photo-fade" aria-hidden="true"></div>
-          </div>
-        </div>
-
-      </div>
-    </div>
-  </section>
-
-  <!-- ============================================================
-       AMENITIES
-  ============================================================ -->
-  <section class="amenities-section" id="amenities" aria-labelledby="amenities-heading">
-    <div class="container">
-
-      <header class="amenities-header ch-reveal">
-        <div class="section-label section-label--dark">
-          <span class="eyebrow" style="color: var(--ch-gold-muted);">What's Included</span>
-        </div>
-        <h2 class="section-heading" id="amenities-heading">
-          Everything You Need,
-          <span style="display:block; font-style:italic; color: color-mix(in oklch, var(--ch-mahogany) 70%, var(--ch-gold));">Nothing You Don't</span>
-        </h2>
-        <p class="amenities-subhead">Thoughtfully stocked for a seamless stay</p>
-      </header>
-
-      <div class="amenities-grid ch-reveal-group" role="list">
-
-        <div class="amenity-item ch-reveal" role="listitem">
-          <div class="amenity-icon" aria-hidden="true">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M2 9h20M2 15h20M5 9V5a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v4M5 15v4M19 15v4"/>
-            </svg>
-          </div>
-          <div class="amenity-body">
-            <p class="amenity-name">Hotel-Grade Linens</p>
-            <p class="amenity-desc">Crisp, freshly laundered bedding and plush towels — every set pressed and prepared the way a good hotel would, before every single stay</p>
-          </div>
-        </div>
-
-        <div class="amenity-item ch-reveal" role="listitem">
-          <div class="amenity-icon" aria-hidden="true">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M8 2v4M12 2v4M16 2v4"/>
-              <rect x="4" y="6" width="16" height="4" rx="1"/>
-              <path d="M6 10v8a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2v-8"/>
-            </svg>
-          </div>
-          <div class="amenity-body">
-            <p class="amenity-name">Fully Equipped Kitchen</p>
-            <p class="amenity-desc">Rice cooker, cookware, utensils, cups, and everything you need for a proper home-cooked morning — or simply somewhere to make coffee and feel settled</p>
-          </div>
-        </div>
-
-        <div class="amenity-item ch-reveal" role="listitem">
-          <div class="amenity-icon" aria-hidden="true">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M1.5 9.5C5.5 5.5 10.5 3.5 12 3.5s6.5 2 10.5 6"/>
-              <path d="M5 13a9.5 9.5 0 0 1 14 0"/>
-              <path d="M8.5 16.5a5 5 0 0 1 7 0"/>
-              <circle cx="12" cy="20" r="1" fill="currentColor"/>
-            </svg>
-          </div>
-          <div class="amenity-body">
-            <p class="amenity-name">High-Speed Wi-Fi</p>
-            <p class="amenity-desc">Fiber broadband that holds steady whether you're video calling, streaming, or working remotely — no buffering, no excuses</p>
-          </div>
-        </div>
-
-        <div class="amenity-item ch-reveal" role="listitem">
-          <div class="amenity-icon" aria-hidden="true">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-              <rect x="2" y="6" width="20" height="8" rx="2"/>
-              <path d="M6 14v4M12 14v4M18 14v4M6 6V2M12 6V2M18 6V2"/>
-            </svg>
-          </div>
-          <div class="amenity-body">
-            <p class="amenity-name">Air Conditioning</p>
-            <p class="amenity-desc">A powerful split-type aircon that cools the space quickly — step in from the GenSan heat and feel the difference in minutes</p>
-          </div>
-        </div>
-
-        <div class="amenity-item ch-reveal" role="listitem">
-          <div class="amenity-icon" aria-hidden="true">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-              <rect x="2" y="4" width="20" height="14" rx="2"/>
-              <path d="M8 20h8M12 18v2"/>
-            </svg>
-          </div>
-          <div class="amenity-body">
-            <p class="amenity-name">Smart TV &amp; Streaming</p>
-            <p class="amenity-desc">A large smart TV with Netflix — curl up on the sofa, put something on, and give yourself full permission to do absolutely nothing</p>
-          </div>
-        </div>
-
-        <div class="amenity-item ch-reveal" role="listitem">
-          <div class="amenity-icon" aria-hidden="true">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M4 16c0-4 3.6-7 8-7s8 3 8 7"/>
-              <path d="M9 9V5a3 3 0 0 1 6 0v4"/>
-              <path d="M7 19l-.5 2M12 19v2M17 19l.5 2"/>
-            </svg>
-          </div>
-          <div class="amenity-body">
-            <p class="amenity-name">Hot &amp; Cold Shower</p>
-            <p class="amenity-desc">Instant hot water, always ready — whether you're freshening up after a long drive or unwinding at the end of the day</p>
-          </div>
-        </div>
-
-        <div class="amenity-item ch-reveal" role="listitem">
-          <div class="amenity-icon" aria-hidden="true">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-              <rect x="3" y="4" width="18" height="16" rx="2"/>
-              <path d="M9 8h4a2 2 0 0 1 0 4H9V8z"/>
-              <path d="M9 12v4"/>
-            </svg>
-          </div>
-          <div class="amenity-body">
-            <p class="amenity-name">Free Parking</p>
-            <p class="amenity-desc">Free roadside parking right at the unit — no fees, no hunting for a spot. Just park and walk straight in.</p>
-          </div>
-        </div>
-
-        <div class="amenity-item ch-reveal" role="listitem">
-          <div class="amenity-icon" aria-hidden="true">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M20 7H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2z"/>
-              <path d="M12 12h.01"/>
-              <path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-            </svg>
-          </div>
-          <div class="amenity-body">
-            <p class="amenity-name">Welcome Essentials</p>
-            <p class="amenity-desc">Shampoo, conditioner, soap, tissue, and dishwashing supplies — stocked and ready so your first moments are about settling in, not running to a store</p>
-          </div>
-        </div>
-
-        <div class="amenity-item ch-reveal" role="listitem">
-          <div class="amenity-icon" aria-hidden="true">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-              <rect x="3" y="3" width="18" height="18" rx="2"/>
-              <circle cx="12" cy="13" r="4"/>
-              <path d="M7 7h.01M10 7h3"/>
-            </svg>
-          </div>
-          <div class="amenity-body">
-            <p class="amenity-name">Laundry-Ready</p>
-            <p class="amenity-desc">On-property laundry access — a quiet convenience that makes extended stays feel genuinely comfortable, not just manageable</p>
-          </div>
-        </div>
-
-        <div class="amenity-item ch-reveal" role="listitem">
-          <div class="amenity-icon" aria-hidden="true">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-              <rect x="3" y="11" width="18" height="10" rx="2"/>
-              <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
-              <circle cx="12" cy="16" r="1" fill="currentColor"/>
-            </svg>
-          </div>
-          <div class="amenity-body">
-            <p class="amenity-name">Smart Lock · Self Check-In</p>
-            <p class="amenity-desc">A smart lock means you arrive on your own time — no waiting, no coordinating. Your code is ready when you are.</p>
-          </div>
-        </div>
-
-        <div class="amenity-item ch-reveal" role="listitem">
-          <div class="amenity-icon" aria-hidden="true">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-              <rect x="2" y="6" width="20" height="12" rx="2"/>
-              <path d="M8 18v2M16 18v2M6 20h12"/>
-            </svg>
-          </div>
-          <div class="amenity-body">
-            <p class="amenity-name">Dedicated Workspace</p>
-            <p class="amenity-desc">A proper desk and chair for those who need to work — because a laptop on a bed is no way to spend a productive day</p>
-          </div>
-        </div>
-
-      </div>
-
-      <aside class="amenities-note ch-reveal" aria-label="Host note">
-        <p class="amenities-note-text">
-          "If anything falls short of your expectations, tell us — we'd rather fix it during your stay than read about it after."
-        </p>
-        <div class="amenities-note-cta">
-          <a href="#booking" class="btn btn-gold">Reserve Your Stay</a>
-        </div>
-      </aside>
-
-    </div>
-  </section>
-
-  <!-- ============================================================
-       RATES & POLICIES
+       GUEST STORIES — proof, chapters I to V, the space
   ============================================================ -->
 
-  <hr class="section-sep" aria-hidden="true">
-  <section class="rates-section" id="rates" aria-labelledby="rates-heading">
-    <div class="container">
-
-      <div class="rates-inner">
-
-        <div class="rates-lead ch-reveal-group">
-
-          <div class="section-label section-label--light ch-reveal">
-            <span class="eyebrow text-gold">Your Stay</span>
-          </div>
-
-          <h2 class="section-heading ch-reveal" id="rates-heading">
-            Everything
-            <span class="heading-em">Included.</span>
-          </h2>
-
-          <span class="gold-rule-sm ch-reveal" style="margin-block: var(--space-m);" aria-hidden="true"></span>
-
-          <p class="ch-reveal" style="font-family:var(--ch-font-display); font-size:var(--step-0); font-weight:300; color:rgb(247 242 232 / 0.72); line-height:1.7; margin-bottom:var(--space-m);">
-            One flat rate. No cleaning surcharge added at checkout, no platform markup, no hidden line items. Hotel-grade linens, a fully equipped kitchen, fiber broadband, and a smart lock so your arrival happens entirely on your schedule.
-          </p>
-
-          <!-- What's included — experience over price -->
-          <div class="rate-cards ch-reveal" style="margin-bottom:var(--space-s);">
-
-            <div class="rate-card">
-              <p class="rate-card-label">Nightly Rate</p>
-              <p class="rate-card-price">
-                <span class="currency" aria-hidden="true">&#x20B1;</span><span data-card-base>1,780</span>
-              </p>
-              <p class="rate-card-sub">all&#x2011;in &middot; cleaning always included</p>
-            </div>
-
-            <a
-              class="rate-card rate-card--link"
-              href="https://www.airbnb.com/rooms/1523827999359515793"
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label="Check current availability and live rates on Airbnb"
-            >
-              <svg class="rate-card-link-icon" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"/>
-                <circle cx="12" cy="9" r="2.5"/>
-              </svg>
-              <p class="rate-card-link-label">View on Airbnb</p>
-              <p class="rate-card-link-sub">verify &amp; compare &#x2197;</p>
+  <section class="gs-sec gs-toned" id="stories" aria-labelledby="gs-proof-h">
+    <div class="gs-tone gs-tone-a" aria-hidden="true"></div>
+    <div class="gs-wrap gs-proof">
+      <div class="gs-proof-head">
+        <p class="gs-eb">Don’t take our word for it</p>
+        <h2 class="gs-disp gs-h2" id="gs-proof-h"><span data-rating="count"></span> guests rated us <span data-rating="score"></span>. Here’s what they wrote.</h2>
+        <p class="gs-bd">Nearly every guest gave five stars. We built this page from the five things they mention most, quoted word for word.</p>
+      </div>
+      <div class="gs-proof-side">
+        <ul class="gs-scores" aria-label="Category ratings out of 5"><li><span>Cleanliness</span><span class="gs-disp gs-score">5.0</span></li><li><span>Check-in</span><span class="gs-disp gs-score">5.0</span></li><li><span>Communication</span><span class="gs-disp gs-score">5.0</span></li><li><span>Accuracy</span><span class="gs-disp gs-score">5.0</span></li><li><span>Value</span><span class="gs-disp gs-score">4.9</span></li><li><span>Location</span><span class="gs-disp gs-score">4.8</span></li></ul>
+        <a class="gs-link" id="airbnbOutboundLink" href="https://www.airbnb.com/rooms/1523827999359515793#reviews" target="_blank" rel="noopener noreferrer" data-track-event="airbnb_outbound">Verified on Airbnb: read all <span data-rating="count"></span> reviews &#x2197;</a>
+        <p class="gs-meta" id="airbnbProofVerifiedNote">Verified on <span data-rating="verified"></span> &middot; not a live feed</p>
+        <div class="airbnb-proof-embed gs-proof-embed" id="airbnbProofEmbed" data-state="pending" aria-label="Live Airbnb listing">
+          <div class="airbnb-proof-embed-loading" id="airbnbProofLoading" hidden aria-hidden="true">Loading live Airbnb reviews&hellip;</div>
+          <!-- TODO(lloyd): paste official Airbnb embed HTML here -->
+          <div class="airbnb-proof-embed-slot" id="airbnbProofSlot"></div>
+          <div class="airbnb-proof-embed-fallback" id="airbnbProofFallback">
+            <a class="airbnb-proof-badge" href="https://www.airbnb.com/rooms/1523827999359515793#reviews" target="_blank" rel="noopener noreferrer" data-track-event="airbnb_outbound">
+              <strong data-rating="score"></strong> &middot; <span data-rating="count"></span> reviews on Airbnb
+              <span class="airbnb-proof-badge-date">&middot; verified <span data-rating="verified"></span></span>
             </a>
-
-          </div>
-
-          <!-- Experience highlights — not discount highlights -->
-          <div class="rate-discount ch-reveal">
-            <svg class="rate-discount-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-            </svg>
-            <p class="rate-discount-text">
-              <strong>A personal booking, not a transaction.</strong> Payment goes directly to the host. If anything is off during your stay, you reach a person &#x2014; not a support queue.
-            </p>
-          </div>
-
-        </div>
-
-        <div class="rates-policies ch-reveal-group">
-
-          <h3 class="policies-heading ch-reveal">Stay Details</h3>
-
-          <ul class="policy-list" role="list">
-            <li class="policy-row ch-reveal">
-              <span class="policy-key">Check-in</span>
-              <span class="policy-val policy-val--accent">2:00 PM</span>
-            </li>
-            <li class="policy-row ch-reveal">
-              <span class="policy-key">Check-out</span>
-              <span class="policy-val policy-val--accent">12:00 PM noon</span>
-            </li>
-            <li class="policy-row ch-reveal">
-              <span class="policy-key">Minimum Stay</span>
-              <span class="policy-val">1 night</span>
-            </li>
-            <li class="policy-row ch-reveal">
-              <span class="policy-key">Cleaning Fee</span>
-              <span class="policy-val" style="color:rgb(201 150 58 / 0.80);">Always included &#x2014; &#x20B1;0 extra</span>
-            </li>
-            <li class="policy-row ch-reveal">
-              <span class="policy-key">Cancellation</span>
-              <span class="policy-val" style="line-height:1.55;">
-                Free if cancelled 5+ days out<br>
-                <span style="color:rgb(247 242 232 / 0.72); font-size:var(--step--1);">Full refund of the reservation fee 5+ days before check-in &middot; Under 5 days it is retained for the reserved dates</span>
-              </span>
-            </li>
-            <li class="policy-row ch-reveal">
-              <span class="policy-key">Payment</span>
-              <span class="policy-val">
-                <div class="payment-methods">
-                  <span class="payment-chip">GCash</span>
-                  <span class="payment-chip">Bank Transfer</span>
-                </div>
-              </span>
-            </li>
-          </ul>
-
-        </div>
-
-      </div>
-
-
-
-    </div>
-  </section>
-
-    <!-- ============================================================
-       GALLERY
-  ============================================================ -->
-  <section class="gallery-section" id="gallery" aria-labelledby="gallery-heading">
-    <div class="container">
-
-      <header class="gallery-header ch-reveal">
-        <div class="section-label section-label--dark">
-          <span class="eyebrow" style="color: var(--ch-gold-muted);">The Space</span>
-        </div>
-        <h2 class="section-heading" id="gallery-heading">
-          See It For
-          <span style="display:block; font-style:italic; color: color-mix(in oklch, var(--ch-mahogany) 70%, var(--ch-gold));">Yourself</span>
-        </h2>
-      </header>
-
-      <div class="gallery-mosaic ch-reveal-group" role="list" aria-label="Property photo gallery">
-
-        <div class="gallery-cell gallery-cell--hero ch-reveal"
-             role="listitem" tabindex="0" data-index="0"
-             aria-label="Open photo: Bedroom — queen bed with hotel-grade linens">
-          <!-- IMG_05 — bED.jpg — bed and sleeping quarters detail -->
-          <img
-            src="assets/images/stay/bed-bright.webp" srcset="assets/images/stay/bed-bright-480.webp 480w, assets/images/stay/bed-bright-960.webp 960w, assets/images/stay/bed-bright.webp 1600w"
-            sizes="(min-width: 1024px) 40vw, 100vw"
-            alt="Queen bed made up with crisp white hotel-grade linens"
-            width="1600"
-            height="1067" loading="lazy" decoding="async"
-          >
-        </div>
-
-        <div class="gallery-cell gallery-cell--2 ch-reveal"
-             role="listitem" tabindex="0" data-index="1"
-             aria-label="Open photo: Living area with smart TV and sofa">
-          <!-- IMG_02 — Sala.jpg — living area with Netflix TV -->
-          <img
-            src="assets/images/stay/living-bright.webp" srcset="assets/images/stay/living-bright-480.webp 480w, assets/images/stay/living-bright-960.webp 960w, assets/images/stay/living-bright.webp 1600w"
-            sizes="(min-width: 1024px) 40vw, 100vw"
-            alt="Living area with sofa, coffee table and the kitchen behind"
-            width="1600"
-            height="1067" loading="lazy" decoding="async"
-          >
-        </div>
-
-        <div class="gallery-cell gallery-cell--3 ch-reveal"
-             role="listitem" tabindex="0" data-index="2"
-             aria-label="Open photo: Kitchenette fully equipped">
-          <!-- IMG_12 — Kitchen.jpg — main kitchen area and counter -->
-          <img
-            src="assets/images/stay/kitchen.webp" srcset="assets/images/stay/kitchen-480.webp 480w, assets/images/stay/kitchen-960.webp 960w, assets/images/stay/kitchen.webp 1400w"
-            sizes="(min-width: 1024px) 40vw, 100vw"
-            alt="Kitchenette with fridge, sink, rice cooker and marble counter"
-            width="1400"
-            height="934" loading="lazy" decoding="async"
-          >
-        </div>
-
-        <div class="gallery-cell gallery-cell--4 ch-reveal"
-             role="listitem" tabindex="0" data-index="3"
-             aria-label="Open photo: Bathroom with hot and cold shower">
-          <!-- IMG_04 — Bathroom.jpg — modern bathroom and toilet -->
-          <img
-            src="assets/images/stay/bathroom.webp" srcset="assets/images/stay/bathroom-480.webp 480w, assets/images/stay/bathroom-960.webp 960w, assets/images/stay/bathroom.webp 1050w"
-            sizes="(min-width: 1024px) 40vw, 100vw"
-            alt="Bathroom with toilet, vanity, bidet spray and hot and cold shower"
-            width="1050"
-            height="1400" loading="lazy" decoding="async"
-          >
-        </div>
-
-        <div class="gallery-cell gallery-cell--5 ch-reveal"
-             role="listitem" tabindex="0" data-index="4"
-             aria-label="Open photo: Bar counter and bedroom alcove">
-          <!-- IMG_03 — Bar+Bed.jpg — bar counter and bedroom alcove, atmospheric interior -->
-          <img
-            src="assets/images/stay/dining.webp" srcset="assets/images/stay/dining-480.webp 480w, assets/images/stay/dining-960.webp 960w, assets/images/stay/dining.webp 1600w"
-            sizes="(min-width: 1024px) 40vw, 100vw"
-            alt="Marble bar counter with stools, beside the bed alcove"
-            width="1600"
-            height="1200" loading="lazy" decoding="async"
-          >
-          <div class="gallery-view-all" aria-hidden="true">
-            <span class="gallery-view-all-num">40+</span>
-            <span class="gallery-view-all-label">Amenities</span>
+            <p class="airbnb-proof-embed-hint" id="airbnbProofHint">See all current reviews on Airbnb</p>
           </div>
         </div>
-
-      </div>
-
-      <p class="ch-reveal" style="text-align:center; margin-top: var(--space-l);">
-        <a
-          href="https://www.airbnb.com/rooms/1523827999359515793"
-          target="_blank"
-          rel="noopener noreferrer"
-          class="btn btn-outline-gold"
-          style="font-size: var(--step--2);"
-        >
-          View All Photos on Airbnb
-        </a>
-      </p>
-
-    </div>
-  </section>
-
-  <!-- ============================================================
-       LIGHTBOX
-  ============================================================ -->
-  <div
-    class="lightbox"
-    id="lightbox"
-    role="dialog"
-    aria-modal="true"
-    aria-label="Photo viewer"
-    aria-hidden="true"
-  >
-    <span class="lightbox-counter" id="lb-counter" aria-live="polite"></span>
-
-    <button class="lightbox-close" id="lb-close" aria-label="Close photo viewer">
-      <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
-        <path d="M1 1l16 16M17 1L1 17"/>
-      </svg>
-    </button>
-
-    <button class="lightbox-prev" id="lb-prev" aria-label="Previous photo">
-      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M15 18l-6-6 6-6"/>
-      </svg>
-    </button>
-
-    <div class="lightbox-inner">
-      <img class="lightbox-img" id="lb-img" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" alt="" width="1200" height="800">
-    </div>
-
-    <button class="lightbox-next" id="lb-next" aria-label="Next photo">
-      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M9 18l6-6-6-6"/>
-      </svg>
-    </button>
-
-    <p class="lightbox-caption" id="lb-caption"></p>
-  </div>
-
-
-
-  <hr class="section-sep" aria-hidden="true">
-  <section class="reviews-section" aria-labelledby="reviews-heading">
-    <div class="container reviews-inner">
-      <div class="reviews-header ch-reveal">
-        <div>
-          <div class="section-label section-label--light" style="margin-bottom:var(--space-s);">
-            <span class="eyebrow" style="color:rgb(28 16 6 / 0.68);">Guest Reviews</span>
-          </div>
-          <div class="reviews-score">
-            <span class="reviews-score-num" id="reviews-heading">4.98</span>
-            <div class="reviews-score-meta">
-              <div class="reviews-stars" role="img" aria-label="4.98 out of 5 stars">
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
-              </div>
-              <span class="reviews-count">45 Airbnb Reviews</span>
-            </div>
-          </div>
-          <p class="reviews-verified-note" id="airbnbProofVerifiedNote">Verified on 24 Aug 2026 &middot; not a live feed</p>
-        </div>
-        <a href="https://www.airbnb.com/rooms/1523827999359515793#reviews" target="_blank" rel="noopener noreferrer" class="reviews-airbnb-link" id="airbnbOutboundLink" data-track-event="airbnb_outbound">
-          Read all reviews on Airbnb &#x2197;
-        </a>
-      </div>
-      <!-- Reviews carousel — JS-rendered, 3-up desktop / 2-up tablet / 1-up mobile -->
-      <div class="rv-carousel ch-reveal" id="rvCarousel" aria-label="Guest reviews">
-        <div class="rv-stage" id="rvStage" role="region" aria-live="polite" aria-atomic="true">
-          <!-- Injected by _cascadeReviews() -->
-        </div>
-        <nav class="rv-nav" id="rvNav" aria-label="Review pages">
-          <button class="rv-arrow" id="rvPrev" type="button" aria-label="Previous reviews">
-            <svg viewBox="0 0 20 20" aria-hidden="true"><polyline points="13,4 7,10 13,16"/></svg>
-          </button>
-          <span class="rv-counter" id="rvCounter" aria-live="polite" aria-atomic="true">1 / 1</span>
-          <button class="rv-arrow" id="rvNext" type="button" aria-label="Next reviews">
-            <svg viewBox="0 0 20 20" aria-hidden="true"><polyline points="7,4 13,10 7,16"/></svg>
-          </button>
-        </nav>
-      </div>
-
-      <!-- ============================================================
-           LIVE AIRBNB PROOF — official embed, lazy-loaded near viewport.
-           Task 5A: no scraping, no synthesized iframe src. The container
-           stays a dated fallback badge until Lloyd supplies the official
-           embed HTML (Listing editor → View → Share → Embed).
-      ============================================================ -->
-      <div class="airbnb-proof-embed" id="airbnbProofEmbed" data-state="pending"
-           aria-label="Live Airbnb listing">
-        <p class="airbnb-proof-embed-title">Live Airbnb listing</p>
-
-        <!-- Loading state — shown once the container nears the viewport -->
-        <div class="airbnb-proof-embed-loading" id="airbnbProofLoading" hidden aria-hidden="true">
-          Loading live Airbnb reviews&hellip;
-        </div>
-
-        <!-- TODO(lloyd): paste official Airbnb embed HTML here -->
-        <div class="airbnb-proof-embed-slot" id="airbnbProofSlot"></div>
-
-        <!-- Fallback / failure state — dated, non-live proof. Never invents a live value. -->
-        <div class="airbnb-proof-embed-fallback" id="airbnbProofFallback">
-          <a class="airbnb-proof-badge" href="https://www.airbnb.com/rooms/1523827999359515793#reviews"
-             target="_blank" rel="noopener noreferrer" data-track-event="airbnb_outbound">
-            <strong>4.98</strong> &middot; 45 reviews on Airbnb
-            <span class="airbnb-proof-badge-date">&mdash; verified 24 Aug 2026</span>
-          </a>
-          <p class="airbnb-proof-embed-hint" id="airbnbProofHint">See all current reviews on Airbnb</p>
-        </div>
-      </div>
       </div>
     </div>
   </section>
 
-  <!-- ============================================================
-       FAQ — Removes pre-booking objections / scam anxiety
-       Position: between Reviews and Booking (conversion funnel)
-  ============================================================ -->
+  <section class="gs-sec gs-quotes-sec" aria-labelledby="gs-more-h">
+    <div class="gs-wrap"><h2 class="gs-meta gs-more" id="gs-more-h">More from guests &middot; swipe</h2></div>
+    <ul class="gs-quotes" tabindex="0" aria-labelledby="gs-more-h"><li class="gs-pill"><span class="gs-stars" aria-hidden="true">★★★★★</span><span class="gs-disp gs-pill-q">“Cozy and clean.”</span><span class="gs-meta">Kristine</span></li><li class="gs-pill"><span class="gs-stars" aria-hidden="true">★★★★★</span><span class="gs-disp gs-pill-q">“very clean, peaceful, perfect if you just wanna relax”</span><span class="gs-meta">Kris</span></li><li class="gs-pill"><span class="gs-stars" aria-hidden="true">★★★★★</span><span class="gs-disp gs-pill-q">“Cozy and worth the price.”</span><span class="gs-meta">Aya</span></li><li class="gs-pill"><span class="gs-stars" aria-hidden="true">★★★★★</span><span class="gs-disp gs-pill-q">“Super thumbs up for the great stay”</span><span class="gs-meta">Queenie</span></li><li class="gs-pill"><span class="gs-stars" aria-hidden="true">★★★★★</span><span class="gs-disp gs-pill-q">“we had an amazing stay!”</span><span class="gs-meta">Dv</span></li><li class="gs-pill"><span class="gs-stars" aria-hidden="true">★★★★★</span><span class="gs-disp gs-pill-q">“Thank you, for the beautiful stay”</span><span class="gs-meta">Shaneen</span></li><li class="gs-pill"><span class="gs-stars" aria-hidden="true">★★★★★</span><span class="gs-disp gs-pill-q">“Highly recommended.”</span><span class="gs-meta">Abe</span></li></ul>
+  </section>
 
-  <hr class="section-sep" aria-hidden="true">
-  <section class="faq-section" aria-labelledby="faq-heading">
-    <div class="container">
+  <section class="gs-sec gs-toned gs-ch" id="hospitality" aria-labelledby="gs-ch1-h">
+    <div class="gs-tone gs-tone-b" aria-hidden="true"></div>
+    <div class="gs-wrap gs-ch-grid">
+      <div class="gs-ch-head"><span class="gs-disp gs-num" aria-hidden="true">I</span><div><p class="gs-eb">Hospitality</p><p class="gs-meta">The #1 thing guests mention &middot; 29 reviews</p></div></div>
+      <h2 class="gs-disp gs-h2 gs-ch-title" id="gs-ch1-h">Hosts who remember your name</h2>
+      <div class="gs-ch-media">
+        <img class="gs-photo gs-photo--tall" src="assets/images/stay/porch.webp" srcset="assets/images/stay/porch-480.webp 480w, assets/images/stay/porch-960.webp 960w, assets/images/stay/porch.webp 1200w" sizes="(min-width:1024px) 34rem, (min-width:641px) 46vw, 90vw" alt="Bright porch with a small table for morning coffee" width="1200" height="1600" loading="lazy" decoding="async">
+        <figure class="gs-floatq"><blockquote class="gs-disp">“Top 3 host I’ve ever had.”</blockquote><figcaption>Joseph, Sept 2026</figcaption></figure>
+      </div>
+      <div class="gs-ch-body">
+        <p class="gs-bd">Treats on the table when you arrive, replies within minutes, and a note inviting you back. That is why guests return for a second and third stay.</p>
+        <figure class="gs-pq"><blockquote class="gs-disp">“…genuinely concerned about the comfort and needs of their guests.”</blockquote><figcaption class="gs-meta">Christopher, on his second stay</figcaption></figure>
+      </div>
+    </div>
+  </section>
 
-      <header class="faq-header">
-        <div class="section-label ch-reveal" aria-hidden="true">
-          <span class="section-label-line"></span>
-          <span class="section-label-text">Good to Know</span>
-          <span class="section-label-line"></span>
+  <section class="gs-sec gs-toned gs-ch gs-ch--rev" id="spotless" aria-labelledby="gs-ch2-h">
+    <div class="gs-tone gs-tone-c" aria-hidden="true"></div>
+    <div class="gs-wrap gs-ch-grid">
+      <div class="gs-ch-head"><span class="gs-disp gs-num" aria-hidden="true">II</span><div><p class="gs-eb">Spotless</p><p class="gs-meta">Cleanliness 5.0 &middot; 25 reviews</p></div></div>
+      <div class="gs-ch-title">
+        <h2 class="gs-disp gs-h2" id="gs-ch2-h">“The tidiest place we’ve stayed.”</h2>
+        <p class="gs-meta">Shasha, who came back for a second stay</p>
+      </div>
+      <div class="gs-ch-media gs-duo">
+        <img class="gs-photo gs-duo-a" src="assets/images/stay/shower.webp" srcset="assets/images/stay/shower-480.webp 480w, assets/images/stay/shower-960.webp 960w, assets/images/stay/shower.webp 1199w" sizes="(min-width:1024px) 20rem, (min-width:641px) 24vw, 45vw" alt="Rain shower against a light stone wall" width="1199" height="1600" loading="lazy" decoding="async">
+        <div class="gs-duo-b">
+          <img class="gs-photo gs-duo-img" src="assets/images/stay/dining.webp" srcset="assets/images/stay/dining-480.webp 480w, assets/images/stay/dining-960.webp 960w, assets/images/stay/dining.webp 1600w" sizes="(min-width:1024px) 20rem, (min-width:641px) 24vw, 45vw" alt="Marble dining counter with pendant lights" width="1600" height="1200" loading="lazy" decoding="async">
+          <figure class="gs-minicard"><blockquote class="gs-disp">“…the place is very comfortable, very clean…”</blockquote><figcaption class="gs-meta">Dale Anwen, 3rd stay</figcaption></figure>
         </div>
-        <h2 class="faq-heading ch-reveal" id="faq-heading">Frequently Asked Questions</h2>
-        <p class="faq-subhead ch-reveal">Everything you need to know before booking direct.</p>
-      </header>
+      </div>
+      <div class="gs-ch-body"><p class="gs-bd">Fresh, pressed linens and a full reset before every arrival.</p></div>
+    </div>
+  </section>
 
-      <div class="faq-list" role="list">
+  <section class="gs-bleed" id="comfort" aria-labelledby="gs-ch3-q">
+    <img class="gs-bleed-img" src="assets/images/stay/coffee-on-bed.webp" srcset="assets/images/stay/coffee-on-bed-480.webp 480w, assets/images/stay/coffee-on-bed-960.webp 960w, assets/images/stay/coffee-on-bed.webp 1400w" sizes="100vw" alt="Coffee cup resting on crisp white bed linen" width="1400" height="934" loading="lazy" decoding="async">
+    <div class="gs-bleed-scrim" aria-hidden="true"></div>
+    <div class="gs-wrap gs-bleed-copy">
+      <div class="gs-ch-head gs-ch-head--light"><span class="gs-disp gs-num" aria-hidden="true">III</span><div><p class="gs-eb">Comfort</p><p class="gs-meta">18 reviews</p></div></div>
+      <figure><blockquote class="gs-disp gs-bleed-q" id="gs-ch3-q">“…so cozy, comfortable, and relaxing that we didn’t even bother going out to explore!”</blockquote><figcaption class="gs-meta">Sandra Nicole, Nov 2026</figcaption></figure>
+    </div>
+  </section>
+  <section class="gs-sec gs-toned gs-comfort-body" aria-label="Comfort details">
+    <div class="gs-tone gs-tone-c" aria-hidden="true"></div>
+    <div class="gs-wrap gs-comfort-grid">
+      <p class="gs-bd">Queen bed, hotel-grade linens, blackout curtains, strong aircon, Netflix on a large smart TV, and fiber Wi-Fi for work.</p>
+      <figure class="gs-chip-card">
+        <img class="gs-chip-img" src="assets/images/stay/studio-tv.webp" srcset="assets/images/stay/studio-tv-480.webp 480w, assets/images/stay/studio-tv-960.webp 960w, assets/images/stay/studio-tv.webp 1400w" sizes="6rem" alt="Studio with TV and sofa" width="1400" height="1050" loading="lazy" decoding="async">
+        <figcaption><span class="gs-disp gs-chip-q">“…the quality was even better than I expected and, for me, it was beyond hotel quality.”</span><span class="gs-meta">Carissa, July 2026</span></figcaption>
+      </figure>
+    </div>
+  </section>
 
-        <details class="faq-item ch-reveal" role="listitem">
-          <summary>
-            What time is check-in and check-out?
-            <span class="faq-chevron" aria-hidden="true">
-              <svg viewBox="0 0 8 5"><polyline points="1,1 4,4 7,1"/></svg>
-            </span>
-          </summary>
-          <div class="faq-body-wrap">
-            <div class="faq-body">
-              <p class="faq-answer">Check-in begins at 2:00 PM. Check-out is at 12:00 PM (noon). Early check-in or late check-out may be arranged depending on availability &mdash; just mention it in your booking request and we&rsquo;ll do our best. Early check-in before noon is &#8369;100 per hour when the calendar allows.</p>
-            </div>
-          </div>
-        </details>
+  <section class="gs-sec gs-space" id="photos" aria-labelledby="gs-space-h">
+    <div class="gs-wrap"><h2 class="gs-disp gs-h3" id="gs-space-h">The space</h2></div>
+    <ul class="gs-strip" tabindex="0" aria-labelledby="gs-space-h"><li><img class="gs-strip-img" src="assets/images/stay/bed-bright.webp" srcset="assets/images/stay/bed-bright-480.webp 480w, assets/images/stay/bed-bright-960.webp 960w, assets/images/stay/bed-bright.webp 1600w" sizes="(min-width:1024px) 22rem, 15rem" alt="Queen bed" width="1600" height="1067" loading="lazy" decoding="async"></li><li><img class="gs-strip-img" src="assets/images/stay/living-bright.webp" srcset="assets/images/stay/living-bright-480.webp 480w, assets/images/stay/living-bright-960.webp 960w, assets/images/stay/living-bright.webp 1600w" sizes="(min-width:1024px) 22rem, 15rem" alt="Living area with sofa" width="1600" height="1067" loading="lazy" decoding="async"></li><li><img class="gs-strip-img" src="assets/images/stay/kitchen.webp" srcset="assets/images/stay/kitchen-480.webp 480w, assets/images/stay/kitchen-960.webp 960w, assets/images/stay/kitchen.webp 1400w" sizes="(min-width:1024px) 22rem, 15rem" alt="White kitchenette" width="1400" height="934" loading="lazy" decoding="async"></li><li><img class="gs-strip-img" src="assets/images/stay/bathroom.webp" srcset="assets/images/stay/bathroom-480.webp 480w, assets/images/stay/bathroom-960.webp 960w, assets/images/stay/bathroom.webp 1050w" sizes="(min-width:1024px) 22rem, 15rem" alt="Bathroom" width="1050" height="1400" loading="lazy" decoding="async"></li><li><img class="gs-strip-img" src="assets/images/stay/dining.webp" srcset="assets/images/stay/dining-480.webp 480w, assets/images/stay/dining-960.webp 960w, assets/images/stay/dining.webp 1600w" sizes="(min-width:1024px) 22rem, 15rem" alt="Dining counter" width="1600" height="1200" loading="lazy" decoding="async"></li></ul>
+    <div class="gs-wrap gs-space-info">
+      <ul class="gs-chips" aria-label="Included with your stay"><li class="gs-chip">Fiber Wi-Fi</li><li class="gs-chip">Strong aircon</li><li class="gs-chip">Netflix TV</li><li class="gs-chip">Full kitchen</li><li class="gs-chip">Hot shower</li><li class="gs-chip">Workspace</li><li class="gs-chip">Free parking</li><li class="gs-chip">Laundry-ready</li><li class="gs-chip">Backup power</li><li class="gs-chip">Self check-in</li></ul>
+      <p class="gs-meta">Up to 3 guests &middot; 1 queen bed + floor mattress</p>
+      <a class="gs-btn gs-btn--deep gs-cta" href="#booking" data-gs-book>See dates and price</a>
+    </div>
+  </section>
 
-        <details class="faq-item ch-reveal" role="listitem">
-          <summary>
-            How do I confirm my booking?
-            <span class="faq-chevron" aria-hidden="true">
-              <svg viewBox="0 0 8 5"><polyline points="1,1 4,4 7,1"/></svg>
-            </span>
-          </summary>
-          <div class="faq-body-wrap">
-            <div class="faq-body">
-              <p class="faq-answer">Once you submit the booking form, you&rsquo;ll receive an Acknowledgement Receipt (AR) by email within 1&ndash;2 hours. Five or more days before check-in, submitting also holds your dates for 24 hours while you send the reservation fee; if nothing arrives, the hold is released quietly and nothing is owed. We verify both payment and availability, then send your personal confirmation. Your dates are not confirmed until that message arrives. The balance and the &#8369;1,000 refundable deposit are settled at least a day before check-in &mdash; no surprises.</p>
-            </div>
-          </div>
-        </details>
+  <section class="gs-sec gs-toned gs-ch" id="arrival" aria-labelledby="gs-ch4-h">
+    <div class="gs-tone gs-tone-d" aria-hidden="true"></div>
+    <div class="gs-wrap gs-ch-grid">
+      <div class="gs-ch-head"><span class="gs-disp gs-num" aria-hidden="true">IV</span><div><p class="gs-eb">Easy arrival</p><p class="gs-meta">Check-in 5.0 &middot; Communication 5.0</p></div></div>
+      <div class="gs-ch-title">
+        <h2 class="gs-disp gs-h2" id="gs-ch4-h">“Check-in was a breeze.”</h2>
+        <p class="gs-meta">Aaron, Illinois, USA</p>
+      </div>
+      <div class="gs-ch-media"><img class="gs-photo gs-photo--wide" src="assets/images/stay/facade.webp" srcset="assets/images/stay/facade-480.webp 480w, assets/images/stay/facade-960.webp 960w, assets/images/stay/facade.webp 1600w" sizes="(min-width:1024px) 34rem, (min-width:641px) 46vw, 90vw" alt="The unit’s front gate and entrance in Bria Homes" width="1600" height="1067" loading="lazy" decoding="async"></div>
+      <ol class="gs-ch-body gs-steps">
+        <li><span class="gs-disp gs-stepnum" aria-hidden="true">01</span><div><strong>Let yourself in from 2 PM</strong><span class="gs-meta">Smart-lock code sent before you arrive. No key hand-off.</span></div></li>
+        <li><span class="gs-disp gs-stepnum" aria-hidden="true">02</span><div><strong>“Super easy to locate”</strong><span class="gs-meta">Janine. Clear directions and a guide with local tips.</span></div></li>
+        <li><span class="gs-disp gs-stepnum" aria-hidden="true">03</span><div><strong>Brownout? Still on.</strong><span class="gs-meta">Backup power keeps Wi-Fi, lights and fans running.</span></div></li>
+      </ol>
+    </div>
+  </section>
 
-        <details class="faq-item ch-reveal" role="listitem">
-          <summary>
-            What payment methods are accepted?
-            <span class="faq-chevron" aria-hidden="true">
-              <svg viewBox="0 0 8 5"><polyline points="1,1 4,4 7,1"/></svg>
-            </span>
-          </summary>
-          <div class="faq-body-wrap">
-            <div class="faq-body">
-              <p class="faq-answer">GCash or UnionBank transfer. Payment instructions appear only after you review available dates and enter your guest details. All payments go directly to the property &mdash; there is no third-party processor.</p>
-            </div>
-          </div>
-        </details>
+  <section class="gs-sec gs-toned gs-ch gs-ch--rev gs-loc" id="location" aria-labelledby="gs-ch5-h">
+    <div class="gs-tone gs-tone-e" aria-hidden="true"></div>
+    <div class="gs-wrap gs-ch-grid">
+      <div class="gs-ch-head gs-ch-head--end"><span class="gs-disp gs-num" aria-hidden="true">V</span><div><p class="gs-eb">Quiet GenSan</p><p class="gs-meta">Location 4.8</p></div></div>
+      <div class="gs-ch-title">
+        <h2 class="gs-disp gs-h2" id="gs-ch5-h">“If you are looking for a quiet place this is the place to be.”</h2>
+        <p class="gs-meta">Ermann, Oct 2026</p>
+      </div>
+      <div class="gs-ch-media"><img class="gs-photo gs-photo--wide" src="assets/images/stay/gensan-coast.webp" srcset="assets/images/stay/gensan-coast-480.webp 480w, assets/images/stay/gensan-coast-960.webp 960w, assets/images/stay/gensan-coast.webp 1200w" sizes="(min-width:1024px) 34rem, (min-width:641px) 46vw, 100vw" alt="General Santos coastline from above" width="1200" height="680" loading="lazy" decoding="async"></div>
+      <div class="gs-ch-body">
+        <ul class="gs-rows">
+          <li><span>Gated Bria Homes, 24/7 guards</span><span class="gs-meta">on site</span></li>
+          <li><span>Robinsons &middot; KCC &middot; SM</span><span class="gs-meta">10 to 15 min</span></li>
+          <li><span>GenSan Airport</span><span class="gs-meta">~28 min</span></li>
+        </ul>
+        <p class="gs-bd gs-note">Honest note: malls are a 10 to 15 minute drive, so plan on Grab or a car. Grab and Foodpanda both deliver here.</p>
+        <div class="gs-maps"><a class="gs-btn gs-btn--paper" href="https://www.google.com/maps/search/?api=1&amp;query=Bria+Homes+General+Santos+City" target="_blank" rel="noopener noreferrer">Google Maps</a><a class="gs-btn gs-btn--paper" href="https://waze.com/ul?q=Bria%20Homes%20General%20Santos%20City&amp;navigate=yes" target="_blank" rel="noopener noreferrer">Waze</a></div>
+      </div>
+    </div>
+    <div class="gs-wrap gs-trips-head"><p class="gs-eb">Day trips (not on site)</p><span class="gs-meta">Swipe &rarr;</span></div>
+    <ul class="gs-strip gs-strip--trips" tabindex="0" aria-label="Day trips, not on site"><li><figure class="gs-trip"><img class="gs-trip-img" src="assets/images/stay/beach.webp" srcset="assets/images/stay/beach-480.webp 480w, assets/images/stay/beach-960.webp 960w, assets/images/stay/beach.webp 1600w" sizes="(min-width:1024px) 20rem, 14.5rem" alt="Turquoise sea under a palm frond" width="1600" height="1067" loading="lazy" decoding="async"><figcaption>Sea and sand</figcaption></figure></li><li><figure class="gs-trip"><img class="gs-trip-img" src="assets/images/stay/paraglide.webp" srcset="assets/images/stay/paraglide-480.webp 480w, assets/images/stay/paraglide-960.webp 960w, assets/images/stay/paraglide.webp 1200w" sizes="(min-width:1024px) 20rem, 14.5rem" alt="Paraglider over green hills and the sea" width="1200" height="675" loading="lazy" decoding="async"><figcaption>Sky and hills</figcaption></figure></li><li><figure class="gs-trip"><img class="gs-trip-img" src="assets/images/stay/cabins.webp" srcset="assets/images/stay/cabins-480.webp 480w, assets/images/stay/cabins-960.webp 960w, assets/images/stay/cabins.webp 1024w" sizes="(min-width:1024px) 20rem, 14.5rem" alt="Colourful cabins beneath a mountain" width="1024" height="684" loading="lazy" decoding="async"><figcaption>Highlands</figcaption></figure></li></ul>
+  </section>
 
-        <details class="faq-item ch-reveal" role="listitem">
-          <summary>
-            Is there free parking?
-            <span class="faq-chevron" aria-hidden="true">
-              <svg viewBox="0 0 8 5"><polyline points="1,1 4,4 7,1"/></svg>
-            </span>
-          </summary>
-          <div class="faq-body-wrap">
-            <div class="faq-body">
-              <p class="faq-answer">Yes, at no extra charge. Parking is shared roadside parking within the gated Bria Homes community, first-come first-served, with exterior CCTV and community security.</p>
-            </div>
-          </div>
-        </details>
-
-        <details class="faq-item ch-reveal" role="listitem">
-          <summary>
-            What is the WiFi like?
-            <span class="faq-chevron" aria-hidden="true">
-              <svg viewBox="0 0 8 5"><polyline points="1,1 4,4 7,1"/></svg>
-            </span>
-          </summary>
-          <div class="faq-body-wrap">
-            <div class="faq-body">
-              <p class="faq-answer">The unit has fiber broadband. It handles remote work, video calls, and streaming simultaneously without issue.</p>
-            </div>
-          </div>
-        </details>
-
-        <details class="faq-item ch-reveal" role="listitem">
-          <summary>
-            Can I have visitors during my stay?
-            <span class="faq-chevron" aria-hidden="true">
-              <svg viewBox="0 0 8 5"><polyline points="1,1 4,4 7,1"/></svg>
-            </span>
-          </summary>
-          <div class="faq-body-wrap">
-            <div class="faq-body">
-              <p class="faq-answer">Day visitors are welcome. We only ask that you let us know in advance. Overnight guests beyond the declared headcount are not permitted.</p>
-            </div>
-          </div>
-        </details>
-
-        <details class="faq-item ch-reveal" role="listitem">
-          <summary>
-            What is the cancellation policy?
-            <span class="faq-chevron" aria-hidden="true">
-              <svg viewBox="0 0 8 5"><polyline points="1,1 4,4 7,1"/></svg>
-            </span>
-          </summary>
-          <div class="faq-body-wrap">
-            <div class="faq-body">
-              <p class="faq-answer">Cancellations 5 or more days before check-in receive a full refund of the reservation fee. Under 5 days: the reservation fee is retained to cover the reserved dates.</p>
-            </div>
-          </div>
-        </details>
-
-        <details class="faq-item ch-reveal" role="listitem">
-          <summary>
-            Is this an Airbnb listing?
-            <span class="faq-chevron" aria-hidden="true">
-              <svg viewBox="0 0 8 5"><polyline points="1,1 4,4 7,1"/></svg>
-            </span>
-          </summary>
-          <div class="faq-body-wrap">
-            <div class="faq-body">
-              <p class="faq-answer">Yes &mdash; Cascade Hideaway is a verified Airbnb property (4.98&#9733; &middot; 45 reviews, verified 24 Aug 2026 &middot; Guest Favorite). Booking here directly gives you the exact same property at a lower total cost, with payment going directly to the host. You can verify the listing on Airbnb before booking if that gives you peace of mind.</p>
-            </div>
-          </div>
-        </details>
-
-        <details class="faq-item ch-reveal" role="listitem">
-          <summary>
-            What's included in every stay?
-            <span class="faq-chevron" aria-hidden="true">
-              <svg viewBox="0 0 8 5"><polyline points="1,1 4,4 7,1"/></svg>
-            </span>
-          </summary>
-          <div class="faq-body-wrap">
-            <div class="faq-body">
-              <p class="faq-answer">Every stay includes hotel-grade linens and towels, a fully equipped kitchen, fiber broadband fast enough for remote work and streaming, a 43&rdquo; Smart TV, a dedicated workspace, and a stand fan. Cleaning is always included in the rate &mdash; there is no separate cleaning charge added at checkout. Self check-in via smart lock means your arrival happens entirely on your own schedule.</p>
-              <p class="faq-answer" style="margin-top:0.75em;">Longer stays include a complimentary mid-stay room refresh (5+ nights) and priority response on any request during your visit. This is a boutique property managed by a real host &mdash; not a large operator &mdash; so you have a direct line to someone who cares.</p>
-            </div>
-          </div>
-        </details>
-
-        <details class="faq-item ch-reveal" role="listitem">
-          <summary>
-            Do returning guests get any exclusive rates?
-            <span class="faq-chevron" aria-hidden="true">
-              <svg viewBox="0 0 8 5"><polyline points="1,1 4,4 7,1"/></svg>
-            </span>
-          </summary>
-          <div class="faq-body-wrap">
-            <div class="faq-body">
-              <p class="faq-answer">This site exists for guests who prefer a direct relationship with the host. For those planning longer stays &mdash; or returning for another visit &mdash; we offer loyalty rates that reflect that relationship. These are applied automatically when you book here; no codes, no negotiation needed.</p>
-              <p class="faq-answer" style="margin-top:0.75em;">Rates are applied automatically as you select dates in the booking form &mdash; no codes, no negotiation needed.</p>
-              <div class="faq-tier-card">
-                <p style="font-family:var(--ch-font-body);font-size:var(--step--2);font-weight:600;letter-spacing:0.18em;text-transform:uppercase;color:rgba(201,150,58,0.80);margin-bottom:0.6em;">Duration &rarr; Nightly Rate</p>
-                <div class="tier-row tier-row--head" role="row">
-                  <span class="tier-cell-head" role="columnheader">Duration</span>
-                  <span class="tier-cell-head tier-cell-disc" role="columnheader">Off</span>
-                  <span class="tier-cell-head" role="columnheader">Per Night</span>
-                  <span class="tier-cell-head" role="columnheader">You Save</span>
-                </div>
-                <div id="tierTableRows"><!-- SPEC-34: repainted from the rate card; these rows are today's card -->
-                <div class="tier-row" role="row">
-                  <span class="tier-cell" role="cell">1 night</span>
-                  <span class="tier-cell tier-cell-disc" role="cell">&#x2014;</span>
-                  <span class="tier-cell tier-cell-rate" role="cell">&#x20B1;1,780</span>
-                  <span class="tier-cell tier-cell-save tier-cell-save--zero" role="cell">&#x2014;</span>
-                </div>
-                <div class="tier-row" role="row">
-                  <span class="tier-cell" role="cell">2&#x2013;4 nights</span>
-                  <span class="tier-cell tier-cell-disc" role="cell">5%</span>
-                  <span class="tier-cell tier-cell-rate" role="cell">&#x20B1;1,691</span>
-                  <span class="tier-cell tier-cell-save tier-cell-save--active" role="cell">&#x20B1;89/night</span>
-                </div>
-                <div class="tier-row" role="row">
-                  <span class="tier-cell" role="cell">5&#x2013;6 nights</span>
-                  <span class="tier-cell tier-cell-disc" role="cell">10%</span>
-                  <span class="tier-cell tier-cell-rate" role="cell">&#x20B1;1,602</span>
-                  <span class="tier-cell tier-cell-save tier-cell-save--active" role="cell">&#x20B1;178/night</span>
-                </div>
-                <div class="tier-row tier-row--highlight" role="row">
-                  <span class="tier-cell" role="cell">7&#x2013;13 nights &#x2605;</span>
-                  <span class="tier-cell tier-cell-disc" role="cell">15%</span>
-                  <span class="tier-cell tier-cell-rate" role="cell">&#x20B1;1,513</span>
-                  <span class="tier-cell tier-cell-save tier-cell-save--active" role="cell">&#x20B1;267/night</span>
-                </div>
-                <div class="tier-row" role="row">
-                  <span class="tier-cell" role="cell">14&#x2013;27 nights</span>
-                  <span class="tier-cell tier-cell-disc" role="cell">20%</span>
-                  <span class="tier-cell tier-cell-rate" role="cell">&#x20B1;1,424</span>
-                  <span class="tier-cell tier-cell-save tier-cell-save--active" role="cell">&#x20B1;356/night</span>
-                </div>
-                <div class="tier-row" role="row">
-                  <span class="tier-cell" role="cell">28+ nights</span>
-                  <span class="tier-cell tier-cell-disc" role="cell">25%</span>
-                  <span class="tier-cell tier-cell-rate" role="cell">&#x20B1;1,335</span>
-                  <span class="tier-cell tier-cell-save tier-cell-save--active" role="cell">&#x20B1;445/night</span>
-                </div>
-                </div><!-- /#tierTableRows -->
-              </div>
-            </div>
-          </div>
-        </details>
-
-      </div><!-- /.faq-list -->
-
-    </div><!-- /.container -->
+  <section class="gs-sec gs-bookdirect" id="book-direct" aria-labelledby="gs-bd-h">
+    <div class="gs-card">
+      <div class="gs-card-main">
+        <p class="gs-eb gs-eb--light">Book direct and save</p>
+        <h2 class="gs-disp gs-h2" id="gs-bd-h">The longer you stay, the more you save.</h2>
+        <p class="gs-card-note">No platform fees. Rates can change by date. Your exact total shows the moment you pick dates, before you pay anything.</p>
+        <p class="gs-card-from" data-price-only="from-line"></p>
+        <div class="gs-ladder" data-price-only="ladder"></div>
+      </div>
+      <div class="gs-card-side">
+        <ol class="gs-card-steps">
+          <li><span class="gs-step" aria-hidden="true">1</span><span>Pick dates. See your discount and total.</span></li>
+          <li><span class="gs-step" aria-hidden="true">2</span><span>Add your name and mobile.</span></li>
+          <li><span class="gs-step" aria-hidden="true">3</span><span>Send half by GCash or bank. Marifel confirms personally.</span></li>
+        </ol>
+        <a class="gs-btn gs-btn--accent gs-btn--lg gs-cta" href="#booking" data-gs-book>Check my price</a>
+        <figure class="gs-card-quote"><blockquote class="gs-disp">“I would definitely recommend this Airbnb to anyone looking for a comfortable, beautiful place to stay.”</blockquote><figcaption class="gs-meta">Babes Aubrey, Jan 2026</figcaption></figure>
+        <p class="gs-meta gs-card-terms">Cancellation terms and any deposit are shown before you pay.</p>
+      </div>
+    </div>
   </section>
 
   <!-- ============================================================
@@ -6416,7 +5713,7 @@
                 <!-- Zone D: Trust — redesigned, cleaner -->
                 <div class="pay-trust-block">
                   <svg class="pay-trust-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-                  <span class="pay-trust-primary">Verified Airbnb Property &middot; 4.98 &#x2605; &middot; 45 Reviews</span>
+                  <span class="pay-trust-primary" data-rating-label="{score} out of 5 from {count} reviews on Airbnb, verified {verified}">Verified Airbnb Property &middot; <span data-rating="score"></span> &#x2605; &middot; <span data-rating="count"></span> Reviews</span>
                 </div>
 
               </div><!-- /.pay-summary -->
@@ -6637,136 +5934,225 @@
   </section>
 
   <!-- ============================================================
-       LOCATION — Embedded map + compact contact (replaces full contact section)
+       FAQ — Removes pre-booking objections / scam anxiety
+       Position: between Reviews and Booking (conversion funnel)
   ============================================================ -->
-  <section class="location-section" id="location" aria-label="Location and contact">
-    <div class="location-inner">
 
-      <!-- Explore panel — address hidden until booking confirmed -->
-      <div class="location-explore">
+  <hr class="section-sep" aria-hidden="true">
+  <section class="faq-section" aria-labelledby="faq-heading">
+    <div class="container">
 
-        <!-- ── Property photo gallery carousel ── -->
-        <div class="gallery-carousel" role="group" aria-label="Cascade Hideaway property photos">
+      <header class="faq-header">
+        <div class="section-label ch-reveal" aria-hidden="true">
+          <span class="section-label-line"></span>
+          <span class="section-label-text">Good to Know</span>
+          <span class="section-label-line"></span>
+        </div>
+        <h2 class="faq-heading ch-reveal" id="faq-heading">Frequently Asked Questions</h2>
+        <p class="faq-subhead ch-reveal">Everything you need to know before booking direct.</p>
+      </header>
 
-          <div class="gallery-track" id="galleryTrack" role="region" aria-label="Property photo gallery">
+      <div class="faq-list" role="list">
 
-            <!-- Slide 1 -->
-            <div class="gallery-slide" role="img" aria-label="Front of Cascade Hideaway: gated entrance and small garden">
-              <img src="assets/images/stay/facade.webp" srcset="assets/images/stay/facade-480.webp 480w, assets/images/stay/facade-960.webp 960w, assets/images/stay/facade.webp 1600w"
-                   sizes="(min-width: 1024px) 60vw, 100vw"
-                   alt="Front of Cascade Hideaway: gated entrance and small garden" loading="eager" decoding="async" width="1600" height="1067">
-            </div>
-            <!-- Slide 2 -->
-            <div class="gallery-slide" role="img" aria-label="Covered porch with a small table for two">
-              <img src="assets/images/stay/porch.webp" srcset="assets/images/stay/porch-480.webp 480w, assets/images/stay/porch-960.webp 960w, assets/images/stay/porch.webp 1200w"
-                   sizes="(min-width: 1024px) 60vw, 100vw"
-                   alt="Covered porch with a small table for two" loading="lazy" decoding="async" width="1200" height="1600">
-            </div>
-            <!-- Slide 3 -->
-            <div class="gallery-slide" role="img" aria-label="The studio: queen bed, sofa and kitchen in one open room">
-              <img src="assets/images/stay/studio-wide.webp" srcset="assets/images/stay/studio-wide-480.webp 480w, assets/images/stay/studio-wide-960.webp 960w, assets/images/stay/studio-wide.webp 1400w"
-                   sizes="(min-width: 1024px) 60vw, 100vw"
-                   alt="The studio: queen bed, sofa and kitchen in one open room" loading="lazy" decoding="async" width="1400" height="1050">
-            </div>
-            <!-- Slide 4 -->
-            <div class="gallery-slide" role="img" aria-label="Sofa and wall-mounted smart TV facing the bed">
-              <img src="assets/images/stay/studio-tv.webp" srcset="assets/images/stay/studio-tv-480.webp 480w, assets/images/stay/studio-tv-960.webp 960w, assets/images/stay/studio-tv.webp 1400w"
-                   sizes="(min-width: 1024px) 60vw, 100vw"
-                   alt="Sofa and wall-mounted smart TV facing the bed" loading="lazy" decoding="async" width="1400" height="1050">
-            </div>
-            <!-- Slide 5 -->
-            <div class="gallery-slide" role="img" aria-label="Living area with sofa, coffee table and kitchen">
-              <img src="assets/images/stay/living-bright.webp" srcset="assets/images/stay/living-bright-480.webp 480w, assets/images/stay/living-bright-960.webp 960w, assets/images/stay/living-bright.webp 1600w"
-                   sizes="(min-width: 1024px) 60vw, 100vw"
-                   alt="Living area with sofa, coffee table and kitchen" loading="lazy" decoding="async" width="1600" height="1067">
-            </div>
-            <!-- Slide 6 -->
-            <div class="gallery-slide" role="img" aria-label="Reading corner by the bed with a floor lamp">
-              <img src="assets/images/stay/living-corner.webp" srcset="assets/images/stay/living-corner-480.webp 480w, assets/images/stay/living-corner-960.webp 960w, assets/images/stay/living-corner.webp 1400w"
-                   sizes="(min-width: 1024px) 60vw, 100vw"
-                   alt="Reading corner by the bed with a floor lamp" loading="lazy" decoding="async" width="1400" height="934">
-            </div>
-            <!-- Slide 7 -->
-            <div class="gallery-slide" role="img" aria-label="Queen bed with crisp white hotel-grade linens">
-              <img src="assets/images/stay/bed-bright.webp" srcset="assets/images/stay/bed-bright-480.webp 480w, assets/images/stay/bed-bright-960.webp 960w, assets/images/stay/bed-bright.webp 1600w"
-                   sizes="(min-width: 1024px) 60vw, 100vw"
-                   alt="Queen bed with crisp white hotel-grade linens" loading="lazy" decoding="async" width="1600" height="1067">
-            </div>
-            <!-- Slide 8 -->
-            <div class="gallery-slide" role="img" aria-label="Morning coffee on freshly made white sheets">
-              <img src="assets/images/stay/coffee-on-bed.webp" srcset="assets/images/stay/coffee-on-bed-480.webp 480w, assets/images/stay/coffee-on-bed-960.webp 960w, assets/images/stay/coffee-on-bed.webp 1400w"
-                   sizes="(min-width: 1024px) 60vw, 100vw"
-                   alt="Morning coffee on freshly made white sheets" loading="lazy" decoding="async" width="1400" height="934">
-            </div>
-            <!-- Slide 9 -->
-            <div class="gallery-slide" role="img" aria-label="Marble bar counter with stools for meals or work">
-              <img src="assets/images/stay/dining.webp" srcset="assets/images/stay/dining-480.webp 480w, assets/images/stay/dining-960.webp 960w, assets/images/stay/dining.webp 1600w"
-                   sizes="(min-width: 1024px) 60vw, 100vw"
-                   alt="Marble bar counter with stools for meals or work" loading="lazy" decoding="async" width="1600" height="1200">
-            </div>
-            <!-- Slide 10 -->
-            <div class="gallery-slide" role="img" aria-label="Kitchenette with fridge, sink, rice cooker and marble counter">
-              <img src="assets/images/stay/kitchen.webp" srcset="assets/images/stay/kitchen-480.webp 480w, assets/images/stay/kitchen-960.webp 960w, assets/images/stay/kitchen.webp 1400w"
-                   sizes="(min-width: 1024px) 60vw, 100vw"
-                   alt="Kitchenette with fridge, sink, rice cooker and marble counter" loading="lazy" decoding="async" width="1400" height="934">
-            </div>
-            <!-- Slide 11 -->
-            <div class="gallery-slide" role="img" aria-label="A fresh cup of coffee, steaming">
-              <img src="assets/images/stay/coffee-steam.webp" srcset="assets/images/stay/coffee-steam-480.webp 480w, assets/images/stay/coffee-steam.webp 933w"
-                   sizes="(min-width: 1024px) 60vw, 100vw"
-                   alt="A fresh cup of coffee, steaming" loading="lazy" decoding="async" width="933" height="1400">
-            </div>
-            <!-- Slide 12 -->
-            <div class="gallery-slide" role="img" aria-label="Bathroom with toilet, vanity and bidet spray">
-              <img src="assets/images/stay/bathroom.webp" srcset="assets/images/stay/bathroom-480.webp 480w, assets/images/stay/bathroom-960.webp 960w, assets/images/stay/bathroom.webp 1050w"
-                   sizes="(min-width: 1024px) 60vw, 100vw"
-                   alt="Bathroom with toilet, vanity and bidet spray" loading="lazy" decoding="async" width="1050" height="1400">
-            </div>
-            <!-- Slide 13 -->
-            <div class="gallery-slide" role="img" aria-label="Rain shower head in the bathroom">
-              <img src="assets/images/stay/shower.webp" srcset="assets/images/stay/shower-480.webp 480w, assets/images/stay/shower-960.webp 960w, assets/images/stay/shower.webp 1199w"
-                   sizes="(min-width: 1024px) 60vw, 100vw"
-                   alt="Rain shower head in the bathroom" loading="lazy" decoding="async" width="1199" height="1600">
-            </div>
-
-          </div><!-- /.gallery-track -->
-
-          <!-- Slide counter -->
-          <div class="gallery-counter" id="galleryCounter" aria-live="polite" aria-atomic="true">1 / 13</div>
-
-          <!-- Prev / Next -->
-          <button class="gallery-btn gallery-btn-prev" id="galleryPrev"
-                  aria-label="Previous photo" type="button">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                 stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <polyline points="15 18 9 12 15 6"/>
-            </svg>
-          </button>
-          <button class="gallery-btn gallery-btn-next" id="galleryNext"
-                  aria-label="Next photo" type="button">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                 stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <polyline points="9 18 15 12 9 6"/>
-            </svg>
-          </button>
-
-          <!-- Caption overlay on photo -->
-          <div class="gallery-caption" aria-hidden="true">
-            <div class="gallery-caption-left">
-              <span class="gallery-eyebrow">Cascade Hideaway &middot; General Santos City</span>
-              <span class="gallery-title">Hotel Comfort. <em style="font-style:italic;">Home Warmth.</em></span>
-              <span class="gallery-address-note">Exact address revealed after booking confirmed</span>
+        <details class="faq-item ch-reveal" role="listitem">
+          <summary>
+            What time is check-in and check-out?
+            <span class="faq-chevron" aria-hidden="true">
+              <svg viewBox="0 0 8 5"><polyline points="1,1 4,4 7,1"/></svg>
+            </span>
+          </summary>
+          <div class="faq-body-wrap">
+            <div class="faq-body">
+              <p class="faq-answer">Check-in begins at 2:00 PM. Check-out is at 12:00 PM (noon). Early check-in or late check-out may be arranged depending on availability &mdash; just mention it in your booking request and we&rsquo;ll do our best. Early check-in before noon is &#8369;100 per hour when the calendar allows.</p>
             </div>
           </div>
+        </details>
 
-          <!-- Diamond dot indicators -->
-          <div class="gallery-dots" id="galleryDots" aria-hidden="true"></div>
+        <details class="faq-item ch-reveal" role="listitem">
+          <summary>
+            How do I confirm my booking?
+            <span class="faq-chevron" aria-hidden="true">
+              <svg viewBox="0 0 8 5"><polyline points="1,1 4,4 7,1"/></svg>
+            </span>
+          </summary>
+          <div class="faq-body-wrap">
+            <div class="faq-body">
+              <p class="faq-answer">Once you submit the booking form, you&rsquo;ll receive an Acknowledgement Receipt (AR) by email within 1&ndash;2 hours. Five or more days before check-in, submitting also holds your dates for 24 hours while you send the reservation fee; if nothing arrives, the hold is released quietly and nothing is owed. We verify both payment and availability, then send your personal confirmation. Your dates are not confirmed until that message arrives. The balance and the &#8369;1,000 refundable deposit are settled at least a day before check-in &mdash; no surprises.</p>
+            </div>
+          </div>
+        </details>
 
-        </div><!-- /.gallery-carousel -->
+        <details class="faq-item ch-reveal" role="listitem">
+          <summary>
+            What payment methods are accepted?
+            <span class="faq-chevron" aria-hidden="true">
+              <svg viewBox="0 0 8 5"><polyline points="1,1 4,4 7,1"/></svg>
+            </span>
+          </summary>
+          <div class="faq-body-wrap">
+            <div class="faq-body">
+              <p class="faq-answer">GCash or UnionBank transfer. Payment instructions appear only after you review available dates and enter your guest details. All payments go directly to the property &mdash; there is no third-party processor.</p>
+            </div>
+          </div>
+        </details>
 
-      </div><!-- /.location-explore -->
+        <details class="faq-item ch-reveal" role="listitem">
+          <summary>
+            Is there free parking?
+            <span class="faq-chevron" aria-hidden="true">
+              <svg viewBox="0 0 8 5"><polyline points="1,1 4,4 7,1"/></svg>
+            </span>
+          </summary>
+          <div class="faq-body-wrap">
+            <div class="faq-body">
+              <p class="faq-answer">Yes, at no extra charge. Parking is shared roadside parking within the gated Bria Homes community, first-come first-served, with exterior CCTV and community security.</p>
+            </div>
+          </div>
+        </details>
 
-      <!-- Contact sidebar -->
+        <details class="faq-item ch-reveal" role="listitem">
+          <summary>
+            What is the WiFi like?
+            <span class="faq-chevron" aria-hidden="true">
+              <svg viewBox="0 0 8 5"><polyline points="1,1 4,4 7,1"/></svg>
+            </span>
+          </summary>
+          <div class="faq-body-wrap">
+            <div class="faq-body">
+              <p class="faq-answer">The unit has fiber broadband. It handles remote work, video calls, and streaming simultaneously without issue.</p>
+            </div>
+          </div>
+        </details>
+
+        <details class="faq-item ch-reveal" role="listitem">
+          <summary>
+            Can I have visitors during my stay?
+            <span class="faq-chevron" aria-hidden="true">
+              <svg viewBox="0 0 8 5"><polyline points="1,1 4,4 7,1"/></svg>
+            </span>
+          </summary>
+          <div class="faq-body-wrap">
+            <div class="faq-body">
+              <p class="faq-answer">Day visitors are welcome. We only ask that you let us know in advance. Overnight guests beyond the declared headcount are not permitted.</p>
+            </div>
+          </div>
+        </details>
+
+        <details class="faq-item ch-reveal" role="listitem">
+          <summary>
+            What is the cancellation policy?
+            <span class="faq-chevron" aria-hidden="true">
+              <svg viewBox="0 0 8 5"><polyline points="1,1 4,4 7,1"/></svg>
+            </span>
+          </summary>
+          <div class="faq-body-wrap">
+            <div class="faq-body">
+              <p class="faq-answer">Cancellations 5 or more days before check-in receive a full refund of the reservation fee. Under 5 days: the reservation fee is retained to cover the reserved dates.</p>
+            </div>
+          </div>
+        </details>
+
+        <details class="faq-item ch-reveal" role="listitem">
+          <summary>
+            Is this an Airbnb listing?
+            <span class="faq-chevron" aria-hidden="true">
+              <svg viewBox="0 0 8 5"><polyline points="1,1 4,4 7,1"/></svg>
+            </span>
+          </summary>
+          <div class="faq-body-wrap">
+            <div class="faq-body">
+              <p class="faq-answer">Yes &mdash; Cascade Hideaway is a verified Airbnb property (<span data-rating="score"></span>&#9733; &middot; <span data-rating="count"></span> reviews, verified <span data-rating="verified"></span> &middot; Guest Favorite). Booking here directly gives you the exact same property at a lower total cost, with payment going directly to the host. You can verify the listing on Airbnb before booking if that gives you peace of mind.</p>
+            </div>
+          </div>
+        </details>
+
+        <details class="faq-item ch-reveal" role="listitem">
+          <summary>
+            What's included in every stay?
+            <span class="faq-chevron" aria-hidden="true">
+              <svg viewBox="0 0 8 5"><polyline points="1,1 4,4 7,1"/></svg>
+            </span>
+          </summary>
+          <div class="faq-body-wrap">
+            <div class="faq-body">
+              <p class="faq-answer">Every stay includes hotel-grade linens and towels, a fully equipped kitchen, fiber broadband fast enough for remote work and streaming, a 43&rdquo; Smart TV, a dedicated workspace, and a stand fan. Cleaning is always included in the rate &mdash; there is no separate cleaning charge added at checkout. Self check-in via smart lock means your arrival happens entirely on your own schedule.</p>
+              <p class="faq-answer" style="margin-top:0.75em;">Longer stays include a complimentary mid-stay room refresh (5+ nights) and priority response on any request during your visit. This is a boutique property managed by a real host &mdash; not a large operator &mdash; so you have a direct line to someone who cares.</p>
+            </div>
+          </div>
+        </details>
+
+        <details class="faq-item ch-reveal" role="listitem">
+          <summary>
+            Do returning guests get any exclusive rates?
+            <span class="faq-chevron" aria-hidden="true">
+              <svg viewBox="0 0 8 5"><polyline points="1,1 4,4 7,1"/></svg>
+            </span>
+          </summary>
+          <div class="faq-body-wrap">
+            <div class="faq-body">
+              <p class="faq-answer">This site exists for guests who prefer a direct relationship with the host. For those planning longer stays &mdash; or returning for another visit &mdash; we offer loyalty rates that reflect that relationship. These are applied automatically when you book here; no codes, no negotiation needed.</p>
+              <p class="faq-answer" style="margin-top:0.75em;">Rates are applied automatically as you select dates in the booking form &mdash; no codes, no negotiation needed.</p>
+              <div class="faq-tier-card">
+                <p style="font-family:var(--ch-font-body);font-size:var(--step--2);font-weight:600;letter-spacing:0.18em;text-transform:uppercase;color:rgba(201,150,58,0.80);margin-bottom:0.6em;">Duration &rarr; Nightly Rate</p>
+                <div class="tier-row tier-row--head" role="row">
+                  <span class="tier-cell-head" role="columnheader">Duration</span>
+                  <span class="tier-cell-head tier-cell-disc" role="columnheader">Off</span>
+                  <span class="tier-cell-head" role="columnheader">Per Night</span>
+                  <span class="tier-cell-head" role="columnheader">You Save</span>
+                </div>
+                <div id="tierTableRows"><!-- SPEC-34: repainted from the rate card; these rows are today's card -->
+                <div class="tier-row" role="row">
+                  <span class="tier-cell" role="cell">1 night</span>
+                  <span class="tier-cell tier-cell-disc" role="cell">&#x2014;</span>
+                  <span class="tier-cell tier-cell-rate" role="cell">&#x20B1;1,780</span>
+                  <span class="tier-cell tier-cell-save tier-cell-save--zero" role="cell">&#x2014;</span>
+                </div>
+                <div class="tier-row" role="row">
+                  <span class="tier-cell" role="cell">2&#x2013;4 nights</span>
+                  <span class="tier-cell tier-cell-disc" role="cell">5%</span>
+                  <span class="tier-cell tier-cell-rate" role="cell">&#x20B1;1,691</span>
+                  <span class="tier-cell tier-cell-save tier-cell-save--active" role="cell">&#x20B1;89/night</span>
+                </div>
+                <div class="tier-row" role="row">
+                  <span class="tier-cell" role="cell">5&#x2013;6 nights</span>
+                  <span class="tier-cell tier-cell-disc" role="cell">10%</span>
+                  <span class="tier-cell tier-cell-rate" role="cell">&#x20B1;1,602</span>
+                  <span class="tier-cell tier-cell-save tier-cell-save--active" role="cell">&#x20B1;178/night</span>
+                </div>
+                <div class="tier-row tier-row--highlight" role="row">
+                  <span class="tier-cell" role="cell">7&#x2013;13 nights &#x2605;</span>
+                  <span class="tier-cell tier-cell-disc" role="cell">15%</span>
+                  <span class="tier-cell tier-cell-rate" role="cell">&#x20B1;1,513</span>
+                  <span class="tier-cell tier-cell-save tier-cell-save--active" role="cell">&#x20B1;267/night</span>
+                </div>
+                <div class="tier-row" role="row">
+                  <span class="tier-cell" role="cell">14&#x2013;27 nights</span>
+                  <span class="tier-cell tier-cell-disc" role="cell">20%</span>
+                  <span class="tier-cell tier-cell-rate" role="cell">&#x20B1;1,424</span>
+                  <span class="tier-cell tier-cell-save tier-cell-save--active" role="cell">&#x20B1;356/night</span>
+                </div>
+                <div class="tier-row" role="row">
+                  <span class="tier-cell" role="cell">28+ nights</span>
+                  <span class="tier-cell tier-cell-disc" role="cell">25%</span>
+                  <span class="tier-cell tier-cell-rate" role="cell">&#x20B1;1,335</span>
+                  <span class="tier-cell tier-cell-save tier-cell-save--active" role="cell">&#x20B1;445/night</span>
+                </div>
+                </div><!-- /#tierTableRows -->
+              </div>
+            </div>
+          </div>
+        </details>
+
+      </div><!-- /.faq-list -->
+
+    </div><!-- /.container -->
+  </section>
+
+  <!-- ============================================================
+       CONTACT — direct routes (kept from the former location section)
+  ============================================================ -->
+  <section class="location-section" id="contact" aria-label="Contact">
+    <div class="location-inner">
       <div class="location-contact ch-reveal">
 
         <div>
@@ -6921,25 +6307,12 @@
         </div>
 
       </div><!-- /.location-contact -->
-
     </div>
   </section>
 
   <!-- ============================================================
        MOBILE STICKY CTA BAR — appears after hero exits viewport
   ============================================================ -->
-  <!-- Quick nav anchor strip — appears after hero exits viewport -->
-  <nav class="section-nav" id="sectionNav" aria-label="Page sections">
-    <a class="section-nav-pill" href="#about"    data-section="about">Overview</a>
-    <span class="section-nav-sep" aria-hidden="true"></span>
-    <a class="section-nav-pill" href="#amenities" data-section="amenities">Amenities</a>
-    <span class="section-nav-sep" aria-hidden="true"></span>
-    <a class="section-nav-pill" href="#gallery"   data-section="gallery">Gallery</a>
-    <span class="section-nav-sep" aria-hidden="true"></span>
-    <a class="section-nav-pill section-nav-pill--book" href="#booking" data-section="booking">Book Now</a>
-    <span class="section-nav-sep" aria-hidden="true"></span>
-    <a class="section-nav-pill" href="#location"  data-section="location">Location</a>
-  </nav>
 
   <!-- sticky-cta-bar removed: integrated into concierge float -->
 
@@ -7021,12 +6394,15 @@
     </div>
   </section>
 
+  </main>
+
   <!-- ============================================================
        FOOTER
   ============================================================ -->
   <footer class="site-footer" role="contentinfo">
     <div class="container">
       <div class="footer-inner">
+        <p class="footer-sign">Marifel &amp; The Cascade Team &middot; <a href="mailto:cascadereservations@gmail.com">cascadereservations@gmail.com</a> &middot; <a href="https://www.messenger.com/t/699640026568720" target="_blank" rel="noopener noreferrer">Messenger</a> &middot; <a href="https://wa.me/639618056979" target="_blank" rel="noopener noreferrer">WhatsApp</a></p>
         <p class="footer-copy">
           &copy; <span id="footerYear"></span> Cascade Reservations. All rights reserved.
         </p>
@@ -7036,7 +6412,7 @@
           <span aria-hidden="true">&middot;</span>
           <a href="booking-terms.html">Booking terms</a>
           <span aria-hidden="true">&middot;</span>
-          <a href="#location">Contact</a>
+          <a href="#contact">Contact</a>
           <span aria-hidden="true">&middot;</span>
           <a href="https://www.airbnb.com/rooms/1523827999359515793" target="_blank" rel="noopener noreferrer">Airbnb listing</a>
         </nav>
@@ -7469,12 +6845,7 @@
       var LOCAL_PROPERTY_FALLBACK = 'og-image.jpg';
       var STAY = 'assets/images/stay/';
       var SLIDES = [
-        { n: 'studio-wide', w: 1400, h: 1050, v: [480, 960] },
-        { n: 'bed-bright', w: 1600, h: 1067, v: [480, 960] },
-        { n: 'living-bright', w: 1600, h: 1067, v: [480, 960] },
-        { n: 'kitchen', w: 1400, h: 934, v: [480, 960] },
-        { n: 'bathroom', w: 1050, h: 1400, v: [480, 960] },
-        { n: 'dining', w: 1600, h: 1200, v: [480, 960] }
+        { n: 'studio-wide', w: 1400, h: 1050, v: [480, 960] }
       ];
 
       var container = document.getElementById('heroPhoto');
@@ -7630,6 +7001,7 @@
       /* ─── Supabase config ────────────────────────────────────────── */
       var SUPABASE_URL       = 'https://qkgfhsdppslwunarczeq.supabase.co';
       var SUPABASE_ANON      = 'sb_publishable_JFuRYZ9csmQULcMRmHXDSg_Abo9UeCj';
+      window._cascadeSb = { url: SUPABASE_URL, anon: SUPABASE_ANON };   /* shared with the gs-core theme script (weather-proxy) */
       var EDGE_SUBMIT        = SUPABASE_URL + '/functions/v1/submit-booking';
       var HOLD_HOURS         = 24;
       var EDGE_RECEIPT_UPLOAD = SUPABASE_URL + '/functions/v1/upload-booking-receipt';
@@ -7650,6 +7022,32 @@
         promotions: [{ name: 'Anniversary Promotion', first_night: '2026-10-11', last_night: '2026-10-17', nightly_rate: 1543 }] };
       var TIER_NAMES = ['Direct booking', 'Extended stay', 'Weekly rate', 'Fortnightly rate', 'Monthly rate'];
       var BASE_RATE = CARD.base, TIERS = [];
+
+      /* Marketing price figures (cover chip, dock, book-direct card). Copy never hard-codes a peso amount or a percentage:
+         with SHOW_PRICE false every [data-price-only] node is removed; with it true they render from the live rate card. */
+      const SHOW_PRICE = false;
+      function paintMarketing() {
+        var nodes = document.querySelectorAll('[data-price-only]');
+        if (!nodes.length) return;
+        var tiers = Array.isArray(CARD.tiers) ? CARD.tiers : [];
+        var ok = SHOW_PRICE && Number(CARD.base) > 0 && tiers.length > 0;
+        Array.prototype.forEach.call(nodes, function (el) {
+          if (!ok) { el.remove(); return; }
+          var k = el.getAttribute('data-price-only'), top = tiers.reduce(function (m, t) { return Math.max(m, Number(t.pct) || 0); }, 0);
+          if (k === 'save') el.textContent = ' · save up to ' + top + '%';
+          else if (k === 'from') el.textContent = ' · from ' + fmtPeso(CARD.base) + ' a night';
+          else if (k === 'from-line') el.textContent = 'From ' + fmtPeso(CARD.base) + ' a night.';
+          else if (k === 'ladder') {
+            el.textContent = '';
+            tiers.slice().sort(function (a, b) { return a.min_nights - b.min_nights; }).forEach(function (t) {
+              var d = document.createElement('div'), b = document.createElement('b'), s = document.createElement('span');
+              b.textContent = t.pct + '% off'; s.textContent = t.min_nights + '+ nights'; d.appendChild(b); d.appendChild(s); el.appendChild(d);
+            });
+          }
+        });
+      }
+      /* Markup after this script (the pinned dock) is not parsed yet at first paint. */
+      if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', paintMarketing);
       /* Called once at Init (below) with today's card, then with the live card from rate-card. */
       function applyCard(c) {
         if (!c || !(Number(c.base) > 0) || !Array.isArray(c.tiers) || !Array.isArray(c.promotions)) return;
@@ -7662,6 +7060,7 @@
         });
         window._cascadeCard = CARD;
         paintCard();
+        paintMarketing();
       }
       function getTier(n) {
         return TIERS.find(function(t){ return n >= t.min && n <= t.max; }) || TIERS[0];
@@ -9829,9 +9228,9 @@
        Hides when #booking section is in viewport
   ============================================================ -->
   <!-- Persistent bottom booking CTA — mobile only, hidden once #booking is in view -->
-  <div class="sticky-book-cta" id="stickyBookCta" aria-hidden="true">
-    <span class="sticky-book-cta-rate">From &#8369;<span data-card-base>1,780</span>/night</span>
-    <a class="sticky-book-cta-btn" href="#heroBookBar" id="stickyBookCtaBtn">Check dates</a>
+  <div class="sticky-book-cta gs-dock" id="stickyBookCta" aria-hidden="true">
+    <span class="sticky-book-cta-rate"><strong>Book direct</strong><span>No platform fees &middot; <span aria-hidden="true">&#9733;</span> <span data-rating="score"></span><span data-price-only="from"></span></span></span>
+    <a class="sticky-book-cta-btn gs-cta" href="#booking" id="stickyBookCtaBtn" data-gs-book>Check price</a>
   </div>
 
   <div class="concierge-float is-hidden" id="conciergeFloat" aria-label="Contact us" role="complementary">
@@ -9899,248 +9298,6 @@
 
   </div><!-- /.concierge-float -->
 
-
-<script>
-/* ============================================================
-   REVIEWS CAROUSEL — _cascadeReviews()
-   Airbnb link: https://www.airbnb.com/rooms/1523827999359515793
-   ─────────────────────────────────────────────────────────────
-   REVIEWS DATA  ← edit this array to add/update reviews.
-   Source your reviews from: airbnb.com/hosting/reviews
-   Keep all entries you have confirmed as real guest reviews.
-   The carousel auto-sizes pages: 3-up ≥1024px, 2-up ≥640px, 1-up mobile.
-   Rotation interval: 8 seconds. Pauses on hover / focus.
-   ============================================================ */
-(function _cascadeReviews() {
-
-  /* ── 1. REVIEW DATA ──────────────────────────────────────────
-     Add more objects below to fill additional carousel pages.
-     To add: copy one block, paste below, fill in real values.
-     Minimum 4 reviews for desktop rotation (2 pages × 3-up).   */
-  /* ── REVIEW DATA — sourced from Airbnb listing (45 reviews, 4.98★, verified 24 Aug 2026) ──
-     To add more: push another object to this array.
-     Source: airbnb.com/rooms/1523827999359515793                       */
-  var REVIEWS = [
-    /* ── Page 1: Premium positioning · Host trust · International credibility ── */
-    {
-      text: 'A Five-Star Hotel Experience in the Heart of GenSan. This place is, hands down, one of the most complete and well-curated Airbnbs I have ever stayed in. The interior genuinely feels like walking into a five-star hotel suite. The decor is elegant, modern, and clearly professionally designed \u2014 no detail was overlooked.',
-      author: 'Michelle',
-      location: 'Philippines',
-      date: 'Feb 2026',
-      stars: 5
-    },
-    {
-      text: 'I cannot emphasize enough how above and beyond these hosts went for me. Their kindness is so rare and good that I don\u2019t think I\u2019ll ever see that level of hospitality again for the rest of my life. Not just because it\u2019s a fantastic condo with excellent attention to detail\u2026 but because the hosts are such incredibly amazing people.',
-      author: 'Charles',
-      location: 'San Diego, California',
-      date: 'Jan 2026',
-      stars: 5
-    },
-    {
-      text: 'The best home we have stayed in during multiple trips to GenSan over the last year. The photos matched the accommodation and we were very comfy during our stay.',
-      author: 'Owain',
-      location: 'United Kingdom',
-      date: 'Mar 2026',
-      stars: 5
-    },
-    /* ── Page 2: Repeat guest demand · Value · Location reassurance ── */
-    {
-      text: 'Service and the place is beyond what its worth. My 3rd time staying and its always great.',
-      author: 'Hirofumi',
-      location: 'Philippines',
-      date: 'Feb 2026',
-      stars: 5
-    },
-    {
-      text: 'Check-in was a breeze and the guest guide with local tips was awesome! Very well thought out Airbnb. Host was always responsive. Great find and very reasonable price for all that is offered.',
-      author: 'Aaron',
-      location: 'Illinois, USA',
-      date: 'Oct 2025',
-      stars: 5
-    },
-    {
-      text: 'Very well renovated little house, far from the centre but nothing Grab can\u2019t handle. Nice place to take a break which is what we did.',
-      author: 'Sean',
-      location: 'Philippines',
-      date: 'Jan 2026',
-      stars: 5
-    }
-    ];
-
-  /* Filter reviews, sort newest-first, flag reviews from last 60 days as new.
-     No hardcoded date map — future reviews sort correctly without maintenance. */
-  function _rvParseDate(label) {
-    /* 'Mar 2026' -> Date (1st of month). Fallback to epoch on parse failure. */
-    var d = new Date(label + ' 1');
-    return isNaN(d.getTime()) ? new Date(0) : d;
-  }
-  var _RV_NOW = Date.now();
-  var _RV_60D = 60 * 24 * 3600 * 1000; /* 60-day recency window */
-  var LIVE_REVIEWS = REVIEWS.filter(function(r) {
-    return r.text.indexOf('TODO:') !== 0;
-  }).sort(function(a, b) {
-    return _rvParseDate(b.date).getTime() - _rvParseDate(a.date).getTime();
-  });
-  LIVE_REVIEWS.forEach(function(r) {
-    /* Honour explicit isNew:true set in data; also flag by rolling window */
-    if (!r.isNew && (_RV_NOW - _rvParseDate(r.date).getTime()) < _RV_60D) r.isNew = true;
-  });
-
-  /* ── 2. CONFIG ─────────────────────────────────────────────── */
-  var INTERVAL_MS = 8000;  /* auto-advance every 8 s           */
-  var STAR_SVG    = '<svg viewBox="0 0 24 24" aria-hidden="true" fill="currentColor"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>';
-
-  /* ── 3. DOM REFS ───────────────────────────────────────────── */
-  var stage      = document.getElementById('rvStage');
-  var navEl      = document.getElementById('rvNav');
-  var counterEl  = document.getElementById('rvCounter');
-  var prevBtn    = document.getElementById('rvPrev');
-  var nextBtn    = document.getElementById('rvNext');
-
-  if (!stage || !LIVE_REVIEWS.length) return;
-
-  /* ── 4. HELPERS ────────────────────────────────────────────── */
-  function perPage() {
-    var w = window.innerWidth;
-    return w >= 1024 ? 3 : w >= 640 ? 2 : 1;
-  }
-
-  function buildCard(r) {
-    var stars = '';
-    for (var i = 0; i < r.stars; i++) stars += STAR_SVG;
-    var initials = r.author.charAt(0).toUpperCase();
-    var newBadge = r.isNew ? '<span class="review-new-badge" aria-label="New review">New</span>' : '';
-    var cardClass = r.isNew ? 'review-card review-card--new' : 'review-card';
-    return '<article class="' + cardClass + '" aria-label="Guest review by ' + r.author + '">' +
-      '<div class="review-card-top">' +
-        '<div class="review-stars" role="img" aria-label="' + r.stars + ' stars">' + stars + '</div>' +
-        newBadge +
-      '</div>' +
-      '<p class="review-text">' + r.text + '</p>' +
-      '<div class="review-meta">' +
-        '<div class="review-avatar" aria-hidden="true">' + initials + '</div>' +
-        '<span class="review-author">' + r.author +
-          ' <span style="font-style:normal;font-size:var(--step--2);letter-spacing:0.01em;opacity:0.52;"> &middot; ' + r.location + '</span>' +
-        '</span>' +
-        '<span class="review-source">Airbnb &middot; ' + r.date + '</span>' +
-      '</div>' +
-    '</article>';
-  }
-
-  /* ── 5. STATE ──────────────────────────────────────────────── */
-  var current   = 0;
-  var pageCount = 0;
-  var pages     = [];
-  var timer     = null;
-  var pp        = 0;
-
-  function buildPages() {
-    pp        = perPage();
-    pages     = [];
-    var rev   = LIVE_REVIEWS;
-    for (var i = 0; i < rev.length; i += pp) {
-      pages.push(rev.slice(i, i + pp));
-    }
-    pageCount = pages.length;
-  }
-
-  /* ── 6. RENDER ─────────────────────────────────────────────── */
-  function updateCounter() {
-    if (counterEl) counterEl.textContent = (current + 1) + ' / ' + pageCount;
-  }
-
-  function renderAll() {
-    buildPages();
-    stage.innerHTML = '';
-    pages.forEach(function(pageReviews, idx) {
-      var div = document.createElement('div');
-      /* display:none/block — no abs position, height matches content naturally */
-      div.className = 'rv-page' + (idx === current ? ' rv-active' : '');
-      div.setAttribute('role', 'tabpanel');
-      div.setAttribute('aria-label', 'Reviews page ' + (idx + 1) + ' of ' + pageCount);
-      div.innerHTML = pageReviews.map(buildCard).join('');
-      stage.appendChild(div);
-    });
-    updateCounter();
-    if (pageCount <= 1) { if (navEl) navEl.setAttribute('hidden', ''); }
-    else { if (navEl) navEl.removeAttribute('hidden'); }
-  }
-
-  /* ── 7. TRANSITIONS ────────────────────────────────────────── */
-  function goTo(next, isBack) {
-    var n = (next + pageCount) % pageCount;
-    if (n === current || pageCount <= 1) return;
-    var pageEls = stage.querySelectorAll('.rv-page');
-    /* Hide current */
-    pageEls[current].classList.remove('rv-active');
-    current = n;
-    /* Show next with directional hint */
-    var incoming = pageEls[current];
-    incoming.classList.remove('rv-dir-back');
-    if (isBack) incoming.classList.add('rv-dir-back');
-    incoming.classList.add('rv-active');
-    updateCounter();
-    resetTimer();
-  }
-
-  function advance() { goTo(current + 1, false); }
-  function retreat() { goTo(current - 1, true);  }
-
-  /* ── 8. TIMER ──────────────────────────────────────────────── */
-  function startTimer() {
-    if (pageCount <= 1) return;
-    timer = setInterval(advance, INTERVAL_MS);
-  }
-  function resetTimer() {
-    clearInterval(timer);
-    startTimer();
-  }
-
-  /* ── 9. EVENT LISTENERS ────────────────────────────────────── */
-  if (nextBtn) nextBtn.addEventListener('click', function() { advance(); });
-  if (prevBtn) prevBtn.addEventListener('click', function() { retreat(); });
-
-  /* Swipe left/right on stage */
-  var _swipeX = null;
-  stage.addEventListener('touchstart', function(e) {
-    _swipeX = e.changedTouches[0].clientX;
-  }, { passive: true });
-  stage.addEventListener('touchend', function(e) {
-    if (_swipeX === null) return;
-    var dx = e.changedTouches[0].clientX - _swipeX;
-    _swipeX = null;
-    if (Math.abs(dx) < 40) return;   /* ignore taps */
-    if (dx < 0) advance(); else retreat();
-  }, { passive: true });
-
-  /* Pause auto-advance on hover/focus */
-  var carousel = document.getElementById('rvCarousel');
-  if (carousel) {
-    carousel.addEventListener('mouseenter', function() { clearInterval(timer); });
-    carousel.addEventListener('mouseleave', startTimer);
-    carousel.addEventListener('focusin',   function() { clearInterval(timer); });
-    carousel.addEventListener('focusout',  startTimer);
-  }
-
-  /* Rebuild on resize if per-page count changes */
-  var resizeDebounce;
-  window.addEventListener('resize', function() {
-    clearTimeout(resizeDebounce);
-    resizeDebounce = setTimeout(function() {
-      if (perPage() !== pp) {
-        current = 0;
-        renderAll();
-        startTimer();
-      }
-    }, 200);
-  });
-
-  /* ── 10. INIT ──────────────────────────────────────────────── */
-  renderAll();
-  startTimer();
-
-}());
-</script>
 
 <script>
   /* ── Sticky bottom booking CTA (mobile) — hidden once #booking is in view ── */

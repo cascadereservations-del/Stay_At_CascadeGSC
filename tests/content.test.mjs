@@ -57,10 +57,13 @@ test('JSON-LD does not disclose a precise street address or coordinates', () => 
   assert.doesNotMatch(html, /"geo"\s*:\s*{/);
 });
 
-test('Airbnb rating and review count are reconciled to a single current value', () => {
-  assert.doesNotMatch(html, />4\.97</);
-  assert.doesNotMatch(html, /"4\.97"/);
-  assert.doesNotMatch(html, /4\.97\s*(star|&#9733;|&#x2605;|out of 5|&#9733;\s*&middot;|␣)/i);
+test('Airbnb rating and review count come from the single RATING constant', () => {
+  // Visible markup renders from RATING at runtime; JSON-LD (structured data) is updated in a later task, so it is excluded here.
+  const visible = html.replace(/<script type="application\/ld\+json">[\s\S]*?<\/script>/g, '');
+  assert.match(visible, /const RATING = \{ score: 4\.97, count: 64, verifiedOn: '2026-11-23' \};/);
+  assert.equal((visible.match(/const RATING\b/g) || []).length, 1);
+  assert.doesNotMatch(visible, /\b4\.98\b/);
+  assert.doesNotMatch(visible, /\b45\s+(Airbnb\s+)?[Rr]eviews\b/);
   assert.doesNotMatch(html, /\b34\s+(Airbnb\s+)?[Rr]eviews\b/);
   assert.doesNotMatch(html, /\b31\s+Guests\b/);
 });
@@ -70,7 +73,7 @@ test('parking copy matches the reconciled Airbnb fact (shared roadside, not "sec
 });
 
 test('reserves a dated, non-live Airbnb proof fallback', () => {
-  assert.match(html, /Verified on 24 Aug 2026/);
+  assert.match(html, /id="airbnbProofVerifiedNote">Verified on <span data-rating="verified">/);
   assert.match(html, /id="airbnbProofEmbed"/);
 });
 
