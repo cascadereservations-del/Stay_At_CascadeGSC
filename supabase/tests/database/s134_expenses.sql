@@ -356,9 +356,10 @@ insert into _t select 'fx13', public.record_inventory_receipt_v1(pg_temp.id('e5'
 reset role;
 set constraints all immediate;
 insert into _t select 'fx13id', jsonb_build_object('id', pg_temp.tid('rcpt:zz-s134-adm-key-00032'));
+insert into _t select 'fx13dt', to_jsonb((select t.transaction_date - 1 from public.transactions t where t.id = pg_temp.tid('rcpt:zz-s134-adm-key-00032')));
 select pg_temp.as_user(pg_temp.id('01'));
 insert into _t select 'fx13a', public.admin_save_transaction_v2(pg_temp.id('b2'), jsonb_build_object('id', (select v ->> 'id' from _t where k = 'fx13id'), 'category', 'maintenance', 'notes', 'Zz S134 my own note', 'reason', 'tidy'), null);
-insert into _t select 'fx13d', public.admin_save_transaction_v2(pg_temp.id('b2'), jsonb_build_object('id', (select v ->> 'id' from _t where k = 'fx13id'), 'transaction_date', public.manila_today() - 1, 'reason', 'move it'), null);
+insert into _t select 'fx13d', public.admin_save_transaction_v2(pg_temp.id('b2'), jsonb_build_object('id', (select v ->> 'id' from _t where k = 'fx13id'), 'transaction_date', (select v #>> '{}' from _t where k = 'fx13dt'), 'reason', 'move it'), null);
 insert into _t select 'fx13p', public.admin_save_transaction_v2(pg_temp.id('b2'), jsonb_build_object('id', (select v ->> 'id' from _t where k = 'fx13id'), 'payee_name', 'Someone else', 'reason', 'rename it'), null);
 reset role;
 set constraints all deferred;
@@ -1376,9 +1377,10 @@ select ok((select (v ->> 'ok')::boolean and v ->> 'status' = 'confirmed' from _t
   'fix r3 item 2: once the line is priced the marker is false and a normal approve still works (confirmed, P13)');
 
 -- (6) the reopened row of (1) is sync-owned with linked purchases: amount, date and payee edits are refused; a system category is refused; a category and note edit approves
+insert into _t select 'r3dt', to_jsonb((select t.transaction_date - 1 from public.transactions t where t.id = pg_temp.tid('rcpt:zz-s134-r3-key-0001')));
 select pg_temp.as_user(pg_temp.id('01'));
 insert into _t select 'r3d_a', pg_temp.try(format('select public.admin_review_transaction_v1(%L::uuid, %L::uuid, %L, %L::jsonb, %L)', pg_temp.id('b3'), pg_temp.sid('rcpt:zz-s134-r3-key-0001'), 'approve', '{"gross_amount": 99}', 'bigger'));
-insert into _t select 'r3d_d', pg_temp.try(format('select public.admin_review_transaction_v1(%L::uuid, %L::uuid, %L, %L::jsonb, %L)', pg_temp.id('b3'), pg_temp.sid('rcpt:zz-s134-r3-key-0001'), 'approve', jsonb_build_object('transaction_date', public.manila_today() - 1), 'older'));
+insert into _t select 'r3d_d', pg_temp.try(format('select public.admin_review_transaction_v1(%L::uuid, %L::uuid, %L, %L::jsonb, %L)', pg_temp.id('b3'), pg_temp.sid('rcpt:zz-s134-r3-key-0001'), 'approve', jsonb_build_object('transaction_date', (select v #>> '{}' from _t where k = 'r3dt')), 'older'));
 insert into _t select 'r3d_p', pg_temp.try(format('select public.admin_review_transaction_v1(%L::uuid, %L::uuid, %L, %L::jsonb, %L)', pg_temp.id('b3'), pg_temp.sid('rcpt:zz-s134-r3-key-0001'), 'approve', '{"payee_name": "Someone else"}', 'other shop'));
 insert into _t select 'r3d_s', pg_temp.try(format('select public.admin_review_transaction_v1(%L::uuid, %L::uuid, %L, %L::jsonb, %L)', pg_temp.id('b3'), pg_temp.sid('rcpt:zz-s134-r3-key-0001'), 'approve', '{"category": "guest_refund"}', 'refund'));
 reset role;
