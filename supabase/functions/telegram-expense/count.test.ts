@@ -69,7 +69,7 @@ Deno.test('the group rule splits a production-shaped catalogue 19 / 25 / 29', ()
 
 Deno.test('the washing machine is an appliance even though its category is not Kitchen & Dining', () => {
   assertEquals(inventoryGroup({ is_consumable: false, category: 'Appliances', name: 'Washing Machine (Panasonic)' }), 'appliances');
-  assertEquals(inventoryGroup({ is_consumable: false, category: 'Appliances', name: 'Electric Fan' }), 'stores');
+  assertEquals(inventoryGroup({ is_consumable: false, category: 'Living Area', name: 'Electric Fan' }), 'stores');
   // A consumable stays a consumable whatever its category says.
   assertEquals(inventoryGroup({ is_consumable: true, category: 'Kitchen & Dining', name: 'Dishwashing Liquid' }), 'consumables');
 });
@@ -88,4 +88,13 @@ Deno.test('numbering continues across groups, and a long list is split under the
   const chunks = chunkLines(long);
   assertEquals(chunks.every((c) => c.length <= 3500), true);
   assertEquals(chunks.join('\n').split('\n').length, 200); // nothing lost
+});
+
+Deno.test('s132: Kitchen utensils and Appliances group as appliances, trimmed and any case', () => {
+  assertEquals(inventoryGroup({ is_consumable: false, category: 'Kitchen utensils', name: 'Fork' }), 'appliances');
+  assertEquals(inventoryGroup({ is_consumable: false, category: ' APPLIANCES ', name: 'Rice cooker' }), 'appliances');
+  assertEquals(inventoryGroup({ is_consumable: false, category: 'kitchen & dining', name: 'Plate' }), 'appliances');
+  assertEquals(inventoryGroup({ is_consumable: false, category: 'Kitchen supplies', name: 'Dish liquid' }), 'stores');
+  assertEquals(inventoryGroup({ is_consumable: false, category: 'Linen', name: 'Towel' }), 'stores');
+  assertEquals(inventoryGroup({ is_consumable: true, category: 'Kitchen utensils', name: 'Foil' }), 'consumables');
 });
