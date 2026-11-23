@@ -108,22 +108,26 @@ test('B111: the payment QR is never lazy-loaded', () => {
   assert.doesNotMatch(tag, /loading\s*=\s*["']?lazy/i);
 });
 
+const VOID = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'source', 'track', 'wbr']);
 function stripBalanced(src, openRe) {
   let out = src, m;
   while ((m = openRe.exec(out))) {
-    const tag = m[1], re = new RegExp(`<(/?)${tag}\b[^>]*>`, 'g'); re.lastIndex = m.index; let depth = 0, end = out.length, t;
-    while ((t = re.exec(out))) { depth += t[1] ? -1 : 1; if (depth === 0) { end = re.lastIndex; break; } }
+    const tag = m[1].toLowerCase(); let end = m.index + m[0].length;
+    if (!VOID.has(tag) && !/\/>$/.test(m[0])) {
+      const re = new RegExp(String.raw`<(/?)${tag}\b[^>]*>`, 'gi'); re.lastIndex = m.index; let depth = 0, t; end = out.length;
+      while ((t = re.exec(out))) { depth += t[1] ? -1 : 1; if (depth === 0) { end = re.lastIndex; break; } }
+    }
     out = out.slice(0, m.index) + out.slice(end); openRe.lastIndex = 0;
   }
   return out;
 }
 
 test('marketing copy shows no peso price or percentage while SHOW_PRICE is false', () => {
-  // [data-price-only] nodes are removed at runtime, the booking sheet is the payment flow, and #deskSidebar is a legacy node that stays `hidden`.
+  // [data-price-only] nodes are removed at runtime, the booking sheet is the payment flow, and every element carrying the `hidden` attribute (legacy #booking, #deskSidebar) never shows.
   assert.match(html, /const SHOW_PRICE = false;/);
   let marketing = html.replace(/<script[\s\S]*?<\/script>/g, '').replace(/<style[\s\S]*?<\/style>/g, '').replace(/<!--[\s\S]*?-->/g, '');
   marketing = stripBalanced(marketing, /<(dialog)\b[^>]*id="bookSheet"[^>]*>/);
-  marketing = stripBalanced(marketing, /<(aside)\b[^>]*id="deskSidebar"[^>]*>/);
+  marketing = stripBalanced(marketing, /<([a-z0-9]+)\b(?:[^>"']|"[^"]*"|'[^']*')*?\shidden(?=[\s>/=])(?:[^>"']|"[^"]*"|'[^']*')*>/i);
   marketing = stripBalanced(marketing, /<([a-z0-9]+)\b[^>]*data-price-only[^>]*>/);
   const text = marketing.replace(/<[^>]+>/g, ' ').replace(/&#x20B1;|&#8369;|&peso;/gi, '₱');
   assert.doesNotMatch(text, /₱\s?\d|\b\d{1,3}\s?%|\b1,?780\b/);
