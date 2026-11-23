@@ -252,6 +252,7 @@ comment on function public.staff_decline_direct_booking_v1(uuid, text, text) is
   'Wrapper kept for Staff 3.4.53: the same decline with reason code other.';
 
 -- 5. Conversations: needs_reply and waiting_since (RETURNS TABLE changes, so drop and create). The ten existing columns and the order stay.
+--    last_guest_at now reads timestamps through s_cf_ts_v1: the old inline cast raised on an impossible date such as 2026-13-45T99:99:99Z and took the whole list down.
 drop function public.concierge_conversations_v1(int);
 create function public.concierge_conversations_v1(p_limit int default 30)
 returns table (
@@ -269,7 +270,7 @@ begin
   select t.psid, left(md5(t.psid), 8), t.guest_name, t.updated_at,
          (t.history -> -1) ->> 'role',
          left((t.history -> -1) ->> 'text', 160),
-         (select max(case when e ->> 'at' ~ '^\d{4}-\d{2}-\d{2}T' then (e ->> 'at')::timestamptz end)
+         (select max(public.s_cf_ts_v1(e ->> 'at'))
             from jsonb_array_elements(t.history) e where e ->> 'role' = 'guest'),
          oh.n, t.human_until, t.last_risk,
          w.needs_reply, w.waiting_since

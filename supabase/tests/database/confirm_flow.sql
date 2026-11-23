@@ -10,7 +10,7 @@
 -- pg_net and Vault are absent from a rehearsal copy: they are stubbed here (and rolled back) so the guest-messages post is observable.
 -- Where the real pg_net exists (CI) the stub is not installed and the assertions that read the stub pass vacuously.
 begin;
-select plan(77);
+select plan(73);
 
 do $$
 begin
@@ -289,8 +289,9 @@ select is((select count(*)::int from public.s_cf_waiting_v1() where psid = 'zz-c
 
 -- Home's inbox_open follows the same rule --------------------------------------------------------------------------------------------------------
 select set_config('request.jwt.claims', json_build_object('sub', 'e5500000-0000-4000-8000-0000000000a3', 'role', 'authenticated', 'iat', extract(epoch from now())::bigint)::text, true);
+select set_config('cf.waiting', (select count(*) from public.s_cf_waiting_v1() where needs_reply)::text, true);
 set local role authenticated;
-select is((public.notices_v1('e5500000-0000-4000-8000-000000000055') ->> 'inbox_open')::int, (select count(*)::int from public.s_cf_waiting_v1() where needs_reply),
+select is((public.notices_v1('e5500000-0000-4000-8000-000000000055') ->> 'inbox_open')::int, current_setting('cf.waiting')::int,
   'notices_v1: inbox_open is the number of guests waiting for a reply');
 select ok((public.notices_v1('e5500000-0000-4000-8000-000000000055') ->> 'inbox_open')::int >= 2, 'notices_v1: and it includes the synthetic t1 and t2');
 reset role;
