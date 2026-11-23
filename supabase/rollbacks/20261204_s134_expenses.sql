@@ -2,6 +2,7 @@
 --   * the two triggers on inventory_purchases and every s134 function are dropped (client, telegram and internal);
 --   * kpi_tab_v1 goes back to the s127 body by removing exactly the inserted lines (md5 pinned: 7c6d5a22... or 80efd89e..., 55000 on a body that is neither);
 --   * admin_review_transaction_v1 goes back to the s89 body (md5 pinned: fef25e31... or this release's 9fc10f4c..., 55000 on a body that is neither);
+--   * admin_review_queue_v1 goes back to the s89 body (md5 pinned: ed2a6920... or this release's 3b8c664b80293f1d56ee23e6f3f1eb42, 55000 on a body that is neither);
 --   * the three s134 indexes are dropped.
 -- KEPT on purpose (expand-only, inert without the triggers): the app_settings key s134_stock_expense_from (the migration keeps the EARLIEST existing value when it is applied again, so the cut-over
 -- month never moves later and the KPI never flips back to the legacy figures for rows already filed), the 'inventory' value in transactions_source_check, the columns inventory_purchases.transaction_id and .expense_group, the guest_refund category,
@@ -100,6 +101,38 @@ comment on function public.admin_review_transaction_v1(uuid, uuid, text, jsonb, 
 revoke all on function public.admin_review_transaction_v1(uuid, uuid, text, jsonb, text) from public, anon, service_role;
 grant execute on function public.admin_review_transaction_v1(uuid, uuid, text, jsonb, text) to authenticated;
 
+-- 2c. admin_review_queue_v1 back to the s89 body (same signature and grants)
+do $q$
+declare v text;
+begin
+  select md5(replace(p.prosrc, chr(13), '')) into v from pg_proc p where p.oid = to_regprocedure('public.admin_review_queue_v1(uuid)');
+  if v is null then raise exception 's134 rollback: admin_review_queue_v1 is missing' using errcode = '55000'; end if;
+  if v is distinct from 'ed2a69205d365ea8afe96d5f55aa677b' and v is distinct from '3b8c664b80293f1d56ee23e6f3f1eb42' then
+    raise exception 's134 rollback: admin_review_queue_v1 is neither this release nor the s89 body (md5 %)', v using errcode = '55000';
+  end if;
+end $q$;
+create or replace function public.admin_review_queue_v1(p_property_id uuid)
+returns jsonb language plpgsql stable security definer set search_path to '' as $$
+declare v_count integer; v_total numeric; v_rows jsonb;
+begin
+  perform public.admin_require('read_finance', p_property_id);
+  select count(*), coalesce(sum(t.gross_amount), 0) into v_count, v_total
+    from public.transactions t
+   where t.property_id = p_property_id and t.status = 'pending_review' and not (t.source = 'direct_booking' and t.booking_id is not null);
+  select coalesce(jsonb_agg(to_jsonb(q) order by q.transaction_date desc, q.created_at desc), '[]'::jsonb) into v_rows from (
+    select t.id, t.transaction_date, t.txn_type, t.category, t.gross_amount, t.payee_name, t.notes, t.or_number, t.source,
+           t.receipt_image_path, t.ocr_confidence, t.created_at
+      from public.transactions t
+     where t.property_id = p_property_id and t.status = 'pending_review' and not (t.source = 'direct_booking' and t.booking_id is not null)
+     order by t.transaction_date desc, t.created_at desc limit 100) q;
+  return jsonb_build_object('count', v_count, 'total', v_total, 'rows', v_rows, 'truncated', v_count > 100);
+end;
+$$;
+revoke all on function public.admin_review_queue_v1(uuid) from public, anon, service_role;
+grant execute on function public.admin_review_queue_v1(uuid) to authenticated;
+comment on function public.admin_review_queue_v1(uuid) is 'S89: transactions waiting for review (count, total, newest 100). No guest data; direct-booking payments are on Inquiries. owner/admin/finance.';
+
+
 -- 3. triggers, then functions
 drop trigger if exists s134_stock_expense_sync on public.inventory_purchases;
 drop trigger if exists s134_stock_expense_group on public.inventory_purchases;
@@ -144,6 +177,9 @@ begin
   end if;
   if (select md5(replace(p.prosrc, chr(13), '')) from pg_proc p where p.oid = to_regprocedure('public.admin_review_transaction_v1(uuid,uuid,text,jsonb,text)')) is distinct from 'fef25e31f2ba4b3df8a9105f38e8c1c2' then
     raise exception 's134 rollback: admin_review_transaction_v1 is not the s89 body' using errcode = '55000';
+  end if;
+  if (select md5(replace(p.prosrc, chr(13), '')) from pg_proc p where p.oid = to_regprocedure('public.admin_review_queue_v1(uuid)')) is distinct from 'ed2a69205d365ea8afe96d5f55aa677b' then
+    raise exception 's134 rollback: admin_review_queue_v1 is not the s89 body' using errcode = '55000';
   end if;
   if exists (select 1 from pg_trigger t where t.tgrelid = 'public.inventory_purchases'::regclass and t.tgname like 's134\_%') then
     raise exception 's134 rollback: an s134 trigger is still present' using errcode = '55000';

@@ -3,7 +3,7 @@
 -- only the RPC calls run as the staff roles. Every case that relies on the deferred stock trigger issues "set constraints all immediate;" after the write (one uncommitted transaction never fires it otherwise).
 -- T12 does not exist (dropped from the plan). T16 runs a verbatim copy of supabase/sql/s134_backfill.sql (between the BACKFILL markers; the lane's gate compares the two).
 begin;
-select plan(136);
+select plan(138);
 
 -- baseline grants for a --no-acl rehearsal restore (idempotent, rolled back with the suite)
 grant usage on schema public, auth to anon, authenticated, service_role;
@@ -1232,6 +1232,18 @@ reset role;
 select ok((select v ->> 'ok' = 'false' and v ->> 'error' = 'amount_incomplete' and v ->> 'where' = 'Inventory' from _t where k = 'r3c_t')
       and (select t.status = 'pending_review' from public.transactions t where t.id = pg_temp.tid('rcpt:zz-s134-r3-key-0003')),
   'fix r3 item 2: telegram_expense_review_v1 refuses to confirm the same row (amount_incomplete, where Inventory)');
+
+-- (3b) fix r4: admin_review_queue_v1 rows carry s134_incomplete (true for the incomplete pending stock row, false for an ordinary pending row)
+insert into public.transactions(id, property_id, txn_type, category, status, source, transaction_date, gross_amount, notes) values
+  (pg_temp.id('fa'), pg_temp.id('b3'), 'expense', 'other', 'pending_review', 'manual', public.manila_today(), 33, 'Zz S134 r4 plain pending');
+select pg_temp.as_user(pg_temp.id('01'));
+insert into _t select 'r4q', public.admin_review_queue_v1(pg_temp.id('b3'));
+reset role;
+select ok((select (r ->> 's134_incomplete')::boolean is true and jsonb_typeof(r -> 's134_incomplete') = 'boolean' from _t, jsonb_array_elements(v -> 'rows') r where k = 'r4q' and (r ->> 'id')::uuid = pg_temp.tid('rcpt:zz-s134-r3-key-0003')),
+  'fix r4: admin_review_queue_v1 returns s134_incomplete = true for an incomplete pending stock row');
+select ok((select (r ->> 's134_incomplete')::boolean is false and jsonb_typeof(r -> 's134_incomplete') = 'boolean' from _t, jsonb_array_elements(v -> 'rows') r where k = 'r4q' and (r ->> 'id')::uuid = pg_temp.id('fa'))
+      and (select v ->> 'count' from _t where k = 'r4q') = (select count(*)::text from public.transactions t where t.property_id = pg_temp.id('b3') and t.status = 'pending_review' and not (t.source = 'direct_booking' and t.booking_id is not null)),
+  'fix r4: admin_review_queue_v1 returns s134_incomplete = false for an ordinary pending row; count and shape are the s89 ones');
 
 -- (4) item 3: a receipt attached to the incomplete owned row keeps the marker (and the other system keys)
 select pg_temp.upload(pg_temp.id('b3'), pg_temp.id('01'), '86', repeat('86', 32));

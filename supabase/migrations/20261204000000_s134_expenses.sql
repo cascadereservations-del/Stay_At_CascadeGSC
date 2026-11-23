@@ -15,6 +15,7 @@
 --   CHANGED          kpi_tab_v1(uuid,date): ONE anchored replace inside `if v_fin` (SPEC 6). Guard: the live body is the s127 body or this release (both md5s pinned); the replace must match exactly once.
 --   BUCKET           expense-receipts gains application/pdf in allowed_mime_types when the list is not null; the migration stops when file_size_limit is not null and under 5 MB (R4).
 --                   admin_review_transaction_v1(uuid,uuid,text,jsonb,text) (s89, same signature and grants): approve refuses amount_incomplete, amount_locked, system_category, locked as {ok:false,error,where}; the rollback restores the s89 body.
+--                   admin_review_queue_v1(uuid) (s89, same signature and grants): each row also returns s134_incomplete (boolean); the rollback restores the s89 body.
 -- Guard (55000, nothing changes): the functions the trigger depends on must be the bodies this release was cut from. Grants restated (ML-21).
 -- Rollback: supabase/rollbacks/20261204_s134_expenses.sql (keeps the 'inventory' CHECK value and the two purchase columns: expand-only, inert without the triggers).
 
@@ -36,7 +37,8 @@ begin
     ('public.s_inventory_derive_key_v1(text,text)', '736e38143d5e421624c129c9ac5d9dde', null),
     ('public.inventory_receipt_undo_v1(uuid)', '589b583719a611445fcd88a6c1badf92', null),
     ('public.inventory_undo_v1(uuid,uuid)', '5125463a4d686d5a180f1ee599fa00b7', null),
-    ('public.admin_review_transaction_v1(uuid,uuid,text,jsonb,text)', 'fef25e31f2ba4b3df8a9105f38e8c1c2', '9fc10f4c47ca1343015acdfd6e637510')
+    ('public.admin_review_transaction_v1(uuid,uuid,text,jsonb,text)', 'fef25e31f2ba4b3df8a9105f38e8c1c2', '9fc10f4c47ca1343015acdfd6e637510'),
+    ('public.admin_review_queue_v1(uuid)', 'ed2a69205d365ea8afe96d5f55aa677b', '3b8c664b80293f1d56ee23e6f3f1eb42')
   ) t(sig, m_a, m_b) loop
     select md5(replace(p.prosrc, chr(13), '')) into v from pg_proc p where p.oid = to_regprocedure(r.sig);
     if v is null then raise exception 's134: % is missing (apply s133 first)', r.sig using errcode = '55000'; end if;
@@ -948,6 +950,28 @@ end;
 $$;
 comment on function public.admin_review_transaction_v1(uuid, uuid, text, jsonb, text) is 'S89: approve (optionally with edits) or void a pending_review ledger row. approve_payment only; audited by the table trigger; void is a soft_delete audit row with the reason. S134: approve refuses amount_incomplete, amount_locked, system_category and locked as {ok:false,error,where}.';
 
+-- 6d. admin_review_queue_v1 (s89, same signature and grants): each row also returns s134_incomplete (boolean), so the queue can show a stock row with an unpriced line as not yet approvable (approve refuses it, 6c).
+--     Body = the s89 body plus that one column; the guard in section 0 pins the s89 body (md5 ed2a6920...) and this release's body. The rollback restores the s89 body byte for byte.
+create or replace function public.admin_review_queue_v1(p_property_id uuid)
+returns jsonb language plpgsql stable security definer set search_path to '' as $$
+declare v_count integer; v_total numeric; v_rows jsonb;
+begin
+  perform public.admin_require('read_finance', p_property_id);
+  select count(*), coalesce(sum(t.gross_amount), 0) into v_count, v_total
+    from public.transactions t
+   where t.property_id = p_property_id and t.status = 'pending_review' and not (t.source = 'direct_booking' and t.booking_id is not null);
+  select coalesce(jsonb_agg(to_jsonb(q) order by q.transaction_date desc, q.created_at desc), '[]'::jsonb) into v_rows from (
+    select t.id, t.transaction_date, t.txn_type, t.category, t.gross_amount, t.payee_name, t.notes, t.or_number, t.source,
+           t.receipt_image_path, t.ocr_confidence, t.created_at,
+           coalesce((t.ocr_raw->>'s134_incomplete')::boolean, false) as s134_incomplete
+      from public.transactions t
+     where t.property_id = p_property_id and t.status = 'pending_review' and not (t.source = 'direct_booking' and t.booking_id is not null)
+     order by t.transaction_date desc, t.created_at desc limit 100) q;
+  return jsonb_build_object('count', v_count, 'total', v_total, 'rows', v_rows, 'truncated', v_count > 100);
+end;
+$$;
+comment on function public.admin_review_queue_v1(uuid) is 'S89: transactions waiting for review (count, total, newest 100). No guest data; direct-booking payments are on Inquiries. owner/admin/finance. S134: each row also returns s134_incomplete (an unpriced stock line: the row cannot be approved yet).';
+
 -- 7. grants, restated (ML-21) ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 revoke all on function public.expenses_screen_v1(uuid, date, integer, timestamptz, text, uuid) from public, anon, service_role;
 revoke all on function public.admin_save_transaction_v2(uuid, jsonb, text) from public, anon, service_role;
@@ -962,6 +986,8 @@ grant execute on function public.expense_receipt_set_v1(uuid, uuid, text, text) 
 
 revoke all on function public.admin_review_transaction_v1(uuid, uuid, text, jsonb, text) from public, anon, service_role;
 grant execute on function public.admin_review_transaction_v1(uuid, uuid, text, jsonb, text) to authenticated;
+revoke all on function public.admin_review_queue_v1(uuid) from public, anon, service_role;
+grant execute on function public.admin_review_queue_v1(uuid) to authenticated;
 
 revoke all on function public.telegram_expense_save_v1(uuid, jsonb, text) from public, anon, authenticated;
 revoke all on function public.telegram_expense_review_v1(uuid, text, jsonb, text) from public, anon, authenticated;
