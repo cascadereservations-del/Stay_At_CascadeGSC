@@ -19,6 +19,7 @@
 # Env:   CASCADE_SSH_HOST (default alfred), CASCADE_SSH_BIN, CASCADE_SUPABASE_PASSPHRASE_FILE
 #        CASCADE_REHEARSAL_PRE_SQL (optional local .sql file run on the copy after the shims and before the migrations: baseline grants a --no-acl restore lacks, so a strict read-back such as
 #        has_table_privilege('service_role', ...) can be rehearsed without weakening it; it never touches production)
+#        REHEARSAL_TAP_LINES (optional; default 40): how many failure lines of a failing pgTAP suite are printed; "all" prints every not-ok, comment and psql error line
 set -euo pipefail
 
 SSH_HOST="${CASCADE_SSH_HOST:-alfred}"
@@ -96,9 +97,9 @@ fi
 node -e 'const c=require(process.argv[1]);for(const v of c.forward_verification){process.stdout.write([v.name,String(v.expect),v.query.replace(/\s+/g," ")].join("\t")+"\n");}' "$release_abs" \
   | rssh "umask 077; cat > $remote_tmp/checks.tsv"
 
-rssh bash -s -- "$prefix" "$remote_tmp" "$IMAGE" <<'REMOTE'
+rssh bash -s -- "$prefix" "$remote_tmp" "$IMAGE" "${REHEARSAL_TAP_LINES:-40}" <<'REMOTE'
 set -euo pipefail
-prefix="$1"; R="$2"; PG="$3"
+prefix="$1"; R="$2"; PG="$3"; TAPL="${4:-40}"
 db="$prefix-db"; vol="$prefix-data"; net="$prefix-internal"
 pw="$(od -An -N24 -tx1 /dev/urandom | tr -d ' \n')"
 umask 077; printf 'POSTGRES_DB=rehearsal\nPOSTGRES_USER=rehearsal\nPOSTGRES_PASSWORD=%s\n' "$pw" > "$R/pg.env"; unset pw
@@ -209,7 +210,7 @@ if ls "$R/tests"/*.sql >/dev/null 2>&1; then
       echo "  ok    $name ($oks/$planned)"
     else
       tfail=$((tfail+1)); echo "  FAIL  $name (ok $oks of ${planned:-?}, not ok $notok, errors $errs)"
-      grep -E '^(not ok|#|psql:)|ERROR:' "$R/$name.tap" | head -40 >&2
+      if [[ "$TAPL" == all ]]; then grep -E '^(not ok|#|psql:)|ERROR:' "$R/$name.tap" >&2; else grep -E '^(not ok|#|psql:)|ERROR:' "$R/$name.tap" | head -n "$TAPL" >&2; fi
     fi
   done
   echo "pgTAP suites: $((tcount-tfail)) passed, $tfail failed"

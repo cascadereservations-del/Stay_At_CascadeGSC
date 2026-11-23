@@ -70,7 +70,7 @@ begin
       perform public.admin_audit_context_v1('s134 back-fill', null, null);
       insert into public.transactions (property_id, txn_type, category, status, source, transaction_date, gross_amount, currency, payee_name, notes, external_ref, logged_by, ocr_raw)
       values (g.prop, 'expense', 'supplies', 'pending_review', 'inventory', g.first_date, v_amt, 'PHP', case when g.nsup = 1 then g.sup end, v_note, 'stock:' || g.grp, 'system',
-              jsonb_build_object('s134_auto', false, 's134_amount', v_amt, 's134_group', g.grp, 's134_backfill', true))
+              jsonb_build_object('s134_auto', false, 's134_amount', v_amt, 's134_group', g.grp, 's134_backfill', true, 's134_incomplete', v_incomplete))
       returning id into v_new;
       perform public.admin_audit_context_v1('', null, null);
       update public.inventory_purchases set transaction_id = v_new where expense_group = g.grp and transaction_id is null;

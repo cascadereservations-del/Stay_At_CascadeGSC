@@ -222,8 +222,7 @@ begin
     select array_agg(x.name order by x.first_at, x.name) into v_names
       from (select i.name, min(p.created_at) first_at from public.inventory_purchases p join public.inventory_items i on i.id = p.item_id where p.expense_group = p_group group by i.name) x;
     v_note := 'Stock bought: ' || array_to_string(v_names[1:3], ', ') || case when array_length(v_names, 1) > 3 then ' (+' || (array_length(v_names, 1) - 3) || ' more)' else '' end
-              || case when v_nsup >= 2 then ' - Several suppliers' else '' end
-              || case when v_incomplete then ' - amount incomplete' else '' end;
+              || case when v_nsup >= 2 then ' - Several suppliers' else '' end;
 
     if v_row.id is not null then
       -- step 5: recompute. The link first (idempotent), then a sync-owned row follows the purchases; a human-owned row is never changed.
@@ -236,15 +235,16 @@ begin
               'Expense ' || left(v_row.id::text, 8) || ' was approved or edited while its last priced line was removed. The expense was left as it is.');
           end if;
         else
-          -- the amount, date and payee follow the purchases; the note is NOT rewritten (a person may have edited it). An owned row that turns incomplete and was auto-confirmed goes back to review.
+          -- the amount, date and payee follow the purchases; the note is NOT rewritten (a person may have edited it) and nothing depends on its text: the incomplete marker lives in ocr_raw.s134_incomplete,
+          -- set on every pass. An owned row that turns incomplete and was auto-confirmed goes back to review.
           v_flip := v_incomplete and v_row.status = 'confirmed';
-          if (v_row.gross_amount, v_row.transaction_date, v_row.payee_name) is distinct from (v_amt, v_date, v_payee) or v_flip then
+          if (v_row.gross_amount, v_row.transaction_date, v_row.payee_name) is distinct from (v_amt, v_date, v_payee) or v_flip
+             or (v_row.ocr_raw ->> 's134_incomplete') is distinct from v_incomplete::text then
             perform public.admin_audit_context_v1('stock sync', null, null);
             -- the ownership rule is in the WHERE too: a row approved or edited since the lock above is left alone and a task opens instead
             update public.transactions set gross_amount = v_amt, transaction_date = v_date, payee_name = v_payee,
                    status = case when v_flip then 'pending_review' else status end,
-                   notes = case when v_flip and coalesce(notes, '') not like '%amount incomplete%' then concat_ws(' - ', notes, 'amount incomplete') else notes end,
-                   ocr_raw = coalesce(ocr_raw, '{}'::jsonb) || jsonb_build_object('s134_amount', v_amt) || case when v_flip then jsonb_build_object('s134_auto', false) else '{}'::jsonb end,
+                   ocr_raw = coalesce(ocr_raw, '{}'::jsonb) || jsonb_build_object('s134_amount', v_amt, 's134_incomplete', v_incomplete) || case when v_flip then jsonb_build_object('s134_auto', false) else '{}'::jsonb end,
                    updated_at = now()
              where id = v_row.id and status <> 'void' and source = 'inventory' and external_ref like 'stock:%' and (status = 'pending_review' or ocr_raw ->> 's134_auto' = 'true')
                and case when (ocr_raw ->> 's134_amount') ~ '^[0-9]+(\.[0-9]+)?$' then gross_amount = (ocr_raw ->> 's134_amount')::numeric else false end;
@@ -281,7 +281,7 @@ begin
     perform public.admin_audit_context_v1('stock sync', null, null);
     insert into public.transactions (property_id, txn_type, category, status, source, transaction_date, gross_amount, currency, payee_name, notes, external_ref, logged_by, ocr_raw)
     values (v_prop, 'expense', 'supplies', v_status, 'inventory', v_date, v_amt, 'PHP', v_payee, v_note, v_ref, 'system',
-            jsonb_build_object('s134_auto', v_auto, 's134_amount', v_amt, 's134_group', p_group))
+            jsonb_build_object('s134_auto', v_auto, 's134_amount', v_amt, 's134_group', p_group, 's134_incomplete', v_incomplete))
     returning id into v_new;
     perform public.admin_audit_context_v1('', null, null);
     update public.inventory_purchases set transaction_id = v_new where expense_group = p_group and transaction_id is distinct from v_new;
@@ -530,6 +530,7 @@ begin
              'amount_locked', (n.locked or (n.has_stock and public.s_stock_expense_owned_v1(n.id))),
              'stock', case when n.has_stock then (select jsonb_build_object('lines', count(*), 'items', count(distinct ip.item_id)) from public.inventory_purchases ip where ip.transaction_id = n.id) end,
              'lookalike_id', public.s_expense_lookalike_v1(n.id) ->> 'id',
+             's134_incomplete', coalesce((n.ocr_raw ->> 's134_incomplete') = 'true', false),
              'created_at', n.created_at) order by n.rn), '[]'::jsonb),
            coalesce(bool_or(n.rn > v_lim), false)
       into v_rows, v_more

@@ -3,7 +3,7 @@
 -- only the RPC calls run as the staff roles. Every case that relies on the deferred stock trigger issues "set constraints all immediate;" after the write (one uncommitted transaction never fires it otherwise).
 -- T12 does not exist (dropped from the plan). T16 runs a verbatim copy of supabase/sql/s134_backfill.sql (between the BACKFILL markers; the lane's gate compares the two).
 begin;
-select plan(119);
+select plan(122);
 
 -- baseline grants for a --no-acl rehearsal restore (idempotent, rolled back with the suite)
 grant usage on schema public, auth to anon, authenticated, service_role;
@@ -187,8 +187,8 @@ reset role;
 select ok((select (v ->> 'ok')::boolean from _t where k = 'rl3') and pg_temp.nrows('rcpt:zz-s134-rcpt-key-0003') = 1 and (select abs(t.gross_amount - 300) <= 0.10 and t.status = 'confirmed' from public.transactions t where t.id = pg_temp.tid('rcpt:zz-s134-rcpt-key-0003'))
       and (select count(*) = 2 and bool_and(p.transaction_id = pg_temp.tid('rcpt:zz-s134-rcpt-key-0003')) from public.inventory_purchases p where p.expense_group = 'rcpt:zz-s134-rcpt-key-0003'),
   'T3: three packs on two lines make ONE row, within P0.10 of the total paid (300), both purchases linked');
-select ok(pg_temp.nrows('rcpt:zz-s134-grp-key-3b0001') = 1 and (select t.status = 'pending_review' and t.notes like '%amount incomplete%' and t.gross_amount = 5 from public.transactions t where t.id = pg_temp.tid('rcpt:zz-s134-grp-key-3b0001')),
-  'T3b: one priced and one unpriced line: one PENDING row of what is priced, noted "amount incomplete"');
+select ok(pg_temp.nrows('rcpt:zz-s134-grp-key-3b0001') = 1 and (select t.status = 'pending_review' and t.ocr_raw ->> 's134_incomplete' = 'true' and t.gross_amount = 5 from public.transactions t where t.id = pg_temp.tid('rcpt:zz-s134-grp-key-3b0001')),
+  'T3b: one priced and one unpriced line: one PENDING row of what is priced, marked ocr_raw.s134_incomplete = true');
 select ok(pg_temp.nrows('rcpt:zz-s134-grp-key-3c0001') = 0 and (select count(*) = 1 from public.inventory_purchases p where p.expense_group = 'rcpt:zz-s134-grp-key-3c0001' and p.transaction_id is null), 'T3c: no priced line: no ledger row, the purchase stays unlinked');
 select pg_temp.as_user(pg_temp.id('03'));
 insert into _t select 'scr3c', public.expenses_screen_v1(pg_temp.id('b2'));
@@ -326,9 +326,28 @@ set constraints all deferred;
 insert into public.inventory_purchases(item_id, qty, unit_cost, notes) values (pg_temp.id('e3'), 1, null, 'Admin receipt [key:zz-s134-adm-key-00031:g2] extra line with no price');
 set constraints all immediate;
 select ok((select (v ->> 'auto')::boolean from _t where k = 'fx7a') and pg_temp.nrows('rcpt:zz-s134-adm-key-00031') = 1
-      and (select t.status = 'pending_review' and t.ocr_raw ->> 's134_auto' = 'false' and t.gross_amount = 10 and t.notes like 'Stock bought: Zz S134 Sugar%' and t.notes like '%amount incomplete%'
+      and (select t.status = 'pending_review' and t.ocr_raw ->> 's134_auto' = 'false' and t.gross_amount = 10 and t.notes like 'Stock bought: Zz S134 Sugar%' and t.notes not like '%amount incomplete%' and t.ocr_raw ->> 's134_incomplete' = 'true'
              from public.transactions t where t.id = pg_temp.tid('rcpt:zz-s134-adm-key-00031')),
-  'fix 7: an auto-confirmed row whose receipt gains an unpriced line goes back to pending_review (s134_auto false, still P10, noted "amount incomplete") and stays ONE row');
+  'fix 7: an auto-confirmed row whose receipt gains an unpriced line goes back to pending_review (s134_auto false, still P10, ocr_raw.s134_incomplete true, note text untouched) and stays ONE row');
+
+-- fix round 2 (item 4): the incomplete marker is ocr_raw.s134_incomplete, set on every pass; the screen returns it; a priced line clears it and the row is not re-confirmed
+insert into _t select 'fx7p', jsonb_build_object('p', (select t.property_id from public.transactions t where t.id = pg_temp.tid('rcpt:zz-s134-adm-key-00031')));
+select pg_temp.as_user(pg_temp.id('01'));
+insert into _t select 'fx7s', public.expenses_screen_v1((select (v ->> 'p')::uuid from _t where k = 'fx7p'));
+reset role;
+select ok((select (r ->> 's134_incomplete')::boolean from _t x, jsonb_array_elements(x.v -> 'rows') r where x.k = 'fx7s' and r ->> 'id' = pg_temp.tid('rcpt:zz-s134-adm-key-00031')::text),
+  'fix r2: expenses_screen_v1 returns s134_incomplete = true on the pending row that turned incomplete');
+set constraints all deferred;
+update public.inventory_purchases set unit_cost = 4 where expense_group = 'rcpt:zz-s134-adm-key-00031' and unit_cost is null;
+set constraints all immediate;
+select ok((select t.ocr_raw ->> 's134_incomplete' = 'false' and t.gross_amount = 14 and t.status = 'pending_review' and t.ocr_raw ->> 's134_auto' = 'false' and t.notes not like '%amount incomplete%'
+             from public.transactions t where t.id = pg_temp.tid('rcpt:zz-s134-adm-key-00031')) and pg_temp.nrows('rcpt:zz-s134-adm-key-00031') = 1,
+  'fix r2: when the receipt becomes complete again the marker is cleared (false), the amount follows (P14), the row stays pending_review and is not re-confirmed');
+select pg_temp.as_user(pg_temp.id('01'));
+insert into _t select 'fx7t', public.expenses_screen_v1((select (v ->> 'p')::uuid from _t where k = 'fx7p'));
+reset role;
+select ok((select not (r ->> 's134_incomplete')::boolean from _t x, jsonb_array_elements(x.v -> 'rows') r where x.k = 'fx7t' and r ->> 'id' = pg_temp.tid('rcpt:zz-s134-adm-key-00031')::text),
+  'fix r2: expenses_screen_v1 returns s134_incomplete = false once the receipt is complete');
 
 -- (13) a second auto row: the person edits category and note; date and payee are refused; the purchases still move the amount and the note is kept
 set constraints all deferred;
@@ -364,7 +383,9 @@ select ok((with g as (
               select g.grp, t.id from g join public.transactions t on t.external_ref = 'stock:' || g.grp and t.status <> 'void')
            select not exists (select 1 from live group by grp having count(distinct id) > 1)
               and not exists (select 1 from g where g.priced and g.first_at >= (select (s.value #>> '{}')::timestamptz from public.app_settings s where s.key = 's134_stock_expense_from')
-                                and not exists (select 1 from live l where l.grp = g.grp))),
+                                and not exists (select 1 from live l where l.grp = g.grp)
+                                and not exists (select 1 from public.inventory_purchases p2 join public.transactions v on (v.id = p2.transaction_id or v.external_ref = 'stock:' || p2.expense_group) and v.status = 'void' and coalesce(v.notes, '') not like '%[voided: stock receipt%'
+                                                 where p2.expense_group = g.grp))),
   'fix 6: per receipt group, at most one live row (purchase links + stock:<group>) and exactly one for every priced group made after the cut-over');
 
 -- (5, 9) the ownership rule inside the write. A pending stock row in the other house; then a person approves and edits it; the next sync is made to read it as still owned (a stale read), and its UPDATE refuses.
@@ -927,6 +948,8 @@ insert into public.inventory_purchases(id, item_id, qty, unit_cost, purchased_at
   (pg_temp.id('9d'), pg_temp.id('a3'), 3, 10, date '2026-10-20', null, 'Zz S134 bf draft line', 'draft:' || pg_temp.id('9a')::text);
 insert into public.inventory_purchases(id, item_id, qty, unit_cost, purchased_at, supplier, notes) values
   (pg_temp.id('9e'), pg_temp.id('a3'), 1, null, date '2026-10-21', null, 'Zz S134 bf cross house (txn ' || pg_temp.id('9c')::text || ')');
+-- these purchases model stock written BEFORE the cut-over (the sync never saw them): their created_at is before the cut-over, so the "exactly one live row for a priced post-cut-over group" half of the invariant does not apply to them
+update public.inventory_purchases set created_at = now() - interval '400 days' where id in (pg_temp.id('c1'), pg_temp.id('c2'), pg_temp.id('c3'), pg_temp.id('c4'), pg_temp.id('c5'), pg_temp.id('c6'), pg_temp.id('c7'), pg_temp.id('c8'), pg_temp.id('c9'), pg_temp.id('9d'), pg_temp.id('9e'));
 alter table public.inventory_purchases enable trigger s134_stock_expense_group;
 alter table public.inventory_purchases enable trigger s134_stock_expense_sync;
 create temp table _bf0 as select t.id, md5(t::text) as h from public.transactions t;
@@ -993,7 +1016,7 @@ begin
       perform public.admin_audit_context_v1('s134 back-fill', null, null);
       insert into public.transactions (property_id, txn_type, category, status, source, transaction_date, gross_amount, currency, payee_name, notes, external_ref, logged_by, ocr_raw)
       values (g.prop, 'expense', 'supplies', 'pending_review', 'inventory', g.first_date, v_amt, 'PHP', case when g.nsup = 1 then g.sup end, v_note, 'stock:' || g.grp, 'system',
-              jsonb_build_object('s134_auto', false, 's134_amount', v_amt, 's134_group', g.grp, 's134_backfill', true))
+              jsonb_build_object('s134_auto', false, 's134_amount', v_amt, 's134_group', g.grp, 's134_backfill', true, 's134_incomplete', v_incomplete))
       returning id into v_new;
       perform public.admin_audit_context_v1('', null, null);
       update public.inventory_purchases set transaction_id = v_new where expense_group = g.grp and transaction_id is null;
@@ -1069,7 +1092,7 @@ begin
       perform public.admin_audit_context_v1('s134 back-fill', null, null);
       insert into public.transactions (property_id, txn_type, category, status, source, transaction_date, gross_amount, currency, payee_name, notes, external_ref, logged_by, ocr_raw)
       values (g.prop, 'expense', 'supplies', 'pending_review', 'inventory', g.first_date, v_amt, 'PHP', case when g.nsup = 1 then g.sup end, v_note, 'stock:' || g.grp, 'system',
-              jsonb_build_object('s134_auto', false, 's134_amount', v_amt, 's134_group', g.grp, 's134_backfill', true))
+              jsonb_build_object('s134_auto', false, 's134_amount', v_amt, 's134_group', g.grp, 's134_backfill', true, 's134_incomplete', v_incomplete))
       returning id into v_new;
       perform public.admin_audit_context_v1('', null, null);
       update public.inventory_purchases set transaction_id = v_new where expense_group = g.grp and transaction_id is null;
@@ -1083,12 +1106,12 @@ $bf$;
 
 select ok((select count(*) = 1 from public.transactions t where t.external_ref = 'stock:rcpt:zz-s134-bf-g1')
       and (select t.status = 'pending_review' and t.gross_amount = 25 and t.payee_name = 'Zz S134 Sup' and t.source = 'inventory' and t.category = 'supplies' and t.logged_by = 'system' and t.transaction_date = date '2026-10-05'
-                  and t.ocr_raw = jsonb_build_object('s134_auto', false, 's134_amount', 25, 's134_group', 'rcpt:zz-s134-bf-g1', 's134_backfill', true) and t.notes like '%[back-fill s134]' and t.notes not like '%possible duplicate%'
+                  and t.ocr_raw = jsonb_build_object('s134_auto', false, 's134_amount', 25, 's134_group', 'rcpt:zz-s134-bf-g1', 's134_backfill', true, 's134_incomplete', false) and t.notes like '%[back-fill s134]' and t.notes not like '%possible duplicate%'
              from public.transactions t where t.external_ref = 'stock:rcpt:zz-s134-bf-g1')
       and (select count(*) = 2 and bool_and(p.transaction_id = (select t.id from public.transactions t where t.external_ref = 'stock:rcpt:zz-s134-bf-g1') and p.expense_group = 'rcpt:zz-s134-bf-g1')
              from public.inventory_purchases p where p.id in (pg_temp.id('c1'), pg_temp.id('c2'))),
   'T16: a legacy two-line receipt group gets ONE pending_review row (sum of its lines, its one supplier, source inventory, logged_by system) and both purchases are linked');
-select ok((select t.gross_amount = 15 and t.status = 'pending_review' and t.notes like '%amount incomplete%' from public.transactions t where t.external_ref = 'stock:rcpt:zz-s134-bf-g2')
+select ok((select t.gross_amount = 15 and t.status = 'pending_review' and t.notes like '%amount incomplete%' and t.ocr_raw ->> 's134_incomplete' = 'true' from public.transactions t where t.external_ref = 'stock:rcpt:zz-s134-bf-g2')
       and (select t.notes like '%possible duplicate%' and t.status = 'pending_review' from public.transactions t where t.external_ref = 'stock:p:' || pg_temp.id('c8')::text),
   'T16: a group with an unpriced line is flagged "amount incomplete" and counted at its priced lines; a group with a look-alike is flagged "possible duplicate"; neither is confirmed or guessed');
 select ok(not exists (select 1 from public.transactions t where t.external_ref = 'stock:p:' || pg_temp.id('c5')::text) and not exists (select 1 from public.transactions t where t.external_ref = 'stock:p:' || pg_temp.id('c9')::text)
@@ -1097,10 +1120,20 @@ select ok(not exists (select 1 from public.transactions t where t.external_ref =
   'T16: stock before the start date, stock with no price, and stock already linked (by its note, or to a human-owned stock row) get no new row; the note link is made and a human-owned stock row is left alone');
 select ok(not exists (select 1 from public.transactions t where t.external_ref like 'stock:%' and t.ocr_raw ->> 's134_backfill' = 'true' and (t.status <> 'pending_review' or t.ocr_raw ->> 's134_auto' <> 'false'))
       and not exists (select 1 from _bf0 b join public.transactions t on t.id = b.id where md5(t::text) is distinct from b.h)
-      and not exists (select 1 from (select p.expense_group grp, t.id from public.inventory_purchases p join public.transactions t on t.id = p.transaction_id and t.status <> 'void' where p.expense_group is not null
-                                       union select p.expense_group, t.id from public.inventory_purchases p join public.transactions t on t.external_ref = 'stock:' || p.expense_group and t.status <> 'void' where p.expense_group is not null) l
-                      group by grp having count(distinct id) > 1),
-  'T16: no back-filled row is confirmed, no row that existed before is modified, and no receipt group has two live rows (the real per-group invariant)');
+      and (with g as (
+              select p.expense_group grp, min(p.created_at) first_at,
+                     (bool_or(p.unit_cost > 0) or exists (select 1 from public.inventory_receipt_drafts d where p.expense_group = 'draft:' || d.id::text and d.total > 0)) priced
+                from public.inventory_purchases p where p.expense_group is not null group by p.expense_group),
+            live as (
+              select p.expense_group grp, t.id from public.inventory_purchases p join public.transactions t on t.id = p.transaction_id and t.status <> 'void' where p.expense_group is not null
+              union
+              select g.grp, t.id from g join public.transactions t on t.external_ref = 'stock:' || g.grp and t.status <> 'void')
+           select not exists (select 1 from live group by grp having count(distinct id) > 1)
+              and not exists (select 1 from g where g.priced and g.first_at >= (select (s.value #>> '{}')::timestamptz from public.app_settings s where s.key = 's134_stock_expense_from')
+                                and not exists (select 1 from live l where l.grp = g.grp)
+                                and not exists (select 1 from public.inventory_purchases p2 join public.transactions v on (v.id = p2.transaction_id or v.external_ref = 'stock:' || p2.expense_group) and v.status = 'void' and coalesce(v.notes, '') not like '%[voided: stock receipt%'
+                                                 where p2.expense_group = g.grp))),
+  'T16: no back-filled row is confirmed, no row that existed before is modified, and the full per-group invariant holds (at most one live row; exactly one for a priced post-cut-over group unless a person voided it)');
 select ok(not exists (select 1 from (select 'p'::text as k, p.id::text as id, md5(p::text) as h from public.inventory_purchases p union all select 't', t.id::text, md5(t::text) from public.transactions t) a
                        where not exists (select 1 from _bf1 b where b.k = a.k and b.id = a.id and b.h = a.h))
       and (select count(*) from public.transactions) = (select count(*) from _bf1 where k = 't'), 'T16: running the back-fill a second time changes nothing (idempotent)');
