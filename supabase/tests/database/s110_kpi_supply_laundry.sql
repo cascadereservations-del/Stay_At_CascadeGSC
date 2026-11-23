@@ -156,6 +156,9 @@ insert into public.inventory_usage(item_id, used_qty, session_date, property_id)
 insert into public.staff_pay_requests(property_id, payee_user_id, payee_name, idempotency_key, status, lines, total_amount, paid_at, paid_by_name, proof_file_unique_id, proof_sha256, proof_verdict) values
   (pg_temp.id('b0'), pg_temp.id('a1'), 'Zz110 Cleaner', 'zz110-pay-0001', 'paid', '[{"n":1}]'::jsonb, 500, now(), 'Zz110', 'zz110-proof', 'zz110', 'match'),
   (pg_temp.id('b0'), pg_temp.id('a6'), 'Zz110 Cleaner 2', 'zz110-pay-0002', 'cancelled', '[{"n":1}]'::jsonb, 900, null, null, null, null, null);
+-- s134 (fix A): from the cut-over month the KPI reads Cleaning pay from the ledger, so the paid request above needs its confirmed ledger row (what Pay staff writes when it pays): cleaner_fee / cleaning, 500.
+insert into public.transactions(property_id, txn_type, category, status, source, transaction_date, gross_amount, notes) values
+  (pg_temp.id('b0'), 'expense', 'cleaning', 'confirmed', 'cleaner_fee', public.manila_today(), 500, 'Zz110 paid cleaner (s134 fix A)');
 
 select pg_temp.as_user(pg_temp.id('a1'));
 create temp table _k_cleaner as select public.kpi_tab_v1(pg_temp.id('b0')) as j;
@@ -190,7 +193,7 @@ select ok((select (j -> 'inventory' ->> 'low_now')::integer from _k_cleaner) >= 
 select is((select (j -> 'admin' ->> 'month_kwh_cost')::numeric from _k_admin), 250.00::numeric, 'month_kwh_cost is 20 kWh at the 12.5 rate');
 select is((select (j -> 'admin' ->> 'last_reading_cost')::numeric from _k_admin), 250.00::numeric, 'last_reading_cost is the last 20 kWh at the 12.5 rate');
 select is((select (j -> 'admin' -> 'rate' ->> 'php_per_kwh')::numeric from _k_admin), 12.5::numeric, 'the current rate is the newest effective rate (the manual one dated today)');
-select is((select (j -> 'admin' ->> 'cleaning_pay_month')::numeric from _k_admin), 500.00::numeric, 'cleaning_pay_month counts the paid request and not the cancelled one');
+select is((select (j -> 'admin' ->> 'cleaning_pay_month')::numeric from _k_admin), 500.00::numeric, 'cleaning_pay_month counts the paid request (its confirmed cleaner_fee ledger row since s134) and not the cancelled one');
 select is((select (j -> 'admin' ->> 'supply_cost_per_turnover')::numeric from _k_admin), 30.00::numeric, 'supply_cost_per_turnover is 3 tissue x 10 / 1 turnover');
 select is((select (j -> 'utility' ->> 'kwh_month')::numeric from _k_old), 10::numeric, 'another month reads its own numbers (the typed_accepted reading of 2020-01)');
 select is((select (j -> 'admin' ->> 'month_kwh_cost')::numeric from _k_old), 90.00::numeric, 'month_kwh_cost uses the rate in force on the reading day (manual 9 beats the same-month auto 7 and today''s 12.5)');

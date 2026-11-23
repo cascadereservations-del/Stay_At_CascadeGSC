@@ -92,7 +92,7 @@ select ok((select count(*) = 14 and bool_and(p.proconfig = array['search_path=""
 select ok((select bool_and(p.prosecdef) from pg_proc p where p.oid in ('public.utility_bill_estimate_v1(uuid,date)'::regprocedure, 'public.today_bills_v1(uuid)'::regprocedure, 'public.kpi_tab_v1(uuid,date)'::regprocedure))
           and has_function_privilege('authenticated', 'public.kpi_tab_v1(uuid,date)', 'execute') and not has_function_privilege('anon', 'public.kpi_tab_v1(uuid,date)', 'execute')
           and not has_function_privilege('service_role', 'public.kpi_tab_v1(uuid,date)', 'execute'), 'kpi_tab_v1 is still security definer, for signed-in users only');
-select ok(md5(replace((select p.prosrc from pg_proc p where p.oid = 'public.kpi_tab_v1(uuid,date)'::regprocedure), chr(13), '')) = '80efd89e916bcd6107c681baf86f143f',
+select ok(md5(replace((select p.prosrc from pg_proc p where p.oid = 'public.kpi_tab_v1(uuid,date)'::regprocedure), chr(13), '')) in ('80efd89e916bcd6107c681baf86f143f', '7c6d5a22d09ad96916804630f31df602'),
           'kpi_tab_v1 is exactly the body this release pins (the s115 body 229c75a3... plus the inserted statements only)');
 
 -- settings: the migration insert, the key-by-key fallback, and a setting of the wrong type never raises ------------------------------------------------------------

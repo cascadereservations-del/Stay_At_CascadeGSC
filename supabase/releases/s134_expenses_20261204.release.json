@@ -1,0 +1,145 @@
+{
+  "schema_version": 1,
+  "release_id": "s134_expenses_20261204",
+  "phase": "expand",
+  "source": {
+    "branch": "s134/expenses",
+    "commit": "__COMMIT__"
+  },
+  "migrations": [
+    "20261204000000_s134_expenses.sql"
+  ],
+  "migration_sha256": {
+    "20261204000000_s134_expenses.sql": "bf7e83704dd8e618757722ae8e50ff040a4ba6673403701334d3a8209ac1689e"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20261123T120703Z",
+    "verified_at": "2026-11-23T12:20:00.000Z",
+    "production_rule": "One expense ledger (D-405, Lloyd 2026-11-23): inventory_purchases.transaction_id (FK, on delete set null) and .expense_group; transactions_source_check gains 'inventory'; a BEFORE INSERT trigger (s134_stock_expense_group) and a deferred constraint trigger (s134_stock_expense_sync) turn stock bought into ONE ledger row per receipt without ever failing a stock write; kpi_tab_v1 gets one anchored replace inside if v_fin (md5 80efd89e to 7c6d5a22); 5 client RPCs (authenticated only), 2 Telegram RPCs (service_role only), 15 internal functions (no grants); the expense-receipts mime list gains application/pdf (NULL stays NULL, a size limit under 5 MB stops the migration). The migration writes no ledger row: old stock is the back-fill's (supabase/sql/s134_backfill.sql, run only after Lloyd has seen the preview).",
+    "notes": "Apply after s133 is applied. Restamp restore_point and verified_at with a fresh backup at apply time (scripts/migrations/fill-restore-point.mjs; the checker refuses one older than an hour). The Admin and Staff pushes and the Telegram edge functions follow the SQL; the back-fill is a separate, approved step."
+  },
+  "forward_verification": [
+    {
+      "name": "md5_s134_functions",
+      "query": "select count(*) = 23 and bool_and(md5(replace(p.prosrc, chr(13), '')) = e.m) from (values ('public.admin_save_transaction_v2(uuid,jsonb,text)'::regprocedure, 'c38dd66284d7f44df1385c18be134212'), ('public.expense_receipt_paths_v1(uuid,uuid[])'::regprocedure, '0f964141f6bed34eddcecda71a699ad0'), ('public.expense_receipt_set_v1(uuid,uuid,text,text)'::regprocedure, '866c53333b9fba1dcb9d3f0a63f8e0e7'), ('public.expense_void_v1(uuid,uuid,text,uuid)'::regprocedure, '3387bf108b0095a0adcfca6ea1229cd6'), ('public.expenses_screen_v1(uuid,date,integer,timestamp with time zone,text)'::regprocedure, 'a638a89d101c593f93c94a853875c281'), ('public.kpi_admin_costs_v1(uuid,date,date)'::regprocedure, '4f31a1198ab49d4b93476c1ce4366e02'), ('public.kpi_tab_v1(uuid,date)'::regprocedure, '7c6d5a22d09ad96916804630f31df602'), ('public.s_expense_bucket_pdf_v1(text)'::regprocedure, '4722557b7939e6d3b44d76e145337836'), ('public.s_expense_chip_v1(text,boolean,boolean)'::regprocedure, '08bedf386b29abb01b1300114cc23bf8'), ('public.s_expense_lookalike_v1(uuid)'::regprocedure, '15fe9800149343b47f926faa21c603e0'), ('public.s_expense_mime_v1(text)'::regprocedure, 'a3fe73cef27ac85e1589d963806deeb5'), ('public.s_expense_receipt_gate_v1(uuid,text,uuid)'::regprocedure, '0a7fba8b969efba14c3fd2a6cce2bfbc'), ('public.s_expense_receipt_v1(uuid,boolean)'::regprocedure, '0dac6ddaa834dbea818901f959898b68'), ('public.s_stock_expense_group_of_v1(uuid,text)'::regprocedure, '6bd71d86fd3bddf930a621df71957a5c'), ('public.s_stock_expense_group_v1()'::regprocedure, '7883e102b14ebeed6ae4d941bf802358'), ('public.s_stock_expense_owned_v1(uuid)'::regprocedure, '1304863015b47dc954ced31b64885a54'), ('public.s_stock_expense_sync_v1(text)'::regprocedure, '670308d9bcd53f61bc18d1c601d0c78e'), ('public.s_stock_expense_task_v1(uuid,text,text,text)'::regprocedure, '319d646bfafebadd61614e06ebea98fc'), ('public.s_stock_expense_trg_v1()'::regprocedure, 'ba0d3c299cd8c1d801436263ed62656c'), ('public.s_stock_expense_txn_of_v1(text)'::regprocedure, '550f87c5a31ffb553cd89bfcc901cac9'), ('public.s_txn_void_core_v1(uuid,text,text)'::regprocedure, '92038d755e67e93a324a7e9078c1f6bc'), ('public.telegram_expense_review_v1(uuid,text,jsonb,text)'::regprocedure, '1483455b56d80fcd9aba8119ccee5d74'), ('public.telegram_expense_save_v1(uuid,jsonb,text)'::regprocedure, '781a9f61c5f684dac2732bd655d683a2')) e(f, m) join pg_proc p on p.oid = e.f",
+      "expect": true
+    },
+    {
+      "name": "rule_0_depended_functions_unchanged",
+      "query": "select count(*) = 10 and bool_and(md5(replace(p.prosrc, chr(13), '')) = e.m) from (values ('public.record_inventory_receipt_v1(uuid,numeric,numeric,text,date,text,uuid,text,uuid,text)'::regprocedure, 'd190f6b6051be034e9e9babb99cbbf56'), ('public.s_inventory_receipt_apply_v1(uuid,numeric,numeric,text,uuid,date,text,uuid)'::regprocedure, '1d89aede56a8ed77aaf48a46f731300e'), ('public.apply_inventory_purchase(uuid,numeric,numeric,text,date,uuid,uuid)'::regprocedure, 'd8b04844b3f9c654c6355a1958694402'), ('public.s_inventory_receipt_confirm_core_v1(uuid,jsonb,date,text,boolean)'::regprocedure, '6f1e7dc8c1dc43cd6dfb9cf2f92f9af9'), ('public.inventory_receipt_manual_v1(jsonb,date,text,text,numeric,text,text)'::regprocedure, '8c407320edbbc9d944a86461bef23adf'), ('public.inventory_receipt_lines_v1(uuid,jsonb,numeric,date,uuid,text)'::regprocedure, 'aff79ca9f33b04253d35ecf8f6038d9a'), ('public.inventory_group_update_v1(uuid,text,jsonb,text)'::regprocedure, '960acf4721bd5b0b95fde7845069035c'), ('public.s_inventory_derive_key_v1(text,text)'::regprocedure, '736e38143d5e421624c129c9ac5d9dde'), ('public.inventory_receipt_undo_v1(uuid)'::regprocedure, '589b583719a611445fcd88a6c1badf92'), ('public.inventory_undo_v1(uuid,uuid)'::regprocedure, '5125463a4d686d5a180f1ee599fa00b7')) e(f, m) join pg_proc p on p.oid = e.f",
+      "expect": true
+    },
+    {
+      "name": "client_functions_authenticated_only",
+      "query": "select bool_and(has_function_privilege('authenticated', f::regprocedure, 'execute') and not has_function_privilege('anon', f::regprocedure, 'execute') and not has_function_privilege('service_role', f::regprocedure, 'execute')) from unnest(array['public.expenses_screen_v1(uuid,date,integer,timestamptz,text)', 'public.admin_save_transaction_v2(uuid,jsonb,text)', 'public.expense_void_v1(uuid,uuid,text,uuid)', 'public.expense_receipt_paths_v1(uuid,uuid[])', 'public.expense_receipt_set_v1(uuid,uuid,text,text)', 'public.kpi_tab_v1(uuid,date)']) f",
+      "expect": true
+    },
+    {
+      "name": "telegram_functions_service_role_only",
+      "query": "select bool_and(has_function_privilege('service_role', f::regprocedure, 'execute') and not has_function_privilege('anon', f::regprocedure, 'execute') and not has_function_privilege('authenticated', f::regprocedure, 'execute')) from unnest(array['public.telegram_expense_save_v1(uuid,jsonb,text)', 'public.telegram_expense_review_v1(uuid,text,jsonb,text)']) f",
+      "expect": true
+    },
+    {
+      "name": "internal_functions_no_client_grants",
+      "query": "select count(*) = 15 and bool_and(not has_function_privilege('anon', f::regprocedure, 'execute') and not has_function_privilege('authenticated', f::regprocedure, 'execute') and not has_function_privilege('service_role', f::regprocedure, 'execute')) from unnest(array['public.s_stock_expense_group_of_v1(uuid,text)', 'public.s_stock_expense_txn_of_v1(text)', 'public.s_stock_expense_group_v1()', 'public.s_stock_expense_trg_v1()', 'public.s_stock_expense_sync_v1(text)', 'public.s_stock_expense_task_v1(uuid,text,text,text)', 'public.s_stock_expense_owned_v1(uuid)', 'public.s_txn_void_core_v1(uuid,text,text)', 'public.s_expense_chip_v1(text,boolean,boolean)', 'public.s_expense_mime_v1(text)', 'public.s_expense_receipt_v1(uuid,boolean)', 'public.s_expense_lookalike_v1(uuid)', 'public.s_expense_receipt_gate_v1(uuid,text,uuid)', 'public.s_expense_bucket_pdf_v1(text)', 'public.kpi_admin_costs_v1(uuid,date,date)']) f",
+      "expect": true
+    },
+    {
+      "name": "triggers_present_enabled",
+      "query": "select count(*) = 2 from pg_trigger t where t.tgrelid = 'public.inventory_purchases'::regclass and t.tgenabled = 'O' and ((t.tgname = 's134_stock_expense_group' and t.tgfoid = 'public.s_stock_expense_group_v1()'::regprocedure) or (t.tgname = 's134_stock_expense_sync' and t.tgfoid = 'public.s_stock_expense_trg_v1()'::regprocedure and t.tgdeferrable and t.tginitdeferred))",
+      "expect": true
+    },
+    {
+      "name": "columns_present",
+      "query": "select count(*) = 2 from information_schema.columns where table_schema = 'public' and table_name = 'inventory_purchases' and column_name in ('transaction_id', 'expense_group') and is_nullable = 'YES'",
+      "expect": true
+    },
+    {
+      "name": "source_check_has_inventory",
+      "query": "select pg_get_constraintdef(c.oid) like '%''inventory''%' and c.convalidated from pg_constraint c where c.conrelid = 'public.transactions'::regclass and c.conname = 'transactions_source_check'",
+      "expect": true
+    },
+    {
+      "name": "receipt_set_has_four_arguments",
+      "query": "select (select p.pronargs from pg_proc p where p.oid = 'public.expense_receipt_set_v1(uuid,uuid,text,text)'::regprocedure) = 4",
+      "expect": true
+    },
+    {
+      "name": "expense_receipts_bucket_takes_pdf",
+      "query": "select coalesce((select b.allowed_mime_types is null or 'application/pdf' = any (b.allowed_mime_types) from storage.buckets b where b.id = 'expense-receipts'), true)",
+      "expect": true
+    },
+    {
+      "name": "upload_hashes_service_role_insert",
+      "query": "select has_table_privilege('service_role', 'public.staff_upload_hashes', 'insert') and has_table_privilege('service_role', 'public.staff_upload_hashes', 'select') and not has_table_privilege('authenticated', 'public.staff_upload_hashes', 'insert')",
+      "expect": true
+    },
+    {
+      "name": "cutover_setting_present",
+      "query": "select exists (select 1 from public.app_settings s where s.key = 's134_stock_expense_from' and (s.value #>> '{}')::timestamptz <= now())",
+      "expect": true
+    },
+    {
+      "name": "no_inventory_row_before_cutover",
+      "query": "select not exists (select 1 from public.transactions t where t.source = 'inventory' and t.created_at < (select (s.value #>> '{}')::timestamptz from public.app_settings s where s.key = 's134_stock_expense_from') and coalesce(t.ocr_raw ->> 's134_backfill', 'false') <> 'true')",
+      "expect": true
+    },
+    {
+      "name": "invariant_finance_summary_expenses_is_the_cost_definition",
+      "query": "select not exists (select 1 from (select distinct property_id from public.transactions) x where (public.get_finance_summary(public.manila_today(), x.property_id) ->> 'expenses')::numeric is distinct from (select coalesce(sum(t.gross_amount), 0) from public.transactions t where t.property_id = x.property_id and t.txn_type = 'expense' and t.status = 'confirmed' and t.source not in ('airbnb', 'airbnb_email') and date_trunc('month', t.transaction_date) = date_trunc('month', public.manila_today())))",
+      "expect": true
+    },
+    {
+      "name": "invariant_no_stock_group_has_two_live_rows",
+      "query": "select not exists (select 1 from public.transactions t where t.external_ref like 'stock:%' and t.status <> 'void' group by t.external_ref having count(*) > 1)",
+      "expect": true
+    },
+    {
+      "name": "kpi_patch_inside_finance_branch",
+      "query": "select (select p.prosrc from pg_proc p where p.oid = 'public.kpi_tab_v1(uuid,date)'::regprocedure) ~ 'if v_fin then[^$]*kpi_admin_costs_v1\\(p_property_id, v_m0, v_m1\\)[^$]*end if;'",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "Any time, losing nothing: the rollback drops the two triggers, every s134 function and the three indexes, puts kpi_tab_v1 back to the s127 body (md5 pinned), and removes the cut-over setting. It KEEPS the 'inventory' value in the source CHECK, the two purchase columns, the guest_refund category, application/pdf in the bucket list and every ledger row already written, so it is safe with inventory rows present (rehearsed).",
+    "steps": [
+      {
+        "name": "rollback_clients_first",
+        "action": "Revert the Cascade-Admin and Cascade-Staff pushes and the Telegram edge functions first (they call the new functions)."
+      },
+      {
+        "name": "run_compensating_script",
+        "action": "apply supabase/rollbacks/20261204_s134_expenses.sql with run-sql-on-host.sh; kpi_tab_v1 must read md5 80efd89e916bcd6107c681baf86f143f again."
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "no_flag_the_app_follows_the_sql",
+      "required_state": "None. Additive: the old apps keep working (the old save and the stock writes are unchanged; a stock write now also files its expense through the deferred trigger, which never raises). The new Expenses screen and the receipt control need the Admin push; push it right after the SQL."
+    }
+  ],
+  "compatibility": {
+    "mode": "widening",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": false,
+    "evidence": "PENDING: the rehearsal on a restored production backup has not been recorded in this file yet."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour, or restore_point / verified_at are still the placeholders",
+    "the migration guard raises 55000 (a live body moved, or s133 is missing)",
+    "the rehearsal has not run the migration and the suites s134_expenses, s110, s111, s115, s127_utility_bills, s127_bill_reminders, s131_meter_cycle, s132_inventory_update and s133_option_stock green on this commit, compatibility.verified is still false",
+    "the Opus 5.5 review of this SQL lane has not passed",
+    "the back-fill preview has not been shown to Lloyd before s134_backfill.sql runs"
+  ]
+}

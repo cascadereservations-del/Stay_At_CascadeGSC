@@ -502,7 +502,7 @@ select ok((select bool_and(p.prosecdef = e.secdef and p.provolatile = e.vol and 
 select ok((select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.bill_due_open_v1(uuid,date,text)'::regprocedure) = '51c1bca21bbacbba9d214f963e3806d1'
           and (select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.kpi_admin_bills_v1(uuid,numeric)'::regprocedure) = 'd732f76179ea3433dbf6c710c69bec5f'
           and (select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.bill_step_v1(uuid,text,uuid,text,jsonb)'::regprocedure) = '36c9347d29f4b964540ca973af8cac19'
-          and (select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.kpi_tab_v1(uuid,date)'::regprocedure) = '80efd89e916bcd6107c681baf86f143f',
+          and (select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.kpi_tab_v1(uuid,date)'::regprocedure) in ('80efd89e916bcd6107c681baf86f143f', '7c6d5a22d09ad96916804630f31df602'),
           'the callers this release does not replace (bill_due_open_v1, kpi_admin_bills_v1, bill_step_v1, kpi_tab_v1) are byte for byte the s127 bodies');
 select ok((select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.bill_entry_v1(public.utility_bills,jsonb,boolean,uuid)'::regprocedure) = '64e749cf8ed30afc9c4475bcd398685a'
           and (select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.bill_daily_v1(date,uuid)'::regprocedure) = '91a6d8a62fafd25894310e522de23494'
