@@ -1767,7 +1767,8 @@ async function handleAnswer(db:any,chatId:any,msg:any,aw:{id:string;payload:any}
     case 'expense':{
       const a=parseExpenseAnswer(text,Number(p.pre)||0);if(!a){await bad();return;}
       await done();const label=await getCategoryLabel(db,String(p.slug));
-      if(p.receipt&&p.receipt.objectPath){/* s134 fix r3: the held receipt goes through the same checks as /log (duplicate, large amount); the receipt path rides in opts and in the pending payloads */const r=p.receipt;await validateAndInsert(db,chatId,{category:String(p.slug),amount:a.amount,label,payee:a.vendor,notes:[r.notes,a.vendor].filter(Boolean).join(' | ')||null,loggedBy:r.loggedBy??loggedBy,key:keyForMessage(chatId,msg.message_id),receipt:String(r.objectPath)});return;}\n      await validateAndInsert(db,chatId,{category:String(p.slug),amount:a.amount,label,payee:a.vendor,notes:a.vendor,loggedBy,key:keyForMessage(chatId,msg.message_id)});return;
+      if(p.receipt&&p.receipt.objectPath){/* s134 fix r3: the held receipt goes through the same checks as /log (duplicate, large amount); the receipt path rides in opts and in the pending payloads */const r=p.receipt;await validateAndInsert(db,chatId,{category:String(p.slug),amount:a.amount,label,payee:a.vendor,notes:[r.notes,a.vendor].filter(Boolean).join(' | ')||null,loggedBy:r.loggedBy??loggedBy,key:keyForMessage(chatId,msg.message_id),receipt:String(r.objectPath)});return;}
+      await validateAndInsert(db,chatId,{category:String(p.slug),amount:a.amount,label,payee:a.vendor,notes:a.vendor,loggedBy,key:keyForMessage(chatId,msg.message_id)});return;
     }
     case 'edit_amount':{
       const amount=parseMoney(text);if(amount===null){await bad();return;}
