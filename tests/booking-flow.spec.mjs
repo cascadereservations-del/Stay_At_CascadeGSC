@@ -61,7 +61,7 @@ test.describe('booking flow baseline', () => {
   test('#contact has no empty column at 1440 and 820', async ({ page }) => {
     for (const width of [1440, 820]) {
       await page.setViewportSize({ width, height: 900 });
-      await page.goto('/index.html');
+      await page.goto('/');
       const r = await page.evaluate(() => {
         const sec = document.getElementById('contact').getBoundingClientRect();
         const c = document.querySelector('#contact .location-contact').getBoundingClientRect();
