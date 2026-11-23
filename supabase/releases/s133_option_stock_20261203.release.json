@@ -4,7 +4,7 @@
   "phase": "expand",
   "source": {
     "branch": "s133/option-stock",
-    "commit": "8b529285968205b736470da5941058f7e6534e8d"
+    "commit": "e383817f43331d5341327a7d39c1c06002c47e94"
   },
   "migrations": [
     "20261203000000_s133_option_stock.sql"
@@ -91,8 +91,8 @@
     "mode": "widening",
     "old_reader": true,
     "old_writer": true,
-    "verified": false,
-    "evidence": "NOT YET REHEARSED. The functions were run in PGlite against a stub schema (count, trigger clamp, receipt split, use, group rollback, payload and table checks, log paging and filters, rollback restoring both md5s); pgTAP s133_option_stock.sql (87 assertions) has not been executed. The rehearsal on a restored production backup (migration, forward verification, s133_option_stock, s132_inventory_update, s106, s107, s108, s116, s120, s86, s89, kpi_reconcile, movement_compat, s110) must run on this commit and set compatibility.verified."
+    "verified": true,
+    "evidence": "Rehearsed 2026-11-23 on restored production backup cascade-supabase-20261123T101020Z (post-s132, post D-397 group moves) at the source commit named in this file: migration applied, forward verification 9 of 9, pgTAP s133_option_stock.sql 87/87, inventory_movement_compat_v1 10/10, the s133 data split (docs/s133/split-items.sql do-block run after the migration, 8 asserts: 39/75/11/35, no item with more brand stock than its total, moved products start at 0) 8/8, public tables 142 -> 142. Old suites (kpi_reconcile_v1, s106, s107, s108, s110_kpi_supply_laundry, s116_item_photo_options, s120_count_learning, s120_linen_stains, s120_restock, s120_usage_learning, s122, s124, s125, s132_inventory_update, s86, s89_backlog) were compared with a baseline run on the same backup WITHOUT s133 (a no-op migration, same suites at this commit): every failing assertion in the s133 run also fails in the baseline, per-suite counts identical (e.g. s86 23, s107 13, s110 12 + 41 errors, s132 5); the baseline has 3 extra failures, all s133-worded link-check tests that expect s133. The shared failures are grant assertions (a --no-acl restore leaves PUBLIC execute) and old data pins, as in the s132 rehearsal. Old reader and writer: no released s132 function changes (Rule 0 check), so Staff 3.4.51 keeps working between the SQL and the Staff push."
   },
   "approvals": {
     "production_required": true,
