@@ -27,15 +27,15 @@ test.describe('responsive contract', () => {
   }
 
   for (const width of widths) {
-test(`no horizontal overflow in the booking sheet at ${width}px`, async ({ page }) => {
-    await page.setViewportSize({ width, height: 800 });
-    await page.goto('/index.html');
-    await page.locator('a.header-cta[data-gs-book]').click();
-    const r = await page.evaluate(() => { const p = document.querySelector('.bs-panel').getBoundingClientRect(); const sc = document.querySelector('.bs-scroll'); return { left: p.left, right: p.right, over: sc.scrollWidth - sc.clientWidth, doc: document.documentElement.scrollWidth - document.documentElement.clientWidth }; });
-    expect(r.left, `panel left at ${width}`).toBeGreaterThanOrEqual(-1);
-    expect(r.right, `panel right at ${width}`).toBeLessThanOrEqual(width + 1);
-    expect(r.over, `sheet content overflow at ${width}`).toBeLessThanOrEqual(1);
-        expect(r.doc, `document overflow at ${width}`).toBeLessThanOrEqual(1);
+      test(`no horizontal overflow in the booking sheet at ${width}px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 800 });
+      await page.goto('/index.html');
+      await page.locator('a.header-cta[data-gs-book]').click();
+      const r = await page.evaluate(() => { const p = document.querySelector('.bs-panel').getBoundingClientRect(); const sc = document.querySelector('.bs-scroll'); return { left: p.left, right: p.right, over: sc.scrollWidth - sc.clientWidth, doc: document.documentElement.scrollWidth - document.documentElement.clientWidth }; });
+      expect(r.left, `panel left at ${width}`).toBeGreaterThanOrEqual(-1);
+      expect(r.right, `panel right at ${width}`).toBeLessThanOrEqual(width + 1);
+      expect(r.over, `sheet content overflow at ${width}`).toBeLessThanOrEqual(1);
+      expect(r.doc, `document overflow at ${width}`).toBeLessThanOrEqual(1);
   });
   }
 
