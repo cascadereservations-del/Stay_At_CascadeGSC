@@ -177,6 +177,7 @@ test('Guest stories: every on-page guest quote is an excerpt of a dated review i
     assert.ok(a, `attribution without a month and year: "${attribution}" for "${quote}"`);
     const month = `${a[3]}-${String(MONTHS.findIndex((x) => x.startsWith(a[2].slice(0, 3))) + 1).padStart(2, '0')}`;
     assert.ok(hits.some((r) => r.name === a[1] && r.month === month), `"${quote}" is attributed to ${a[1]}, ${month}; the fixture has ${hits.map((r) => `${r.name} ${r.month}`).join(' / ')}`);
+    assert.ok(hits.some((r) => r.name === a[1] && r.month === month && r.stars === 5), `"${quote}" (${a[1]}, ${month}) comes from a review under five stars`);
   }
   assert.deepEqual(pendingSeen, PENDING_VERIFICATION, 'a pending quote left the page: drop it from PENDING_VERIFICATION');
 });

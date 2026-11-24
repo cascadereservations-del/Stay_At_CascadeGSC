@@ -1,10 +1,12 @@
 import { test, expect } from '@playwright/test';
 
 /* Guest Stories refresh (PLAN-refresh section 3 step 2, Fable r6 "tests to add").
-   Chromium desktop project only: the checks set their own viewports, and the header checks drive the mouse wheel.
+   Chromium desktop project, plus the iPhone (WebKit) project for tests tagged @webkit (phone header, lightbox):
+   the checks set their own viewports; desktop drives the mouse wheel, the touch project scrolls with scrollBy.
    Every Supabase call is mocked; no test reaches a live endpoint. */
 test.beforeEach(async ({ page }, testInfo) => {
-  test.skip(testInfo.project.name !== 'desktop', 'viewport-driven checks run once, in the Chromium project');
+  test.skip(testInfo.project.name !== 'desktop' && !testInfo.tags.includes('@webkit'), 'viewport-driven checks run once, in the Chromium project');
+  page.touchScroll = testInfo.project.name === 'mobile';
   page.hosts = new Set();
   page.on('request', (r) => page.hosts.add(new URL(r.url()).hostname));
   await page.route('**/*.supabase.co/**', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: route.request().url().includes('weather-proxy') ? '{"current":{"code":0}}' : '[]' }));
@@ -14,7 +16,10 @@ const header = (page) => page.evaluate(() => {
   const h = document.querySelector('.site-header'); const r = h.getBoundingClientRect();
   return { hidden: h.classList.contains('gs-hdr-hide'), bottom: Math.round(r.bottom), opacity: +getComputedStyle(h).opacity, duration: getComputedStyle(h).transitionDuration };
 });
-const wheel = async (page, dy, n = 6) => { for (let k = 0; k < n; k++) { await page.mouse.wheel(0, dy); await page.waitForTimeout(60); } await page.waitForTimeout(450); };
+const wheel = async (page, dy, n = 6) => {
+  for (let k = 0; k < n; k++) { if (page.touchScroll) await page.evaluate((v) => scrollBy(0, v), dy); else await page.mouse.wheel(0, dy); await page.waitForTimeout(60); }
+  await page.waitForTimeout(450);
+};
 
 const HERO_VIEWPORTS = [[360, 640], [390, 844], [844, 390], [1440, 900], [1280, 720]];
 /* Where the approved mockup puts the dock CTA above the fold. At 360x640 and 844x390 the dock sits just below it and the header CTA is the first-screen booking control. */
@@ -50,7 +55,7 @@ test.describe('Guest stories hero', () => {
 });
 
 test.describe('Guest stories header auto-hide', () => {
-  test('phone 390: hides on scroll down, shows on scroll up, on Tab focus, after the sheet closes, at top', async ({ page }) => {
+  test('phone 390: hides on scroll down, shows on scroll up, on Tab focus, after the sheet closes, at top', { tag: '@webkit' }, async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto('/index.html');
     await page.mouse.move(200, 400);
@@ -109,7 +114,7 @@ test.describe('Guest stories header auto-hide', () => {
 });
 
 test.describe('Guest stories lightbox', () => {
-  test('opens the widest image, arrows step, Esc closes and returns focus', async ({ page }) => {
+  test('opens the widest image, arrows step, Esc closes and returns focus', { tag: '@webkit' }, async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto('/index.html');
     const tile = page.locator('#photos .gs-strip-img').first();
@@ -125,6 +130,7 @@ test.describe('Guest stories lightbox', () => {
     await page.keyboard.press('Escape');
     await expect.poll(() => page.evaluate(() => document.querySelector('.gs-lb').open)).toBe(false);
     await expect.poll(() => page.evaluate(() => document.activeElement.classList.contains('gs-zoomable'))).toBe(true);
+    expect(await page.evaluate(() => document.activeElement === document.querySelector('#photos .gs-strip-img')), 'focus returns to the photo last shown').toBe(true);
     expect(await page.evaluate(() => document.documentElement.classList.contains('gs-lb-open'))).toBe(false);
   });
 });
