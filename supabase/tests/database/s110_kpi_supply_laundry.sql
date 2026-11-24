@@ -3,7 +3,7 @@
 -- idempotent confirm, undo reverses stock and voids the expense, cancel, retention). Fixtures use uuids d1100000-... on properties of their own; everything rolls back.
 -- Needs the s110 migration applied (and everything before it).
 begin;
-select plan(147);
+select plan(150);
 
 -- baseline grants for a --no-acl rehearsal restore (idempotent, rolled back with the suite)
 grant usage on schema public, auth to anon, authenticated, service_role;
@@ -186,7 +186,18 @@ select is((select (j -> 'utility' ->> 'kwh_month')::numeric from _k_cleaner), 20
 -- nights_month / kwh_per_night were removed in s111 (20261113000000_s111_kpi_stay_avg.sql: the per-night keys are gone). Current equivalent (s115 amendment, s127:325-346): the days a reading covers = its checkout day minus the previous counted reading's (e4, 2020-01-20), at least 1,
 -- and kwh_per_day = counted kWh of the month over those days. Pinned with the same arithmetic the intent had (20 kWh over the nights the reading covers), computed here from the fixture dates.
 select is((select (j -> 'utility' -> 'last_reading' ->> 'days')::integer from _k_cleaner), public.manila_today() - date '2020-01-20', 'the days of the usable reading are its checkout day minus the previous counted reading''s (was nights_month)'); -- s127:325-331 days = greatest(1, cd - pcd)
-select is((select (j -> 'utility' ->> 'kwh_per_day')::numeric from _k_cleaner), round(20.0 / (public.manila_today() - date '2020-01-20'), 2), 'kwh_per_day is 20 kWh over those days (was kwh_per_night 20 / 2)'); -- s127:405 kwh_per_day = v_kpd (round(sum(delta)/sum(days), 2))
+-- s136 (tests 48 and 49 were weak: the expected value was the same formula as the code, and 20 kWh over ~2,500 days rounds to 0.01, so a wrong sum would also have passed).
+-- Hand-computed from the fixture: e4 (2020-01-20, 10 kWh) is the first counted reading, so it has no days and is left out of the per-day sum; e1 (today, 20 kWh) covers today - 2020-01-20 days.
+-- 20 / days is in [0.005, 0.015) for days 1334 to 3999, so the exact value is 0.01 until January 2031; the guard fails loudly then, so the pinned literal is never silently stale.
+select ok((select (j -> 'utility' -> 'last_reading' ->> 'days')::integer between 1334 and 3999 from _k_cleaner), 'fixture guard: the 2020-01-20 reading is 1334 to 3999 days back, so 20 kWh per day rounds to exactly 0.01');
+select is((select (j -> 'utility' ->> 'kwh_per_day')::numeric from _k_cleaner), 0.01::numeric, 'kwh_per_day is exactly 0.01 (20 kWh over the days since 2020-01-20; the first reading has no days)');
+select ok((select (e ->> 'kwh')::numeric = 10 and e ->> 'days' is null and e ->> 'from' is null and e ->> 'to' = '2020-01-20' and e ->> 'kwh_per_day' is null
+             from _k_cleaner, jsonb_array_elements(j -> 'utility' -> 'per_stay') with ordinality t(e, n) where n = 1),
+  'per_stay[1] is the 2020-01-20 reading: 10 kWh, no days, no previous reading, no per-day figure');
+select ok((select (e ->> 'kwh')::numeric = 20 and (e ->> 'days')::integer = public.manila_today() - date '2020-01-20' and e ->> 'from' = '2020-01-20' and e ->> 'to' = to_char(public.manila_today(), 'YYYY-MM-DD')
+                  and (e ->> 'kwh_per_day')::numeric = 0.01
+             from _k_cleaner, jsonb_array_elements(j -> 'utility' -> 'per_stay') with ordinality t(e, n) where n = 2),
+  'per_stay[2] is today''s reading: 20 kWh from 2020-01-20 to today, days = the gap, 0.01 kWh per day');
 select is((select (j -> 'utility' -> 'last_reading' ->> 'delta_kwh')::numeric from _k_cleaner), 20.00::numeric, 'last_reading is the newest usable reading'); -- s127:407 last_reading = newest recorded_at of the chain_ok readings
 select is((select jsonb_array_length(j -> 'utility' -> 'per_stay') from _k_cleaner), 2, 'per_stay holds the two usable stays (the 2020 one included, oldest first)'); -- s127:407 per_stay = last 8 chain_ok readings, ordered by checkout day
 select is((select (j -> 'utility' -> 'brownouts' ->> 'count')::integer || '/' || (j -> 'utility' -> 'brownouts' ->> 'hours') from _k_cleaner), '2/4.0', 'brownouts: 2 active notices, 4.0 hours (the inactive one is out)');

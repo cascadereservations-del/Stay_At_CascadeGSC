@@ -21,7 +21,7 @@
 --   are not dates (2026-13-45, 2026-02-30) stay open without an error.
 -- P5 follow-ups: SF1 (1 day ago, guest 'Ysabel ' with a trailing blank, checkout 2026-10-21, mismatch), SF2 (2 days ago, blank guest, no checkout, unreadable).
 begin;
-select plan(143);
+select plan(150);
 
 -- catalogue, bodies and grants ---------------------------------------------------------------------------------------------------------------------
 select has_function('public', 'admin_report_blocks_v1', array['uuid', 'integer'], 'admin_report_blocks_v1 exists');
@@ -318,6 +318,17 @@ select throws_ok($$select public.admin_resolve_report_block_v1('b4000000-0000-40
 reset role;
 select ok((select relrowsecurity from pg_class where oid = 'public.meter_readings'::regclass),
   'meter_readings has RLS on, so authenticated writes pass only through its policies (the first wall)');
+-- s136: the whole policy set of meter_readings (20260828000500 meters_management / meters_staff_read, 20260830002347 meters_staff_insert / meters_staff_update), and anon holds nothing on it.
+select policies_are('public', 'meter_readings', array['meters_management', 'meters_staff_read', 'meters_staff_insert', 'meters_staff_update'],
+  'meter_readings has exactly the four policies: management, staff read, staff insert, staff update');
+select policy_cmd_is('public', 'meter_readings', 'meters_management', 'ALL', 'meters_management covers ALL commands');
+select policy_cmd_is('public', 'meter_readings', 'meters_staff_read', 'SELECT', 'meters_staff_read is SELECT');
+select policy_cmd_is('public', 'meter_readings', 'meters_staff_insert', 'INSERT', 'meters_staff_insert is INSERT');
+select policy_cmd_is('public', 'meter_readings', 'meters_staff_update', 'UPDATE', 'meters_staff_update is UPDATE');
+select ok((select bool_and(not has_table_privilege('anon', 'public.meter_readings', p)) from unnest(array['select', 'insert', 'update', 'delete', 'truncate', 'references', 'trigger']) p),
+  'anon has no table privilege on meter_readings');
+select ok((select bool_and(not has_any_column_privilege('anon', 'public.meter_readings', p)) from unnest(array['select', 'insert', 'update', 'references']) p),
+  'anon has no column privilege on meter_readings either (select, insert, update, references)');
 grant select, insert, update on public.meter_readings to authenticated;
 set local role authenticated;
 set local request.jwt.claims = '{"sub":"b2000000-0000-4000-8000-000000000002","aal":"aal1"}';

@@ -8,7 +8,7 @@
 --     p4 no receipt, hold already ended                           p5 no receipt, no hold                  p6 only a paid-outside (manual) comparison
 --     c1..c5 contact channel fixtures                             d1..d8 decline fixtures
 -- pg_net and Vault are absent from a rehearsal copy: they are stubbed here (and rolled back) so the guest-messages post is observable.
--- Where the real pg_net exists (CI) the stub is not installed and the assertions that read the stub pass vacuously.
+-- Where the real pg_net exists (CI) the stub is not installed and the assertions that read the stub are skipped with a reason (s136; they used to pass vacuously).
 begin;
 select plan(73);
 
@@ -202,40 +202,48 @@ select ok((select status = 'cancelled' from public.booking_inquiries where id = 
   'decline d8: pg_net failed and the decline still committed (a warning, never a block)');
 select is((select e.after_state ->> 'reason_code' from public.booking_lifecycle_events e where e.idempotency_key = 'onetap-decline-audit:cf-decline-key-d2-dates'), 'dates',
   'decline d2: the audit row records the reason code');
-select ok(case when current_setting('cf.stub') = 'on' then
-            (select count(*) = 1 from pg_temp.cf_calls where url like '%/functions/v1/guest-messages'
+select case when current_setting('cf.stub') = 'on' then
+  ok((select count(*) = 1 from pg_temp.cf_calls where url like '%/functions/v1/guest-messages'
                and body = '{"booking_id": "c0de5500-0000-4000-8000-000000000021", "key": "declined", "reason_code": "payment", "receipt_sent": true, "tapped": true}'::jsonb
-               and headers ->> 'x-cascade-cron-secret' = 'CF-SYNTHETIC-ONLY')
-          else true end,
-  'decline d1: one post, key declined, reason payment, receipt_sent true, tapped, the cron secret header (and the repeat posted nothing)');
-select ok(case when current_setting('cf.stub') = 'on' then
-            (select count(*) = 1 from pg_temp.cf_calls where body = '{"booking_id": "c0de5500-0000-4000-8000-000000000022", "key": "declined", "reason_code": "dates", "receipt_sent": false, "tapped": true}'::jsonb)
-          else true end,
-  'decline d2: dates, no receipt');
-select ok(case when current_setting('cf.stub') = 'on' then (select count(*) = 0 from pg_temp.cf_calls where body ->> 'booking_id' = 'c0de5500-0000-4000-8000-000000000023') else true end,
-  'decline d3: a duplicate request queues no message at all');
-select ok(case when current_setting('cf.stub') = 'on' then
-            (select count(*) = 1 from pg_temp.cf_calls where body = '{"booking_id": "c0de5500-0000-4000-8000-000000000024", "key": "declined", "reason_code": "other", "receipt_sent": false, "tapped": true}'::jsonb)
-          else true end,
-  'decline d4: the three-argument wrapper declines as other');
-select ok(case when current_setting('cf.stub') = 'on' then
-            (select count(*) = 1 from pg_temp.cf_calls where body = '{"booking_id": "c0de5500-0000-4000-8000-000000000025", "key": "declined", "reason_code": "other", "receipt_sent": false, "tapped": true}'::jsonb)
-          else true end,
-  'decline d5: an unknown code reads as other');
-select ok(case when current_setting('cf.stub') = 'on' then
-            (select count(*) = 1 from pg_temp.cf_calls where body = '{"booking_id": "c0de5500-0000-4000-8000-000000000026", "key": "declined", "reason_code": "guest_cancel", "receipt_sent": false, "tapped": true}'::jsonb)
-          else true end,
-  'decline d6: guest_cancel is passed through');
-select ok(case when current_setting('cf.stub') = 'on' then
-            (select count(*) = 1 from pg_temp.cf_calls where body = '{"booking_id": "c0de5500-0000-4000-8000-000000000027", "key": "declined", "reason_code": "other", "receipt_sent": false, "tapped": true}'::jsonb)
-          else true end,
-  'decline d7: a null code reads as other');
-select ok(case when current_setting('cf.stub') = 'on' then (select count(*) = 0 from pg_temp.cf_calls where body ->> 'booking_id' = 'c0de5500-0000-4000-8000-000000000028') else true end,
-  'decline d8: the failed enqueue left no call behind');
-select ok(case when current_setting('cf.stub') = 'on' then (select count(*) = 6 from pg_temp.cf_calls) else true end, 'six posts in all (d1, d2, d4, d5, d6, d7)');
-select ok(case when current_setting('cf.stub') = 'on' then
-            (select not exists (select 1 from pg_temp.cf_calls where body::text ~* '(phone|e-?mail|0917|@example|psid|Synthetic)') ) else true end,
-  'the post carries no contact and no name');
+               and headers ->> 'x-cascade-cron-secret' = 'CF-SYNTHETIC-ONLY'),
+    'decline d1: one post, key declined, reason payment, receipt_sent true, tapped, the cron secret header (and the repeat posted nothing)')
+  else skip('pg_net is real here (CI), the call stub is not installed: the queued post cannot be read', 1) end;
+select case when current_setting('cf.stub') = 'on' then
+  ok((select count(*) = 1 from pg_temp.cf_calls where body = '{"booking_id": "c0de5500-0000-4000-8000-000000000022", "key": "declined", "reason_code": "dates", "receipt_sent": false, "tapped": true}'::jsonb),
+    'decline d2: dates, no receipt')
+  else skip('pg_net is real here (CI), the call stub is not installed: the queued post cannot be read', 1) end;
+select case when current_setting('cf.stub') = 'on' then
+  ok((select count(*) = 0 from pg_temp.cf_calls where body ->> 'booking_id' = 'c0de5500-0000-4000-8000-000000000023'),
+    'decline d3: a duplicate request queues no message at all')
+  else skip('pg_net is real here (CI), the call stub is not installed: the queued post cannot be read', 1) end;
+select case when current_setting('cf.stub') = 'on' then
+  ok((select count(*) = 1 from pg_temp.cf_calls where body = '{"booking_id": "c0de5500-0000-4000-8000-000000000024", "key": "declined", "reason_code": "other", "receipt_sent": false, "tapped": true}'::jsonb),
+    'decline d4: the three-argument wrapper declines as other')
+  else skip('pg_net is real here (CI), the call stub is not installed: the queued post cannot be read', 1) end;
+select case when current_setting('cf.stub') = 'on' then
+  ok((select count(*) = 1 from pg_temp.cf_calls where body = '{"booking_id": "c0de5500-0000-4000-8000-000000000025", "key": "declined", "reason_code": "other", "receipt_sent": false, "tapped": true}'::jsonb),
+    'decline d5: an unknown code reads as other')
+  else skip('pg_net is real here (CI), the call stub is not installed: the queued post cannot be read', 1) end;
+select case when current_setting('cf.stub') = 'on' then
+  ok((select count(*) = 1 from pg_temp.cf_calls where body = '{"booking_id": "c0de5500-0000-4000-8000-000000000026", "key": "declined", "reason_code": "guest_cancel", "receipt_sent": false, "tapped": true}'::jsonb),
+    'decline d6: guest_cancel is passed through')
+  else skip('pg_net is real here (CI), the call stub is not installed: the queued post cannot be read', 1) end;
+select case when current_setting('cf.stub') = 'on' then
+  ok((select count(*) = 1 from pg_temp.cf_calls where body = '{"booking_id": "c0de5500-0000-4000-8000-000000000027", "key": "declined", "reason_code": "other", "receipt_sent": false, "tapped": true}'::jsonb),
+    'decline d7: a null code reads as other')
+  else skip('pg_net is real here (CI), the call stub is not installed: the queued post cannot be read', 1) end;
+select case when current_setting('cf.stub') = 'on' then
+  ok((select count(*) = 0 from pg_temp.cf_calls where body ->> 'booking_id' = 'c0de5500-0000-4000-8000-000000000028'),
+    'decline d8: the failed enqueue left no call behind')
+  else skip('pg_net is real here (CI), the call stub is not installed: the queued post cannot be read', 1) end;
+select case when current_setting('cf.stub') = 'on' then
+  ok((select count(*) = 6 from pg_temp.cf_calls),
+    'six posts in all (d1, d2, d4, d5, d6, d7)')
+  else skip('pg_net is real here (CI), the call stub is not installed: the queued post cannot be read', 1) end;
+select case when current_setting('cf.stub') = 'on' then
+  ok((select not exists (select 1 from pg_temp.cf_calls where body::text ~* '(phone|e-?mail|0917|@example|psid|Synthetic)') ),
+    'the post carries no contact and no name')
+  else skip('pg_net is real here (CI), the call stub is not installed: the queued post cannot be read', 1) end;
 select ok(not exists (select 1 from public.due_guest_messages_v1() where message_key = 'declined'), 'due_guest_messages_v1 never offers declined');
 
 -- the CHECK -----------------------------------------------------------------------------------------------------------------------------------

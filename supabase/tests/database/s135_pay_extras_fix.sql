@@ -3,7 +3,7 @@
 -- Synthetic fixtures only (uuids f1350000-...); every lookup is scoped to them because a real backup holds real rows. Fixture rows and reads run as the owner role; only the RPC calls run as
 -- the staff roles. Everything rolls back.
 begin;
-select plan(20);
+select plan(21);
 
 -- baseline grants for a --no-acl rehearsal restore (idempotent, rolled back with the suite)
 grant usage on schema public, auth to anon, authenticated, service_role;
@@ -85,6 +85,9 @@ insert into _t select 'r3', public.staff_pay_request_create_v2('[]'::jsonb, '{}'
 reset role;
 select is((select v->>'reason' from _t where k = 'r3'), 'bad_extra', 'an extra over 5,000 is still bad_extra');
 select is((select count(*)::int from public.cleaning_expense_claims where description = 'zz s135 too much'), 0, 'and writes nothing');
+select ok((select bool_and(not has_table_privilege('anon', t, p) and not has_any_column_privilege('anon', t, p))
+             from unnest(array['public.staff_pay_requests', 'public.cleaning_expense_claims']) t, unnest(array['select', 'insert', 'update']) p),
+  's136: anon holds no table or column privilege (select, insert, update) on staff_pay_requests or cleaning_expense_claims');
 
 select * from finish();
 rollback;

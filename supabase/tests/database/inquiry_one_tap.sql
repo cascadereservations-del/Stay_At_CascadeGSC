@@ -10,7 +10,7 @@
 --   rejected  b21 receipt vs b22 hold  b23 receipt vs an Airbnb stay (re-attest)  b24 supersede
 --   b25 receipt vs an Airbnb stay, eight conflicted retries each passing the previous comparison id (no attestation chain)
 -- pg_net and Vault are absent from a rehearsal copy: they are stubbed here (and rolled back) so the guest-messages call is observable.
--- Where the real pg_net exists (CI) the stub is not installed and that one assertion passes vacuously.
+-- Where the real pg_net exists (CI) the stub is not installed and the assertions that read it are skipped with a reason (s136; they used to pass vacuously).
 begin;
 select plan(95);
 
@@ -155,11 +155,11 @@ select ok(exists (select 1 from public.booking_decisions d join public.payment_f
                      and r.comparison_id = current_setting('s76.cmp01')::uuid and r.outcome = 'approved'
                      and r.reviewer_user_id = 'e4400000-0000-4000-8000-0000000000a1'),
   'receipt: one approved review by F, linked to the confirmed decision');
-select ok(case when current_setting('s76.stub') = 'on' then
-            (select count(*) = 1 from pg_temp.s76_calls where url like '%/functions/v1/guest-messages' and body = '{"booking_id": "c0de7644-0000-4000-8000-000000000001", "tapped": true}'::jsonb
-                and headers ->> 'x-cascade-cron-secret' = 'S76-SYNTHETIC-ONLY')
-          else true end,
-  'receipt: guest-messages is queued once with {booking_id, tapped: true} and the Vault secret header');
+select case when current_setting('s76.stub') = 'on' then
+  ok((select count(*) = 1 from pg_temp.s76_calls where url like '%/functions/v1/guest-messages' and body = '{"booking_id": "c0de7644-0000-4000-8000-000000000001", "tapped": true}'::jsonb
+                and headers ->> 'x-cascade-cron-secret' = 'S76-SYNTHETIC-ONLY'),
+    'receipt: guest-messages is queued once with {booking_id, tapped: true} and the Vault secret header')
+  else skip('pg_net is real here (CI), the call stub is not installed: the queued post cannot be read', 1) end;
 select is(current_setting('s76.r0' || n)::jsonb ->> 'outcome', 'confirmed', 'paid outside: ' || m || ' confirms')
   from (values (2, 'messenger_gcash'), (3, 'gcash_qr'), (4, 'bank'), (5, 'cash'), (6, 'other')) v(n, m) order by n;
 select is((select count(*)::int from public.booking_inquiries b
@@ -214,11 +214,11 @@ select ok((select count(*) = 1 from public.payment_evidence_candidates where boo
             where r.booking_id = 'c0de7644-0000-4000-8000-000000000002'),
   'retry: no second candidate, review or decision, and the same review is reported');
 select is(current_setting('s76.r01b')::jsonb ->> 'already_processed', 'true', 'retry: the receipt path is idempotent too');
-select ok(case when current_setting('s76.stub') = 'on' then
-            (select count(*) = 1 from pg_temp.s76_calls where body ->> 'booking_id' = 'c0de7644-0000-4000-8000-000000000001')
-            and (select count(*) = 1 from pg_temp.s76_calls where body ->> 'booking_id' = 'c0de7644-0000-4000-8000-000000000002')
-          else true end,
-  'retry: a replay with the same key does not queue guest-messages a second time');
+select case when current_setting('s76.stub') = 'on' then
+  ok((select count(*) = 1 from pg_temp.s76_calls where body ->> 'booking_id' = 'c0de7644-0000-4000-8000-000000000001')
+            and (select count(*) = 1 from pg_temp.s76_calls where body ->> 'booking_id' = 'c0de7644-0000-4000-8000-000000000002'),
+    'retry: a replay with the same key does not queue guest-messages a second time')
+  else skip('pg_net is real here (CI), the call stub is not installed: the queued post cannot be read', 1) end;
 select is(current_setting('s76.r08')::jsonb - 'booking_id' - 'guest_name' - 'checkin' - 'checkout',
   '{"ok": false, "outcome": "reference_reused", "booking_ref": "C0DE7644", "prior_ref": "C0DE7644"}'::jsonb,
   'reference reuse: b02''s GCash reference (typed with dashes) on b08 is refused');
