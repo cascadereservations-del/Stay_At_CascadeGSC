@@ -322,3 +322,56 @@ test('Windows recovery orchestration can launch the npx command shim', { skip: p
     /unsafe Windows command argument/i,
   );
 });
+
+test('CI recovery plan merges bridge files by version and rejects bad versions', () => {
+  const manifest = {
+    prerequisite_migration_version: '20260823999999',
+    baseline_migration_version: '20260824000000',
+    compatibility_migration_version: '20260824002000',
+    forward_migrations_from: '20260824002834',
+    recovery_bridge_migrations: ['20260824050000_bridge.sql'],
+  };
+  const files = ['20260824002834_first_forward.sql', '20260824044700_second_forward.sql', '20260910030000_next_forward.sql'];
+  assert.deepEqual(buildRecoveryMigrationPlan(manifest, files).slice(3), [
+    '20260824002834_first_forward.sql',
+    '20260824044700_second_forward.sql',
+    '20260824050000_bridge.sql',
+    '20260910030000_next_forward.sql',
+  ]);
+  assert.throws(
+    () => buildRecoveryMigrationPlan({ ...manifest, recovery_bridge_migrations: ['20260824044700_bridge.sql'] }, files),
+    /collides with a migration version/i,
+  );
+  assert.throws(
+    () => buildRecoveryMigrationPlan({ ...manifest, recovery_bridge_migrations: ['20260801000000_bridge.sql'] }, files),
+    />= forward_migrations_from/i,
+  );
+});
+
+test('recovery bridge sources are hash pinned', () => {
+  const hash = sql => createHash('sha256').update(sql).digest('hex');
+  const prerequisiteSql = 'select 1;';
+  const baselineSql = 'select 2;';
+  const compatibilitySql = 'select 3;';
+  const bridge = '20260825000000_bridge.sql';
+  const manifest = {
+    schema_version: 1,
+    prerequisite_migration_version: '20260823999999',
+    prerequisite_source: 'recovery/prerequisites.sql',
+    prerequisite_sha256: hash(prerequisiteSql),
+    baseline_migration_version: '20260824000000',
+    baseline_source: 'schemas/base.sql',
+    baseline_sha256: hash(baselineSql),
+    compatibility_migration_version: '20260824002000',
+    compatibility_source: 'recovery/compat.sql',
+    compatibility_sha256: hash(compatibilitySql),
+    includes_through: '20260817044851',
+    forward_migrations_from: '20260824002834',
+    recovery_bridge_migrations: [bridge],
+    recovery_bridge_sha256: { [bridge]: hash('select 4;') },
+  };
+  const sources = { baselineSql, prerequisiteSql, compatibilitySql };
+  assert.doesNotThrow(() => validateRecoveryBaselineManifest(manifest, { ...sources, bridgeSql: { [bridge]: 'select 4;' } }));
+  assert.throws(() => validateRecoveryBaselineManifest(manifest, { ...sources, bridgeSql: { [bridge]: 'select 5;' } }), /bridge hash mismatch/i);
+  assert.throws(() => validateRecoveryBaselineManifest(manifest, sources), /bridge source was not provided/i);
+});

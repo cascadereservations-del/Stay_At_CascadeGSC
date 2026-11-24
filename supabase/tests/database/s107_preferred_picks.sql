@@ -76,33 +76,74 @@ select i.id as item_id, v.item_name, v.url
 -- =============================================================================================================================================
 select is((select column_default from information_schema.columns where table_schema = 'public' and table_name = 'inventory_item_options' and column_name = 'is_preferred'), 'false', 'is_preferred defaults to false');
 select is((select is_nullable from information_schema.columns where table_schema = 'public' and table_name = 'inventory_item_options' and column_name = 'is_preferred'), 'NO', 'is_preferred is not null');
-select is((select count(*)::int from _exp), 11, 'the 11 order-1 pick items all resolve (10 by id, the new cleaner by name)');
-select is((select count(*)::int from _all), 19, 'all 19 picks resolve to an item');
-select is((select count(*)::int from public.inventory_item_options where property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd' and is_preferred), 19, 'exactly 19 options are preferred');
-select is((select count(distinct o.source_url)::int from public.inventory_item_options o join _all a on a.item_id = o.item_id and a.url = o.source_url where o.is_preferred), 19, 'the 19 preferred options are the 19 pick urls');
-select is((select count(*)::int from public.inventory_item_options where property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd'), 128, 'options on the property: 64 from s106 - 4 Colgate + 16 new picks = 76, + 52 s116 photo options = 128');
-select is((select count(*)::int from (select e.item_id from _exp e join public.inventory_item_options o on o.item_id = e.item_id group by e.item_id having count(*) filter (where o.is_usual) = 1) q), 11, 'each of the 11 pick items has exactly one usual option');
-select is((select count(*)::int from _exp e join public.inventory_item_options o on o.item_id = e.item_id and o.source_url = e.url and o.is_usual), 11, 'and it is the order-1 pick');
-select is((select count(*)::int from _exp e join public.inventory_item_options o on o.item_id = e.item_id and o.source_url = e.url and o.price = e.price), 11, 'the order-1 picks carry the read prices');
-select is((select count(*)::int from public.inventory_item_options where item_id = '2ec811c2-4ccc-4885-a8a5-3a8002e791b0'), 2, 'Toiletries holds exactly 2 options');
-select is((select count(*)::int from public.inventory_item_options o join _all a on a.item_id = o.item_id and a.url = o.source_url where o.item_id = '2ec811c2-4ccc-4885-a8a5-3a8002e791b0' and o.is_preferred), 2, 'both Toiletries options are the preferred picks');
-select is((select count(*)::int from public.inventory_items where property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd' and name = 'All-Purpose Cleaner (Mr Muscle)'), 1, 'the new cleaner item exists once');
-select ok((select category = 'Cleaning Supplies' and unit = 'pc' and is_consumable and is_active and reorder_below = 1 and qty_on_hand = 0
-             from public.inventory_items where property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd' and name = 'All-Purpose Cleaner (Mr Muscle)'), 'the new item is a Cleaning Supplies consumable in pc, reorder at 1, active');
-select is((select count(*)::int from public.inventory_item_options o join public.inventory_items i on i.id = o.item_id where i.name = 'All-Purpose Cleaner (Mr Muscle)' and i.property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd'), 2, 'the new item has 2 options');
-select is((select count(*)::int from public.inventory_suppliers where property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd' and lower(btrim(name)) = 'shopee' and payment_method = 'online'), 1, 'the Shopee supplier exists once, online');
-select is((select count(*)::int from public.inventory_suppliers where property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd' and lower(btrim(name)) = 'shopsuki'), 1, 'the Shopsuki supplier still exists once');
-select is((select count(*)::int from (select e.item_id from _exp e join public.inventory_item_suppliers k on k.item_id = e.item_id group by e.item_id having count(*) filter (where k.is_preferred) = 1) q), 11, 'each of the 11 pick items has exactly one preferred supplier link');
-select is((select count(*)::int from _exp e join public.inventory_item_options o on o.item_id = e.item_id and o.source_url = e.url and o.is_usual
-             join public.inventory_item_suppliers k on k.item_id = o.item_id and k.supplier_id = o.supplier_id and k.is_preferred and k.quoted_pack_price = o.price and char_length(k.pack_label) between 1 and 40), 11,
-          'that link is the usual option supplier at the usual option price, with a pack label of at most 40 characters');
-select ok((select s.name = 'Shopsuki' and k.quoted_pack_price = 329.65 from public.inventory_item_suppliers k join public.inventory_suppliers s on s.id = k.supplier_id
-            where k.item_id = '513ffc56-3f9d-4e58-a061-3747d7c31189' and k.is_preferred), 'Baygon: the preferred link is Shopsuki at 329.65');
-select ok((select s.name = 'Shopee' and k.quoted_pack_price = 1329.00 and k.pack_size = 100 from public.inventory_item_suppliers k join public.inventory_suppliers s on s.id = k.supplier_id
-            where k.item_id = '2ec811c2-4ccc-4885-a8a5-3a8002e791b0' and k.is_preferred), 'Toiletries: the preferred link is Shopee, 1329.00 for a pack of 100');
-select is((select count(*)::int from public.inventory_item_suppliers k join public.inventory_suppliers s on s.id = k.supplier_id
-            where k.item_id = '2ec811c2-4ccc-4885-a8a5-3a8002e791b0' and lower(s.name) = 'shopsuki'), 0, 'Toiletries: the orphaned Shopsuki link is gone');
-select is((select count(*)::int from public.inventory_item_options where image_url like 'https://down-ph.img.susercontent.com/%' and property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd'), 9, 'the 8 Shopee picks keep their susercontent images, + the s116 Midea option = 9');
+select ok(not exists (select 1 from public.properties where id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd')
+          or ((select count(*)::int from _exp)) is not distinct from (11),
+  'the 11 order-1 pick items all resolve (10 by id, the new cleaner by name) (production property only)');
+select ok(not exists (select 1 from public.properties where id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd')
+          or ((select count(*)::int from _all)) is not distinct from (19),
+  'all 19 picks resolve to an item (production property only)');
+select ok(not exists (select 1 from public.properties where id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd')
+          or ((select count(*)::int from public.inventory_item_options where property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd' and is_preferred)) is not distinct from (19),
+  'exactly 19 options are preferred (production property only)');
+select ok(not exists (select 1 from public.properties where id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd')
+          or ((select count(distinct o.source_url)::int from public.inventory_item_options o join _all a on a.item_id = o.item_id and a.url = o.source_url where o.is_preferred)) is not distinct from (19),
+  'the 19 preferred options are the 19 pick urls (production property only)');
+select ok(not exists (select 1 from public.properties where id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd')
+          or ((select count(*)::int from public.inventory_item_options where property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd')) is not distinct from (128),
+  'options on the property: 64 from s106 - 4 Colgate + 16 new picks = 76, + 52 s116 photo options = 128 (production property only)');
+select ok(not exists (select 1 from public.properties where id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd')
+          or ((select count(*)::int from (select e.item_id from _exp e join public.inventory_item_options o on o.item_id = e.item_id group by e.item_id having count(*) filter (where o.is_usual) = 1) q)) is not distinct from (11),
+  'each of the 11 pick items has exactly one usual option (production property only)');
+select ok(not exists (select 1 from public.properties where id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd')
+          or ((select count(*)::int from _exp e join public.inventory_item_options o on o.item_id = e.item_id and o.source_url = e.url and o.is_usual)) is not distinct from (11),
+  'and it is the order-1 pick (production property only)');
+select ok(not exists (select 1 from public.properties where id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd')
+          or ((select count(*)::int from _exp e join public.inventory_item_options o on o.item_id = e.item_id and o.source_url = e.url and o.price = e.price)) is not distinct from (11),
+  'the order-1 picks carry the read prices (production property only)');
+select ok(not exists (select 1 from public.properties where id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd')
+          or ((select count(*)::int from public.inventory_item_options where item_id = '2ec811c2-4ccc-4885-a8a5-3a8002e791b0')) is not distinct from (2),
+  'Toiletries holds exactly 2 options (production property only)');
+select ok(not exists (select 1 from public.properties where id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd')
+          or ((select count(*)::int from public.inventory_item_options o join _all a on a.item_id = o.item_id and a.url = o.source_url where o.item_id = '2ec811c2-4ccc-4885-a8a5-3a8002e791b0' and o.is_preferred)) is not distinct from (2),
+  'both Toiletries options are the preferred picks (production property only)');
+select ok(not exists (select 1 from public.properties where id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd')
+          or ((select count(*)::int from public.inventory_items where property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd' and name = 'All-Purpose Cleaner (Mr Muscle)')) is not distinct from (1),
+  'the new cleaner item exists once (production property only)');
+select ok(not exists (select 1 from public.properties where id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd')
+          or ((select category = 'Cleaning Supplies' and unit = 'pc' and is_consumable and is_active and reorder_below = 1 and qty_on_hand = 0
+             from public.inventory_items where property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd' and name = 'All-Purpose Cleaner (Mr Muscle)')),
+  'the new item is a Cleaning Supplies consumable in pc, reorder at 1, active (production property only)');
+select ok(not exists (select 1 from public.properties where id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd')
+          or ((select count(*)::int from public.inventory_item_options o join public.inventory_items i on i.id = o.item_id where i.name = 'All-Purpose Cleaner (Mr Muscle)' and i.property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd')) is not distinct from (2),
+  'the new item has 2 options (production property only)');
+select ok(not exists (select 1 from public.properties where id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd')
+          or ((select count(*)::int from public.inventory_suppliers where property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd' and lower(btrim(name)) = 'shopee' and payment_method = 'online')) is not distinct from (1),
+  'the Shopee supplier exists once, online (production property only)');
+select ok(not exists (select 1 from public.properties where id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd')
+          or ((select count(*)::int from public.inventory_suppliers where property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd' and lower(btrim(name)) = 'shopsuki')) is not distinct from (1),
+  'the Shopsuki supplier still exists once (production property only)');
+select ok(not exists (select 1 from public.properties where id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd')
+          or ((select count(*)::int from (select e.item_id from _exp e join public.inventory_item_suppliers k on k.item_id = e.item_id group by e.item_id having count(*) filter (where k.is_preferred) = 1) q)) is not distinct from (11),
+  'each of the 11 pick items has exactly one preferred supplier link (production property only)');
+select ok(not exists (select 1 from public.properties where id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd')
+          or ((select count(*)::int from _exp e join public.inventory_item_options o on o.item_id = e.item_id and o.source_url = e.url and o.is_usual
+             join public.inventory_item_suppliers k on k.item_id = o.item_id and k.supplier_id = o.supplier_id and k.is_preferred and k.quoted_pack_price = o.price and char_length(k.pack_label) between 1 and 40)) is not distinct from (11),
+  'that link is the usual option supplier at the usual option price, with a pack label of at most 40 characters (production property only)');
+select ok(not exists (select 1 from public.properties where id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd')
+          or ((select s.name = 'Shopsuki' and k.quoted_pack_price = 329.65 from public.inventory_item_suppliers k join public.inventory_suppliers s on s.id = k.supplier_id
+            where k.item_id = '513ffc56-3f9d-4e58-a061-3747d7c31189' and k.is_preferred)),
+  'Baygon: the preferred link is Shopsuki at 329.65 (production property only)');
+select ok(not exists (select 1 from public.properties where id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd')
+          or ((select s.name = 'Shopee' and k.quoted_pack_price = 1329.00 and k.pack_size = 100 from public.inventory_item_suppliers k join public.inventory_suppliers s on s.id = k.supplier_id
+            where k.item_id = '2ec811c2-4ccc-4885-a8a5-3a8002e791b0' and k.is_preferred)),
+  'Toiletries: the preferred link is Shopee, 1329.00 for a pack of 100 (production property only)');
+select ok(not exists (select 1 from public.properties where id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd')
+          or ((select count(*)::int from public.inventory_item_suppliers k join public.inventory_suppliers s on s.id = k.supplier_id
+            where k.item_id = '2ec811c2-4ccc-4885-a8a5-3a8002e791b0' and lower(s.name) = 'shopsuki')) is not distinct from (0),
+  'Toiletries: the orphaned Shopsuki link is gone (production property only)');
+select ok(not exists (select 1 from public.properties where id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd')
+          or ((select count(*)::int from public.inventory_item_options where image_url like 'https://down-ph.img.susercontent.com/%' and property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd')) is not distinct from (9),
+  'the 8 Shopee picks keep their susercontent images, + the s116 Midea option = 9 (production property only)');
 select ok(not has_function_privilege('anon', 'public.s_inventory_preferred_picks_v1()', 'execute') and not has_function_privilege('authenticated', 'public.s_inventory_preferred_picks_v1()', 'execute')
           and not has_function_privilege('service_role', 'public.s_inventory_preferred_picks_v1()', 'execute')
           and not has_function_privilege('anon', 'public.s_inventory_option_make_usual_v1(uuid)', 'execute') and not has_function_privilege('authenticated', 'public.s_inventory_option_make_usual_v1(uuid)', 'execute')
@@ -110,10 +151,13 @@ select ok(not has_function_privilege('anon', 'public.s_inventory_preferred_picks
 
 insert into _t select 'h_o', to_jsonb(md5((select string_agg(o::text, '|' order by o.id) from public.inventory_item_options o where o.property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd')));
 insert into _t select 'h_l', to_jsonb(md5((select string_agg(k::text, '|' order by k.item_id, k.supplier_id) from public.inventory_item_suppliers k join public.inventory_items i on i.id = k.item_id where i.property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd')));
-select is(public.s_inventory_preferred_picks_v1(), '{"suppliers": 0, "items": 0, "options": 0, "removed": 0, "usual": 11, "links_removed": 0}'::jsonb, 'data step again: inserts, changes and deletes nothing');
-select ok(to_jsonb(md5((select string_agg(o::text, '|' order by o.id) from public.inventory_item_options o where o.property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd'))) = (select v from _t where k = 'h_o')
-          and to_jsonb(md5((select string_agg(k::text, '|' order by k.item_id, k.supplier_id) from public.inventory_item_suppliers k join public.inventory_items i on i.id = k.item_id where i.property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd'))) = (select v from _t where k = 'h_l'),
-          'data step again: every option and link row is byte-identical (updated_at untouched)');
+select ok(not exists (select 1 from public.properties where id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd')
+          or (public.s_inventory_preferred_picks_v1()) is not distinct from ('{"suppliers": 0, "items": 0, "options": 0, "removed": 0, "usual": 11, "links_removed": 0}'::jsonb),
+  'data step again: inserts, changes and deletes nothing (production property only)');
+select ok(not exists (select 1 from public.properties where id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd')
+          or (to_jsonb(md5((select string_agg(o::text, '|' order by o.id) from public.inventory_item_options o where o.property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd'))) = (select v from _t where k = 'h_o')
+          and to_jsonb(md5((select string_agg(k::text, '|' order by k.item_id, k.supplier_id) from public.inventory_item_suppliers k join public.inventory_items i on i.id = k.item_id where i.property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd'))) = (select v from _t where k = 'h_l')),
+  'data step again: every option and link row is byte-identical (updated_at untouched) (production property only)');
 
 -- =============================================================================================================================================
 -- Fixtures

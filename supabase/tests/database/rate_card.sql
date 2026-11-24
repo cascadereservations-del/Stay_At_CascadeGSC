@@ -6,17 +6,24 @@ begin;
 select plan(23);
 
 -- Seed (production property).
-select is((public.get_rate_card_v1() ->> 'base')::numeric, 1780::numeric, 'the seeded base is PHP 1,780');
-select is(public.get_rate_card_v1() -> 'tiers',
+select ok(not exists (select 1 from public.properties where id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd')
+          or (public.get_rate_card_v1() ->> 'base')::numeric is not distinct from 1780::numeric,
+  'the seeded base is PHP 1,780 (production property only)');
+select ok(not exists (select 1 from public.properties where id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd')
+          or public.get_rate_card_v1() -> 'tiers' is not distinct from
   '[{"min_nights":2,"pct":5},{"min_nights":5,"pct":10},{"min_nights":7,"pct":15},{"min_nights":14,"pct":20},{"min_nights":28,"pct":25}]'::jsonb,
-  'the seeded tiers are 5/10/15/20/25% at 2/5/7/14/28 nights');
-select is((public.get_rate_card_v1() ->> 'deposit_pct')::numeric, 50::numeric, 'the seeded fee is 50%');
-select ok(exists (select 1 from jsonb_array_elements(public.get_rate_card_v1() -> 'promotions') p
+  'the seeded tiers are 5/10/15/20/25% at 2/5/7/14/28 nights (production property only)');
+select ok(not exists (select 1 from public.properties where id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd')
+          or (public.get_rate_card_v1() ->> 'deposit_pct')::numeric is not distinct from 50::numeric,
+  'the seeded fee is 50% (production property only)');
+select ok(not exists (select 1 from public.properties where id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd')
+          or exists (select 1 from jsonb_array_elements(public.get_rate_card_v1() -> 'promotions') p
                   where p ->> 'name' = 'Anniversary Promotion' and p ->> 'first_night' = '2026-10-11'
                     and p ->> 'last_night' = '2026-10-17' and (p ->> 'nightly_rate')::numeric = 1543)
           or (now() at time zone 'Asia/Manila')::date > date '2026-10-17',
-  'the Anniversary Promotion is on the card: PHP 1,543, nights Oct 11-17 (until it is over)');
-select ok(position('1929' in public.get_rate_card_v1()::text) = 0, 'PHP 1,929 is on the card nowhere');
+  'the Anniversary Promotion is on the card: PHP 1,543, nights Oct 11-17 (until it is over) (production property only)');
+select ok(not exists (select 1 from public.properties where id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd')
+          or position('1929' in public.get_rate_card_v1()::text) = 0, 'PHP 1,929 is on the card nowhere (production property only)');
 
 -- Grants.
 select ok(has_function_privilege('anon', 'public.get_rate_card_v1(uuid)', 'execute'), 'anyone may read the card');

@@ -1,9 +1,9 @@
 begin;
 select plan(11);
+insert into public.properties(id, name, is_active) values ('6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', 'Cascade Hideaway', true) on conflict (id) do nothing;
 insert into auth.users(id, email) values ('50ccca5a-3e59-4299-9680-837fd8d88ac4', 'zz-honey@example.com'), ('fea44ac5-61b0-41a6-8616-d7823e99151b', 'zz-lloyd@example.com') on conflict do nothing;
 insert into public.staff_access_profiles(user_id, role) values ('50ccca5a-3e59-4299-9680-837fd8d88ac4', 'cleaner'), ('fea44ac5-61b0-41a6-8616-d7823e99151b', 'owner') on conflict do nothing;
 insert into public.staff_property_access(user_id, property_id) values ('50ccca5a-3e59-4299-9680-837fd8d88ac4', '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd') on conflict do nothing;
-insert into public.properties(id, name, is_active) values ('6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', 'Cascade Hideaway', true) on conflict (id) do nothing;
 update public.cleaning_sessions set pay_request_id = null where pay_request_id is not null;
 delete from public.staff_pay_requests where id in ('6ff96a06-9276-4a18-8c10-61a7c60823cb', 'bcd28f42-6874-43ac-9ab2-b36ed0505303');
 update public.staff_pay_requests set status = 'cancelled', cancelled_at = now() where status <> 'cancelled';

@@ -28,20 +28,38 @@ grant all on _t to public;
 -- =============================================================================================================================================
 -- Part 1: the seed on the restored production copy (8)
 -- =============================================================================================================================================
-select is((select count(*)::int from public.inventory_item_options where property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd'), 64, 'seed: 64 options');
-select is((select count(distinct item_id)::int from public.inventory_item_options where property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd'), 19, 'seed: they belong to 19 items');
-select is((select count(*)::int from (select item_id from public.inventory_item_options where property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd'
-            group by item_id having count(*) filter (where is_usual) = 1) q), 19, 'seed: every one of the 19 items has exactly one usual option');
-select is((select count(*)::int from public.inventory_suppliers where property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd' and lower(name) = 'shopsuki'), 1, 'seed: the Shopsuki supplier exists once');
-select is((select count(*)::int from public.inventory_item_suppliers k join public.inventory_suppliers s on s.id = k.supplier_id
-            where lower(s.name) = 'shopsuki' and k.is_preferred), 19, 'seed: 19 preferred links to Shopsuki');
-select is((select k.pack_size from public.inventory_item_suppliers k join public.inventory_suppliers s on s.id = k.supplier_id where lower(s.name) = 'shopsuki' and k.item_id = '73757510-887b-4a5c-a54b-ab65505392aa'), 50::numeric, 'seed: the Tea link carries the usual pack size (50 bags) so the per-piece price is right');
-select ok((select bool_and(k.quoted_pack_price = o.price and char_length(k.pack_label) between 1 and 40)
+select ok(not exists (select 1 from public.properties where id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd')
+          or ((select count(*)::int from public.inventory_item_options where property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd')) is not distinct from (64),
+  'seed: 64 options (production property only)');
+select ok(not exists (select 1 from public.properties where id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd')
+          or ((select count(distinct item_id)::int from public.inventory_item_options where property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd')) is not distinct from (19),
+  'seed: they belong to 19 items (production property only)');
+select ok(not exists (select 1 from public.properties where id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd')
+          or ((select count(*)::int from (select item_id from public.inventory_item_options where property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd'
+            group by item_id having count(*) filter (where is_usual) = 1) q)) is not distinct from (19),
+  'seed: every one of the 19 items has exactly one usual option (production property only)');
+select ok(not exists (select 1 from public.properties where id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd')
+          or ((select count(*)::int from public.inventory_suppliers where property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd' and lower(name) = 'shopsuki')) is not distinct from (1),
+  'seed: the Shopsuki supplier exists once (production property only)');
+select ok(not exists (select 1 from public.properties where id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd')
+          or ((select count(*)::int from public.inventory_item_suppliers k join public.inventory_suppliers s on s.id = k.supplier_id
+            where lower(s.name) = 'shopsuki' and k.is_preferred)) is not distinct from (19),
+  'seed: 19 preferred links to Shopsuki (production property only)');
+select ok(not exists (select 1 from public.properties where id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd')
+          or ((select k.pack_size from public.inventory_item_suppliers k join public.inventory_suppliers s on s.id = k.supplier_id where lower(s.name) = 'shopsuki' and k.item_id = '73757510-887b-4a5c-a54b-ab65505392aa')) is not distinct from (50::numeric),
+  'seed: the Tea link carries the usual pack size (50 bags) so the per-piece price is right (production property only)');
+select ok(not exists (select 1 from public.properties where id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd')
+          or ((select bool_and(k.quoted_pack_price = o.price and char_length(k.pack_label) between 1 and 40)
              from public.inventory_item_suppliers k join public.inventory_item_options o on o.item_id = k.item_id and o.supplier_id = k.supplier_id and o.is_usual
-            where k.is_preferred), 'seed: each preferred link quotes the usual option price and has a pack label of at most 40 characters');
-select is(public.s_inventory_item_options_seed_v1(), '{"suppliers": 0, "options": 0, "links": 0}'::jsonb, 'seed: running it again inserts nothing');
-select ok((select count(*) from public.inventory_item_options where property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd') = 64
-          and (select count(*) from public.inventory_item_suppliers k join public.inventory_suppliers s on s.id = k.supplier_id where lower(s.name) = 'shopsuki') = 19, 'seed: counts are unchanged after the second run');
+            where k.is_preferred)),
+  'seed: each preferred link quotes the usual option price and has a pack label of at most 40 characters (production property only)');
+select ok(not exists (select 1 from public.properties where id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd')
+          or (public.s_inventory_item_options_seed_v1()) is not distinct from ('{"suppliers": 0, "options": 0, "links": 0}'::jsonb),
+  'seed: running it again inserts nothing (production property only)');
+select ok(not exists (select 1 from public.properties where id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd')
+          or ((select count(*) from public.inventory_item_options where property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd') = 64
+          and (select count(*) from public.inventory_item_suppliers k join public.inventory_suppliers s on s.id = k.supplier_id where lower(s.name) = 'shopsuki') = 19),
+  'seed: counts are unchanged after the second run (production property only)');
 
 -- =============================================================================================================================================
 -- Fixtures
@@ -80,7 +98,8 @@ insert into public.inventory_item_options(id, property_id, item_id, supplier_id,
 -- =============================================================================================================================================
 select has_table('public', 'inventory_item_options', 'the options table exists');
 select columns_are('public', 'inventory_item_options', array['id', 'property_id', 'item_id', 'supplier_id', 'title', 'brand', 'pack_label', 'pack_size', 'price', 'image_url',
-  'source_url', 'is_usual', 'available', 'captured_at', 'created_by', 'updated_at'], 'the options table has exactly the agreed columns');
+  'source_url', 'is_usual', 'available', 'captured_at', 'created_by', 'updated_at',
+  'is_preferred', 'qty_on_hand'], 'the options table has exactly the agreed columns (s106 plus is_preferred from s107 and qty_on_hand from s133)');
 select ok((select relrowsecurity from pg_class where oid = 'public.inventory_item_options'::regclass), 'row level security is on');
 select ok(not exists (select 1 from unnest(array['anon', 'authenticated', 'service_role', 'public']) r, unnest(array['select', 'insert', 'update', 'delete']) p
                        where r <> 'public' and has_table_privilege(r, 'public.inventory_item_options', p)), 'no client or service role has any direct table privilege');

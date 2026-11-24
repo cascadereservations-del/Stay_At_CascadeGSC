@@ -1,0 +1,82 @@
+{
+  "schema_version": 1,
+  "release_id": "s135_pay_extras_fix_20261204",
+  "phase": "expand",
+  "source": {
+    "branch": "fix/ci-db-bridge",
+    "commit": "01394c431f68f5637635238d7853f52e04ffe54d"
+  },
+  "migrations": [
+    "20261204100000_s135_pay_extras_fix.sql",
+    "20261204110000_s135b_notice_grants.sql"
+  ],
+  "migration_sha256": {
+    "20261204100000_s135_pay_extras_fix.sql": "eb179dcbdbbee512e7dbcaec675f783ad082198d3b7aa48debc53e71fc20334f",
+    "20261204110000_s135b_notice_grants.sql": "16dc2ed73dfa774ec043f9b1eacae8e0d2e2ac96fb14f63d7b7db1d26b9c9515"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20261124T100334Z",
+    "verified_at": "2026-11-24T10:07:57.762Z",
+    "production_rule": "One line of staff_pay_request_create_v2 changes (D-420): the attach-session test reads p_extras instead of v_extras, so a pay request that carries an extra no longer fails with extra_needs_a_clean; same signature, grants and lock order, no table or row changes. Plus s135b: service_role grants on staff_payout_change_notices written down as select + update(finance_sent_at, staff_sent_at), a no-op on production (live read 2026-11-24).",
+    "notes": "Apply after s134 is applied (or independently: it touches only staff_pay_request_create_v2, and the guard accepts only the s99 body). Restamp restore_point and verified_at with a fresh backup at apply time (scripts/migrations/fill-restore-point.mjs; the checker refuses one older than an hour). source.commit is the base commit the fix branched from; restamp it to the reviewed head at release time. No app push is needed: the Staff app already sends extras."
+  },
+  "forward_verification": [
+    {
+      "name": "md5_staff_pay_request_create_v2",
+      "query": "select md5(replace(p.prosrc, chr(13), '')) = '2e29292fece7c5533395c663b29873a3' from pg_proc p where p.oid = 'public.staff_pay_request_create_v2(jsonb,uuid[],jsonb,jsonb,text)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "attach_test_reads_p_extras",
+      "query": "select position('jsonb_array_length(p_extras) > 0' in p.prosrc) > 0 and position('if jsonb_array_length(v_extras) > 0 then' in p.prosrc) = 0 from pg_proc p where p.oid = 'public.staff_pay_request_create_v2(jsonb,uuid[],jsonb,jsonb,text)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "grants_unchanged_authenticated_only",
+      "query": "select has_function_privilege('authenticated', 'public.staff_pay_request_create_v2(jsonb,uuid[],jsonb,jsonb,text)', 'execute') and not has_function_privilege('anon', 'public.staff_pay_request_create_v2(jsonb,uuid[],jsonb,jsonb,text)', 'execute') and not has_function_privilege('service_role', 'public.staff_pay_request_create_v2(jsonb,uuid[],jsonb,jsonb,text)', 'execute')",
+      "expect": true
+    },
+    {
+      "name": "still_security_definer_empty_search_path",
+      "query": "select p.prosecdef and exists (select 1 from unnest(p.proconfig) c where c in ('search_path=\"\"', 'search_path=')) from pg_proc p where p.oid = 'public.staff_pay_request_create_v2(jsonb,uuid[],jsonb,jsonb,text)'::regprocedure",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "Any time, losing nothing: the rollback restores the s99 body (md5 a95f98dedb25f139451f38b80032f9d6) and writes no data; requests and claims created while the fix was live stay as they are.",
+    "steps": [
+      {
+        "name": "run_compensating_script",
+        "action": "apply supabase/rollbacks/20261204_s135_pay_extras_fix.sql with run-sql-on-host.sh; staff_pay_request_create_v2 must read md5 a95f98dedb25f139451f38b80032f9d6 again (extras are refused with extra_needs_a_clean again)."
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "no_flag_the_app_follows_the_sql",
+      "required_state": "None. Same signature and result shape; the only change is that a request with an extra now succeeds instead of returning extra_needs_a_clean."
+    }
+  ],
+  "compatibility": {
+    "mode": "widening",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": false,
+    "evidence": "Not rehearsed on a restored backup yet; the pgTAP suites staff_pay_requests and s135_pay_extras_fix cover it in CI."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour, or restore_point / verified_at are still the placeholders",
+    "the migration guard raises 55000 (the live body is neither the s99 body nor this release)",
+    "the pgTAP suites staff_pay_requests, s99_staff_pay_ahead and s135_pay_extras_fix have not passed on this commit",
+    "the Opus 5.5 review of this SQL lane has not passed"
+  ]
+}

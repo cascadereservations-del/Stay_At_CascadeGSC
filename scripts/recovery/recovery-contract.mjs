@@ -160,7 +160,7 @@ export function rewriteDisposableSupabaseConfig(source, { projectId, dbPort, sha
   return rewritten;
 }
 
-export function validateRecoveryBaselineManifest(manifest, { baselineSql, prerequisiteSql, compatibilitySql }) {
+export function validateRecoveryBaselineManifest(manifest, { baselineSql, prerequisiteSql, compatibilitySql, bridgeSql }) {
   if (manifest?.schema_version !== 1) throw new Error('Recovery baseline schema_version must be 1.');
   for (const field of ['prerequisite_migration_version', 'baseline_migration_version', 'compatibility_migration_version', 'includes_through', 'forward_migrations_from']) {
     if (!/^\d{14}$/.test(manifest?.[field] ?? '')) throw new Error(`Recovery baseline ${field} must be a 14-digit migration version.`);
@@ -205,6 +205,56 @@ export function validateRecoveryBaselineManifest(manifest, { baselineSql, prereq
       names.add(fileName);
     }
   }
+  if (manifest.recovery_bridge_migrations !== undefined) {
+    if (!Array.isArray(manifest.recovery_bridge_migrations) || manifest.recovery_bridge_migrations.length === 0) {
+      throw new Error('Recovery bridge migrations must be a non-empty array when provided.');
+    }
+    const pins = manifest.recovery_bridge_sha256;
+    if (!pins || typeof pins !== 'object' || Array.isArray(pins)) {
+      throw new Error('Recovery bridge migrations require a recovery_bridge_sha256 map.');
+    }
+    const names = new Set();
+    for (const fileName of manifest.recovery_bridge_migrations) {
+      if (!/^\d{14}_[A-Za-z0-9._-]+\.sql$/.test(fileName) || names.has(fileName)) {
+        throw new Error('Recovery bridge migrations must be unique, filename-shaped SQL files.');
+      }
+      names.add(fileName);
+      if (fileName.slice(0, 14) < manifest.forward_migrations_from) {
+        throw new Error(`Recovery bridge version must be >= forward_migrations_from: ${fileName}.`);
+      }
+      if (!/^[0-9a-f]{64}$/.test(pins[fileName] ?? '')) throw new Error(`Recovery bridge has no sha256 pin: ${fileName}.`);
+      const source = bridgeSql?.[fileName];
+      if (typeof source !== 'string') throw new Error(`Recovery bridge source was not provided: ${fileName}.`);
+      const bridgeHash = normalizedSqlHash(source);
+      if (pins[fileName] !== bridgeHash) {
+        throw new Error(`Recovery bridge hash mismatch for ${fileName}: expected ${pins[fileName]}, actual ${bridgeHash}.`);
+      }
+    }
+    if (Object.keys(pins).some(name => !names.has(name))) throw new Error('Recovery bridge sha256 map names an unlisted file.');
+  }
+  if (manifest.recovery_statement_omissions !== undefined) {
+    const omissions = manifest.recovery_statement_omissions;
+    if (!omissions || typeof omissions !== 'object' || Array.isArray(omissions) || Object.keys(omissions).length === 0) {
+      throw new Error('Recovery statement omissions must be a non-empty object keyed by migration file.');
+    }
+    const excluded = new Set(manifest.recovery_excluded_migrations ?? []);
+    const bridges = new Set(manifest.recovery_bridge_migrations ?? []);
+    for (const [fileName, entries] of Object.entries(omissions)) {
+      if (!/^\d{14}_[A-Za-z0-9._-]+\.sql$/.test(fileName)) throw new Error(`Recovery statement omission file is not filename-shaped: ${fileName}.`);
+      if (fileName.slice(0, 14) < manifest.forward_migrations_from) throw new Error(`Recovery statement omission must name a forward migration: ${fileName}.`);
+      if (excluded.has(fileName)) throw new Error(`Recovery statement omission names an excluded migration: ${fileName}.`);
+      if (bridges.has(fileName)) throw new Error(`Recovery statement omission names a bridge: ${fileName}.`);
+      if (!Array.isArray(entries) || entries.length === 0) throw new Error(`Recovery statement omissions must be a non-empty array: ${fileName}.`);
+      for (const entry of entries) {
+        if (typeof entry?.first_line !== 'string' || entry.first_line.trim() === '' || !/^[0-9a-f]{64}$/.test(entry?.sha256 ?? '')) {
+          throw new Error(`Recovery statement omission needs first_line and a sha256 hex pin: ${fileName}.`);
+        }
+        if (entry.last_line !== undefined && (typeof entry.last_line !== 'string' || entry.last_line.trim() === '')) {
+          throw new Error(`Recovery statement omission last_line must be a non-empty string when given: ${fileName}.`);
+        }
+      }
+    }
+  }
   const prerequisiteHash = normalizedSqlHash(prerequisiteSql);
   if (manifest.prerequisite_sha256 !== prerequisiteHash) {
     throw new Error(`Recovery prerequisite hash mismatch: expected ${manifest.prerequisite_sha256}, actual ${prerequisiteHash}.`);
@@ -237,14 +287,51 @@ export function selectRecoveryMigrationFiles(fileNames, forwardFrom, excludedFil
   return forward.filter(name => !excluded.has(name));
 }
 
-export function prepareRecoveryMigrationContent(fileName, source, assertionOnlyFiles = []) {
+// Removes one production-data seed statement: from the line equal to first_line through the first later line ending
+// in ';', or, when last_line is given, through the first later line exactly equal to last_line (a block that ends in
+// something other than ';', such as an 'end if;' inside a DO block). The removed text (LF-normalized, trailing newline included) must match the pinned sha256.
+export function omitRecoveryStatement(fileName, source, { first_line: firstLine, last_line: lastLine, sha256 }) {
+  const lines = source.split('\n');
+  const bare = line => line.replace(/\r$/, '');
+  const starts = [];
+  lines.forEach((line, index) => { if (bare(line) === firstLine) starts.push(index); });
+  if (starts.length !== 1) {
+    throw new Error(`Recovery statement omission first_line must match exactly one line in ${fileName} (found ${starts.length}): ${firstLine}`);
+  }
+  let end = -1;
+  for (let index = starts[0]; index < lines.length; index += 1) {
+    if (lastLine === undefined ? bare(lines[index]).endsWith(';') : bare(lines[index]) === lastLine) { end = index; break; }
+  }
+  if (end < 0) {
+    throw new Error(lastLine === undefined
+      ? `Recovery statement omission has no terminating ';' line in ${fileName}: ${firstLine}`
+      : `Recovery statement omission has no last_line match after first_line in ${fileName}: ${lastLine}`);
+  }
+  const removed = `${lines.slice(starts[0], end + 1).map(bare).join('\n')}\n`;
+  const actual = createHash('sha256').update(removed).digest('hex');
+  if (actual !== sha256) {
+    throw new Error(`Recovery statement omission hash mismatch for ${fileName}: expected ${sha256}, actual ${actual}.`);
+  }
+  const marker = `-- recovery: omitted production-data seed (sha256 ${actual.slice(0, 12)})`;
+  return [...lines.slice(0, starts[0]), marker, ...lines.slice(end + 1)].join('\n');
+}
+
+export function prepareRecoveryMigrationContent(fileName, source, assertionOnlyFiles = [], statementOmissions = {}) {
   if (!Array.isArray(assertionOnlyFiles)) throw new Error('Recovery assertion-only migrations must be an array.');
-  if (!assertionOnlyFiles.includes(fileName)) return source;
-  const markerIndex = source.indexOf(LIVE_DATA_ASSERTION_MARKER);
-  if (markerIndex < 0 || source.indexOf(LIVE_DATA_ASSERTION_MARKER, markerIndex + LIVE_DATA_ASSERTION_MARKER.length) >= 0) {
+  if (!statementOmissions || typeof statementOmissions !== 'object' || Array.isArray(statementOmissions)) {
+    throw new Error('Recovery statement omissions must be an object.');
+  }
+  let content = source;
+  for (const entry of statementOmissions[fileName] ?? []) content = omitRecoveryStatement(fileName, content, entry);
+  if (!assertionOnlyFiles.includes(fileName)) return content;
+  const markerIndex = content.indexOf(LIVE_DATA_ASSERTION_MARKER);
+  if (markerIndex < 0 || content.indexOf(LIVE_DATA_ASSERTION_MARKER, markerIndex + LIVE_DATA_ASSERTION_MARKER.length) >= 0) {
     throw new Error(`Recovery assertion-only migration must contain exactly one live-data assertion marker: ${fileName}.`);
   }
-  return `${source.slice(0, markerIndex).trimEnd()}\n\n-- Production-data assertions intentionally omitted from the disposable recovery copy.\n`;
+  return `${content.slice(0, markerIndex).trimEnd()}
+
+-- Production-data assertions intentionally omitted from the disposable recovery copy.
+`;
 }
 
 export function buildRecoveryMigrationPlan(manifest, sourceMigrationFiles) {
@@ -253,10 +340,23 @@ export function buildRecoveryMigrationPlan(manifest, sourceMigrationFiles) {
     manifest?.forward_migrations_from,
     manifest?.recovery_excluded_migrations,
   );
+  const bridges = manifest?.recovery_bridge_migrations ?? [];
+  if (!Array.isArray(bridges)) throw new Error('Recovery bridge migrations must be an array.');
+  const versions = new Set(sourceMigrationFiles.filter(name => /^\d{14}_.+\.sql$/.test(name)).map(name => name.slice(0, 14)));
+  for (const bridge of bridges) {
+    if (!/^\d{14}_.+\.sql$/.test(bridge)) throw new Error(`Recovery bridge is not filename-shaped: ${bridge}.`);
+    const version = bridge.slice(0, 14);
+    if (version < manifest.forward_migrations_from) throw new Error(`Recovery bridge version must be >= forward_migrations_from: ${bridge}.`);
+    if (versions.has(version)) throw new Error(`Recovery bridge version collides with a migration version: ${bridge}.`);
+  }
+  for (const fileName of Object.keys(manifest?.recovery_statement_omissions ?? {})) {
+    if (!forward.includes(fileName)) throw new Error(`Recovery statement omission is not a forward migration in the plan: ${fileName}.`);
+  }
+  const merged = [...forward, ...bridges].sort((left, right) => left.slice(0, 14).localeCompare(right.slice(0, 14)));
   return [
     `${manifest.prerequisite_migration_version}_recovery_prerequisites.sql`,
     `${manifest.baseline_migration_version}_recovered_production_baseline.sql`,
     `${manifest.compatibility_migration_version}_pre_forward_compat.sql`,
-    ...forward,
+    ...merged,
   ];
 }

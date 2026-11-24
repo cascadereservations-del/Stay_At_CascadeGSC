@@ -40,8 +40,13 @@ function loadBaseline(sourceSupabase) {
   const baselineSql = readSource(manifest.baseline_source);
   const prerequisiteSql = readSource(manifest.prerequisite_source);
   const compatibilitySql = readSource(manifest.compatibility_source);
+  const bridgeSql = Object.fromEntries((manifest.recovery_bridge_migrations ?? []).map(name => [
+    name,
+    readFileSync(path.join(sourceSupabase, 'recovery', 'bridges', name), 'utf8'),
+  ]));
   return {
-    manifest: validateRecoveryBaselineManifest(manifest, { baselineSql, prerequisiteSql, compatibilitySql }),
+    manifest: validateRecoveryBaselineManifest(manifest, { baselineSql, prerequisiteSql, compatibilitySql, bridgeSql }),
+    bridgeSql,
     baselineSql,
     prerequisiteSql,
     compatibilitySql,
@@ -59,8 +64,12 @@ function writePreparedMigrations({ sourceSupabase, destinationSupabase, baseline
   writeFileSync(path.join(destinationDirectory, plan[1]), baseline.baselineSql, 'utf8');
   writeFileSync(path.join(destinationDirectory, plan[2]), baseline.compatibilitySql, 'utf8');
   for (const file of plan.slice(3)) {
+    if (file in baseline.bridgeSql) {
+      writeFileSync(path.join(destinationDirectory, file), baseline.bridgeSql[file], 'utf8');
+      continue;
+    }
     const source = readFileSync(path.join(sourceDirectory, file), 'utf8');
-    const prepared = prepareRecoveryMigrationContent(file, source, baseline.manifest.recovery_assertion_only_migrations);
+    const prepared = prepareRecoveryMigrationContent(file, source, baseline.manifest.recovery_assertion_only_migrations, baseline.manifest.recovery_statement_omissions);
     writeFileSync(path.join(destinationDirectory, file), prepared, 'utf8');
   }
   return plan;

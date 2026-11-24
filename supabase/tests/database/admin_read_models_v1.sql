@@ -45,8 +45,10 @@ select is((public.get_hospitality_metrics_v1('e1000000-0000-4000-8000-0000000000
 
 -- Cleaner (aal1) gets operational metrics without finance values.
 select set_config('request.jwt.claims', json_build_object('sub','e2000000-0000-4000-8000-0000000000a2','role','authenticated','aal','aal1','iat',extract(epoch from now())::bigint)::text, true);
-select is((public.get_hospitality_metrics_v1('e1000000-0000-4000-8000-0000000000a1','2026-02-01','2026-03-01')->>'financeVisible'),'false','cleaner does not see finance metrics');
-select is((public.get_hospitality_metrics_v1('e1000000-0000-4000-8000-0000000000a1','2026-02-01','2026-03-01')->'metrics'->'accommodation_revenue'->>'coverage'),'missing','finance metric is missing, not zero, for operational roles');
+-- s84 (20261017010000_s84_calendar.sql): admin_stays_gate_v1 now refuses a cleaner (read_operations only) with 42501 not_authorized,
+-- so she gets no metrics at all instead of operational metrics without finance values.
+select throws_ok($$select public.get_hospitality_metrics_v1('e1000000-0000-4000-8000-0000000000a1','2026-02-01','2026-03-01')->>'financeVisible'$$,'42501','not_authorized','cleaner is refused the metrics, so she sees no finance metrics (s84 gate)');
+select throws_ok($$select public.get_hospitality_metrics_v1('e1000000-0000-4000-8000-0000000000a1','2026-02-01','2026-03-01')->'metrics'->'accommodation_revenue'->>'coverage'$$,'42501','not_authorized','cleaner gets no finance metric at all, not a zero (s84 gate)');
 select throws_ok($$select public.get_report_drilldown_v1('e1000000-0000-4000-8000-0000000000a1','adr|v1|e1000000-0000-4000-8000-0000000000a1|2026-02-01|2026-03-01')$$,'42501','finance drilldown denied','drilldown re-authorises');
 
 select * from finish();

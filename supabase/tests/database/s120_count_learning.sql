@@ -9,7 +9,7 @@ begin;
 select plan(95);
 
 -- baseline grants a --no-acl restore lacks (idempotent, rolled back with the suite)
-alter role service_role bypassrls;
+do $sr$ begin if not (select rolbypassrls from pg_roles where rolname = 'service_role') then alter role service_role bypassrls; end if; end $sr$;
 grant usage on schema public, auth to anon, authenticated, service_role;
 grant execute on function auth.uid(), auth.jwt() to anon, authenticated, service_role;
 grant execute on function public.current_staff_authorized(text, uuid), public.current_staff_active(text[]) to authenticated, service_role;
@@ -437,13 +437,21 @@ select ok((select predicted is null and not accepted and turnovers = 3 and days 
 select ok(not exists (select 1 from pg_proc p where p.pronamespace = 'public'::regnamespace and p.prosrc like '%app_count%' and p.proname not in ('reconcile_inventory_baseline_v1', 'inventory_undo_v1')),
   'no other function mentions the new audit actions (the count history, the counted-at date and the usage backfill read telegram_count and movements only)');
 
+-- The rollback script below patches the s120 release bodies back to the pre-release ones, so it can only be rehearsed while the count route and the undo are still the s120
+-- release bodies (md5 18bea3e7... and b1c19525...). s132 (20261202000000_s132_inventory_update.sql) later replaced both (md5 fdeaf212... and 5125463a...), in production as in CI,
+-- and carries its own rollback; from then on this section is skipped for those two functions (the rest of the rollback is still exercised).
+select set_config('s120.rb',
+  case when (select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.reconcile_inventory_baseline_v1(uuid,numeric,text,text)'::regprocedure) in ('18bea3e74b205dc7526a9614b83521cc', '7cbb2ea861268b3fbe848c974e32b2f2')
+        and (select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.inventory_undo_v1(uuid,uuid)'::regprocedure) in ('b1c19525aa43a0a529c511932d97a2fa', 'b3923b0bae57e812bb8375eea81f93e9')
+       then 'on' else 'off' end, true);
+
 -- ROLLBACK: the script's own statements (without its begin and commit), then the bodies are what they were
 do $g$
 declare v_src text; v_new text;
 begin
   select replace(p.prosrc, chr(13), '') into v_src from pg_proc p where p.oid = to_regprocedure('public.reconcile_inventory_baseline_v1(uuid,numeric,text,text)');
   if v_src is null then raise exception 's120 rollback: public.reconcile_inventory_baseline_v1 is missing' using errcode = '55000'; end if;
-  if md5(v_src) = '7cbb2ea861268b3fbe848c974e32b2f2' then raise notice 'reconcile_inventory_baseline_v1 already original';
+  if md5(v_src) = '7cbb2ea861268b3fbe848c974e32b2f2' or current_setting('s120.rb') = 'off' then raise notice 'reconcile_inventory_baseline_v1 already original or no longer the s120 body (s132): skipped';
   else
     v_new := replace(v_src,
       replace($r$-- S120: a count of an active consumable that is not movement controlled keeps it in the usage learning: movement_controlled_at stays null and the count is an anchor
@@ -488,7 +496,7 @@ declare v_src text; v_new text;
 begin
   select replace(p.prosrc, chr(13), '') into v_src from pg_proc p where p.oid = to_regprocedure('public.inventory_undo_v1(uuid,uuid)');
   if v_src is null then raise exception 's120 rollback: public.inventory_undo_v1 is missing' using errcode = '55000'; end if;
-  if md5(v_src) = 'b3923b0bae57e812bb8375eea81f93e9' then raise notice 'inventory_undo_v1 already original';
+  if md5(v_src) = 'b3923b0bae57e812bb8375eea81f93e9' or current_setting('s120.rb') = 'off' then raise notice 'inventory_undo_v1 already original or no longer the s120 body (s132): skipped';
   else
     v_new := replace(v_src,
       replace($r$-- S120: undoing an app count (one that wrote an app_count audit row) writes the matching app_count_undo row, so inventory_qty_at_v1 sees the stock come back. NOT inside the guard below:
@@ -569,17 +577,17 @@ alter table public.inventory_usage_intervals drop column if exists refill_record
 
 do $v$
 begin
-  if (select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.reconcile_inventory_baseline_v1(uuid,numeric,text,text)'::regprocedure) is distinct from '7cbb2ea861268b3fbe848c974e32b2f2'
-     or (select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.inventory_undo_v1(uuid,uuid)'::regprocedure) is distinct from 'b3923b0bae57e812bb8375eea81f93e9'
+  if (select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.reconcile_inventory_baseline_v1(uuid,numeric,text,text)'::regprocedure) is distinct from (case when current_setting('s120.rb') = 'on' then '7cbb2ea861268b3fbe848c974e32b2f2' else (select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.reconcile_inventory_baseline_v1(uuid,numeric,text,text)'::regprocedure) end)
+     or (select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.inventory_undo_v1(uuid,uuid)'::regprocedure) is distinct from (case when current_setting('s120.rb') = 'on' then 'b3923b0bae57e812bb8375eea81f93e9' else (select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.inventory_undo_v1(uuid,uuid)'::regprocedure) end)
      or (select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.get_inventory_usage_kpi_v1(uuid)'::regprocedure) is distinct from 'f0a2052c3ccc56673808d000ba21d189'
      or position('s_inventory_refill_mark_sync_v1' in (select prosrc from pg_proc where oid = 'public.s_inventory_refill_mark_after_delete_v1()'::regprocedure)) > 0
      or to_regprocedure('public.s_inventory_refill_mark_sync_v1(uuid)') is not null then
     raise exception 's120 rollback: a function is not back to its pre-release body' using errcode = '55000';
   end if;
 end $v$;
-select ok((select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.reconcile_inventory_baseline_v1(uuid,numeric,text,text)'::regprocedure) = '7cbb2ea861268b3fbe848c974e32b2f2'
-      and (select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.inventory_undo_v1(uuid,uuid)'::regprocedure) = 'b3923b0bae57e812bb8375eea81f93e9',
-  'rollback: the count route and the undo are the md5 they were before the release');
+select ok(current_setting('s120.rb') = 'off' or ((select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.reconcile_inventory_baseline_v1(uuid,numeric,text,text)'::regprocedure) = '7cbb2ea861268b3fbe848c974e32b2f2'
+      and (select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.inventory_undo_v1(uuid,uuid)'::regprocedure) = 'b3923b0bae57e812bb8375eea81f93e9'),
+  'rollback: the count route and the undo are the md5 they were before the release (skipped once s132 replaced them)');
 select ok((select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.get_inventory_usage_kpi_v1(uuid)'::regprocedure) = 'f0a2052c3ccc56673808d000ba21d189'
       and position('inventory_purchases' in (select prosrc from pg_proc where oid = 'public.get_inventory_usage_kpi_v1(uuid)'::regprocedure)) > 0,
   'rollback: the KPI has its purchase condition back (md5 f0a2052c)');
@@ -588,8 +596,8 @@ select ok(to_regprocedure('public.record_missed_refill_v1(uuid,numeric)') is nul
   'rollback: record_missed_refill_v1 and the column are gone');
 select ok(position('s_inventory_refill_mark_sync_v1' in (select prosrc from pg_proc where oid = 'public.s_inventory_refill_mark_after_delete_v1()'::regprocedure)) = 0
       and to_regprocedure('public.s_inventory_refill_mark_sync_v1(uuid)') is null
-      and position('app_count' in (select prosrc from pg_proc where oid = 'public.reconcile_inventory_baseline_v1(uuid,numeric,text,text)'::regprocedure)) = 0
-      and position('app_count' in (select prosrc from pg_proc where oid = 'public.inventory_undo_v1(uuid,uuid)'::regprocedure)) = 0,
+      and (current_setting('s120.rb') = 'off' or position('app_count' in (select prosrc from pg_proc where oid = 'public.reconcile_inventory_baseline_v1(uuid,numeric,text,text)'::regprocedure)) = 0)
+      and (current_setting('s120.rb') = 'off' or position('app_count' in (select prosrc from pg_proc where oid = 'public.inventory_undo_v1(uuid,uuid)'::regprocedure)) = 0),
   'rollback: the purchase delete trigger function has its own body back, the helper is gone and the count route and undo no longer mention app_count');
 select ok(exists (select 1 from public.inventory_usage_intervals where item_id = 'e1200010-0000-4000-8000-0000000000a8' and accepted and consumed = 6)
       and (select count(*) from public.inventory_usage_intervals where item_id = 'e1200010-0000-4000-8000-0000000000a5') = 2,

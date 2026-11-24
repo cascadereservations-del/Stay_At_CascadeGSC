@@ -5,7 +5,8 @@ select plan(18);
 select ok(not has_table_privilege('anon', 'public.airbnb_reservations', 'select'), 'anon cannot read Airbnb reservations');
 select ok(has_table_privilege('authenticated', 'public.airbnb_reservations', 'select'), 'authenticated has staff-scoped read on Airbnb reservations (D-094/D-110, B51)');
 select ok(not has_table_privilege('anon', 'public.calendar_events', 'select'), 'anon cannot read calendar events');
-select ok(has_table_privilege('authenticated', 'public.calendar_events', 'select'), 'authenticated has staff-scoped read on calendar events (D-094/D-110, B51)');
+-- s84 (20261017010000_s84_calendar.sql) replaced the table-wide select with a column-level grant (raw_summary, raw_description and guest_phone are excluded).
+select ok(has_any_column_privilege('authenticated', 'public.calendar_events', 'select') and not has_column_privilege('authenticated', 'public.calendar_events', 'guest_phone', 'select'), 'authenticated has staff-scoped read on calendar events (D-094/D-110, B51; column-level since s84)');
 select ok(not has_table_privilege('anon', 'public.calendar_sync_log', 'select'), 'anon cannot read calendar sync logs');
 select ok(has_table_privilege('authenticated', 'public.calendar_sync_log', 'select'), 'authenticated has staff-scoped read on calendar sync logs (D-094/D-110, B51)');
 select ok(not has_table_privilege('anon', 'public.booking_inquiries', 'select'), 'anon cannot read booking inquiries');

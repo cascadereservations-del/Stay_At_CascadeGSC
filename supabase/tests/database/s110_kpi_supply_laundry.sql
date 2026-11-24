@@ -10,7 +10,7 @@ grant usage on schema public, auth to anon, authenticated, service_role;
 grant execute on function auth.uid(), auth.jwt(), auth.role() to anon, authenticated, service_role;
 grant execute on function public.current_staff_authorized(text, uuid) to authenticated, service_role;
 -- Supabase's service_role has BYPASSRLS (the edge functions rely on it); the rehearsal shim role may not, so state it here (rolled back with the suite)
-alter role service_role bypassrls;
+do $sr$ begin if not (select rolbypassrls from pg_roles where rolname = 'service_role') then alter role service_role bypassrls; end if; end $sr$;
 
 create function pg_temp.as_user(p_uid uuid) returns void language sql as $$
   select set_config('request.jwt.claims', json_build_object('sub', p_uid, 'role', 'authenticated', 'aal', 'aal1', 'iat', 1790000000)::text, true),
@@ -131,17 +131,20 @@ select is((select public.utility_rate_list_v1(pg_temp.id('b0'), 20) ->> 'error')
 reset role;
 
 -- =============================================================================================================================================
--- Part 3: kpi_tab_v1 (22). Fixtures: one session of 2 nights with a 20 kWh reading (10 kWh a night), one misread reading that must not count, 2 brownouts (2.5 h + 1.5 h), 1 water cut (3 h),
+-- Part 3: kpi_tab_v1 (22). Fixtures: one session with a 20 kWh reading (chained after the 2020 reading), one misread reading that must not count, 2 brownouts (2.5 h + 1.5 h), 1 water cut (3 h),
 -- tissue used 3 in one turnover (6 on the shelf, 3 / 30 a day -> 60 days left), soap used 1.
 -- =============================================================================================================================================
 insert into public.cleaning_sessions(id, submission_id, cleaner_name, property_id, cleaned_at, nights_stayed, checkout_date, cleaning_type) values
   (pg_temp.id('d1'), 'zz110-sub-d1', 'Zz110 Cleaner', pg_temp.id('b0'), now(), 2, public.manila_today(), 'turnover'),
   (pg_temp.id('d2'), 'zz110-sub-d2', 'Zz110 Cleaner', pg_temp.id('b0'), timestamptz '2020-01-20 10:00+08', 2, date '2020-01-20', 'turnover');
-insert into public.meter_readings(id, session_id, electric_delta, kwh_per_night, recorded_at, property_id, meter_flag) values
-  (pg_temp.id('e1'), pg_temp.id('d1'), 20, 10, now(), pg_temp.id('b0'), null),
-  (pg_temp.id('e2'), pg_temp.id('d1'), 999, 499.5, now() - interval '1 minute', pg_temp.id('b0'), 'misread'),
-  (pg_temp.id('e3'), pg_temp.id('d1'), 888, 444, now() - interval '2 minutes', pg_temp.id('b0'), 'under_review'),
-  (pg_temp.id('e4'), pg_temp.id('d2'), 10, 5, timestamptz '2020-01-20 10:00+08', pg_temp.id('b0'), 'typed_accepted');
+-- s115 (20261114000000_s115_integrity.sql:62-80, meter_chain_v1; read by kpi_tab_v1 since then): a reading counts only with electric_prev > 0 and water_prev > 0, both deltas >= 0 and a flag that is null / typed_accepted / estimated,
+-- and only when it is chain_ok (electric_prev = the previous counted reading's end value). So the usable readings carry a chained meter: e4 (2020-01-20, 1000 -> 1010, 10 kWh) then e1 (today, 1010 -> 1030, 20 kWh).
+-- The misread (999) and under_review (888) readings stay otherwise eligible (prev values set) so that the FLAG alone is what keeps them out of every figure.
+insert into public.meter_readings(id, session_id, electric_prev, electric_curr, electric_delta, water_prev, water_curr, water_delta, kwh_per_night, recorded_at, property_id, meter_flag) values
+  (pg_temp.id('e1'), pg_temp.id('d1'), 1010, 1030, 20, 10.5, 11, 0.5, 10, now(), pg_temp.id('b0'), null),
+  (pg_temp.id('e2'), pg_temp.id('d1'), 1030, 2029, 999, 11, 11.5, 0.5, 499.5, now() - interval '1 minute', pg_temp.id('b0'), 'misread'),
+  (pg_temp.id('e3'), pg_temp.id('d1'), 1030, 1918, 888, 11, 11.5, 0.5, 444, now() - interval '2 minutes', pg_temp.id('b0'), 'under_review'),
+  (pg_temp.id('e4'), pg_temp.id('d2'), 1000, 1010, 10, 10, 10.5, 0.5, 5, timestamptz '2020-01-20 10:00+08', pg_temp.id('b0'), 'typed_accepted');
 -- rates: a manual 12.5 dated today (set in part 2) plus an AUTO 13.1 the same day (the manual correction must win), and 2020-01 rates: 8 in Dec 2019, manual 9 on Jan 10, auto 7 on Jan 12 (same month)
 insert into public.utility_rates(php_per_kwh, effective_from, source) values
   (13.1, current_date, 'auto'), (8, date '2019-12-01', 'auto'), (9, date '2020-01-10', 'manual'), (7, date '2020-01-12', 'auto');
@@ -179,24 +182,26 @@ select ok((select j from _k_fin) ? 'admin' and (select j from _k_admin) ? 'admin
 select ok(position('php_per_kwh' in (select j::text from _k_cleaner)) = 0 and position('cost' in (select j::text from _k_cleaner)) = 0 and position('pay' in (select j::text from _k_cleaner)) = 0,
   'the cleaner payload carries no rate, cost or pay');
 select is((select j ->> 'month' from _k_cleaner), to_char(date_trunc('month', public.manila_today()), 'YYYY-MM-DD'), 'the month is the first day of the current Manila month');
-select is((select (j -> 'utility' ->> 'kwh_month')::numeric from _k_cleaner), 20.00::numeric, 'kwh_month counts the usable reading only (the misread 999 is out)');
-select is((select (j -> 'utility' ->> 'nights_month')::numeric from _k_cleaner), 2::numeric, 'nights_month is the nights of the usable reading');
-select is((select (j -> 'utility' ->> 'kwh_per_night')::numeric from _k_cleaner), 10.00::numeric, 'kwh_per_night is 20 / 2');
-select is((select (j -> 'utility' -> 'last_reading' ->> 'delta_kwh')::numeric from _k_cleaner), 20.00::numeric, 'last_reading is the newest usable reading');
-select is((select jsonb_array_length(j -> 'utility' -> 'per_stay') from _k_cleaner), 2, 'per_stay holds the two usable stays (the 2020 one included, oldest first)');
+select is((select (j -> 'utility' ->> 'kwh_month')::numeric from _k_cleaner), 20.00::numeric, 'kwh_month counts the usable reading only (the misread 999 is out)'); -- s127:405 kwh_month = round(v_kwh, 2) over the chain_ok readings of the checkout month (s115 meter_chain_v1:62-80)
+-- nights_month / kwh_per_night were removed in s111 (20261113000000_s111_kpi_stay_avg.sql: the per-night keys are gone). Current equivalent (s115 amendment, s127:325-346): the days a reading covers = its checkout day minus the previous counted reading's (e4, 2020-01-20), at least 1,
+-- and kwh_per_day = counted kWh of the month over those days. Pinned with the same arithmetic the intent had (20 kWh over the nights the reading covers), computed here from the fixture dates.
+select is((select (j -> 'utility' -> 'last_reading' ->> 'days')::integer from _k_cleaner), public.manila_today() - date '2020-01-20', 'the days of the usable reading are its checkout day minus the previous counted reading''s (was nights_month)'); -- s127:325-331 days = greatest(1, cd - pcd)
+select is((select (j -> 'utility' ->> 'kwh_per_day')::numeric from _k_cleaner), round(20.0 / (public.manila_today() - date '2020-01-20'), 2), 'kwh_per_day is 20 kWh over those days (was kwh_per_night 20 / 2)'); -- s127:405 kwh_per_day = v_kpd (round(sum(delta)/sum(days), 2))
+select is((select (j -> 'utility' -> 'last_reading' ->> 'delta_kwh')::numeric from _k_cleaner), 20.00::numeric, 'last_reading is the newest usable reading'); -- s127:407 last_reading = newest recorded_at of the chain_ok readings
+select is((select jsonb_array_length(j -> 'utility' -> 'per_stay') from _k_cleaner), 2, 'per_stay holds the two usable stays (the 2020 one included, oldest first)'); -- s127:407 per_stay = last 8 chain_ok readings, ordered by checkout day
 select is((select (j -> 'utility' -> 'brownouts' ->> 'count')::integer || '/' || (j -> 'utility' -> 'brownouts' ->> 'hours') from _k_cleaner), '2/4.0', 'brownouts: 2 active notices, 4.0 hours (the inactive one is out)');
 select is((select (j -> 'utility' -> 'water_cuts' ->> 'count')::integer || '/' || (j -> 'utility' -> 'water_cuts' ->> 'hours') from _k_cleaner), '1/3.0', 'water cuts: 1, 3.0 hours');
 select is((select (j -> 'inventory' ->> 'turnovers_month')::integer from _k_cleaner), 1, 'turnovers_month is 1');
 select is((select (e ->> 'used_per_turnover')::numeric from _k_cleaner, jsonb_array_elements(j -> 'inventory' -> 'per_turnover') e where e ->> 'item_id' = pg_temp.id('c3')::text), 3.00::numeric, 'tissue is used 3 per turnover');
 select is((select (e ->> 'days_left')::integer from _k_cleaner, jsonb_array_elements(j -> 'inventory' -> 'runs_out') e where e ->> 'item_id' = pg_temp.id('c3')::text), 60, 'tissue runs out in 60 days (6 on the shelf, 3 in 30 days)');
 select ok((select (j -> 'inventory' ->> 'low_now')::integer from _k_cleaner) >= 0 and jsonb_typeof((select j -> 'inventory' -> 'runs_out' from _k_cleaner)) = 'array', 'low_now and runs_out have the contract shape');
-select is((select (j -> 'admin' ->> 'month_kwh_cost')::numeric from _k_admin), 250.00::numeric, 'month_kwh_cost is 20 kWh at the 12.5 rate');
-select is((select (j -> 'admin' ->> 'last_reading_cost')::numeric from _k_admin), 250.00::numeric, 'last_reading_cost is the last 20 kWh at the 12.5 rate');
+select is((select (j -> 'admin' ->> 'month_kwh_cost')::numeric from _k_admin), 250.00::numeric, 'month_kwh_cost is 20 kWh at the 12.5 rate'); -- s127:416-422 the counted readings of the month, each at the rate in force on its checkout day
+select is((select (j -> 'admin' ->> 'last_reading_cost')::numeric from _k_admin), 250.00::numeric, 'last_reading_cost is the last 20 kWh at the 12.5 rate'); -- s127:438 round(v_lastd * v_rate.php_per_kwh, 2)
 select is((select (j -> 'admin' -> 'rate' ->> 'php_per_kwh')::numeric from _k_admin), 12.5::numeric, 'the current rate is the newest effective rate (the manual one dated today)');
 select is((select (j -> 'admin' ->> 'cleaning_pay_month')::numeric from _k_admin), 500.00::numeric, 'cleaning_pay_month counts the paid request (its confirmed cleaner_fee ledger row since s134) and not the cancelled one');
 select is((select (j -> 'admin' ->> 'supply_cost_per_turnover')::numeric from _k_admin), 30.00::numeric, 'supply_cost_per_turnover is 3 tissue x 10 / 1 turnover');
-select is((select (j -> 'utility' ->> 'kwh_month')::numeric from _k_old), 10::numeric, 'another month reads its own numbers (the typed_accepted reading of 2020-01)');
-select is((select (j -> 'admin' ->> 'month_kwh_cost')::numeric from _k_old), 90.00::numeric, 'month_kwh_cost uses the rate in force on the reading day (manual 9 beats the same-month auto 7 and today''s 12.5)');
+select is((select (j -> 'utility' ->> 'kwh_month')::numeric from _k_old), 10::numeric, 'another month reads its own numbers (the typed_accepted reading of 2020-01)'); -- s127:325-346 kwh_month sums chain_ok readings whose checkout day is in the month
+select is((select (j -> 'admin' ->> 'month_kwh_cost')::numeric from _k_old), 90.00::numeric, 'month_kwh_cost uses the rate in force on the reading day (manual 9 beats the same-month auto 7 and today''s 12.5)'); -- s127:416-422 rate order: latest month, manual before auto, newest effective_from
 select is((select (j -> 'utility' -> 'internet_cuts' ->> 'count')::integer || '/' || (j -> 'utility' -> 'internet_cuts' ->> 'hours') from _k_cleaner), '1/2.0',
   'internet_cuts: only the note with an internet word AND an outage word counts (the moved router and the pest control do not)');
 select ok((select (j -> 'admin') ?& array['net_month', 'revenue_month', 'costs_month', 'occupancy', 'adr', 'sold_nights', 'sellable_nights', 'direct_share'] from _k_admin)

@@ -15,7 +15,8 @@ select ok(not has_table_privilege('anon', 'public.cleaning_sessions', 'insert'),
 select ok(not has_table_privilege('anon', 'public.meter_readings', 'select'), 'anon cannot read meters');
 select ok(not has_table_privilege('anon', 'public.meter_readings', 'insert'), 'anon cannot write meters');
 
-select ok(has_table_privilege('authenticated', 'public.inventory_items', 'select'), 'authenticated inventory reads are RLS gated');
+-- s84 (20261017000000_s84_inventory.sql) replaced the table-wide select with a column-level grant (every column but unit_cost), so the table-level check is false by design.
+select ok(has_any_column_privilege('authenticated', 'public.inventory_items', 'select') and not has_column_privilege('authenticated', 'public.inventory_items', 'unit_cost', 'select'), 'authenticated inventory reads are RLS gated (column-level since s84, unit_cost excluded)');
 select ok(has_table_privilege('authenticated', 'public.cleaning_sessions', 'insert'), 'authenticated cleaning writes are RLS gated');
 select ok(has_table_privilege('authenticated', 'public.meter_readings', 'insert'), 'authenticated meter writes are RLS gated');
 select ok(has_table_privilege('service_role', 'public.inventory_items', 'insert'), 'service role retains inventory writes');

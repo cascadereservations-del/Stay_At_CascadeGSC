@@ -129,9 +129,10 @@ select ok((select v::text !~* '("paid"|amount|price|payout|balance|deposit|total
 select is((select array_agg(x order by x) from _t, jsonb_array_elements(v->'calendar') c, jsonb_object_keys(c) x where k = 'h_cl' and c->>'uid' = 'cascade-direct-d8200000-0000-4000-8000-0000000000f2'),
   array['block_label','block_reason','checkin_date','checkin_time','checkout_date','checkout_time','guest_name','nights','source','status','uid'], 'a cleaner calendar row keeps exactly its old keys');
 select is((select array_agg(x order by x) from _t, jsonb_object_keys(v->'next_guest') x where k = 'h_cl'),
-  array['checkin_date','checkin_time','checkout_date','checkout_time','earlier_stays','guest_name','id_face_box','id_photo_name','id_photo_path','nights','notable','notes','repeat','source','stay_count','tier','tier_line','uid'],
-  'a cleaner next_guest keeps exactly the stay and guest-card keys (no contact, companions or arrival_ready)');
-select is((select (v->'current_guest') - 'x' from _t where k = 'h_cl'), (select (v->'current_guest') - 'x' from _t where k = 'h_fi'), 'cleaner and finance see the same current-guest shape');
+  array['checkin_date','checkin_time','checkout_date','checkout_time','companions','earlier_stays','guest_name','id_face_box','id_photo_name','id_photo_path','nights','notable','notes','repeat','source','stay_count','staying','tier','tier_line','uid'],
+  'a cleaner next_guest keeps exactly the stay and guest-card keys (companions since s129 and staying since s119; still no contact or arrival_ready)');
+-- s119: staying carries a suggestion key only for roles that can type who is staying (submit_cleaning: a cleaner yes, finance no); s129: companions for every active staff role. Compare without the suggestion key.
+select is((select (v->'current_guest') #- '{staying,suggestion}' from _t where k = 'h_cl'), (select (v->'current_guest') #- '{staying,suggestion}' from _t where k = 'h_fi'), 'cleaner and finance see the same current-guest shape (apart from the staying suggestion only typists get)');
 
 -- the helper itself: Airbnb paid, unknown guest, source with no payment source
 select is(public.s_arrival_ready_v1(null, 'airbnb'), '{"id": false, "paid": true, "door_code": null}'::jsonb, 'helper: no guest means id false; airbnb means paid true');

@@ -25,7 +25,9 @@ insert into public.airbnb_reservations(id,property_id,confirmation_code,status,g
  ('e3000000-0000-4000-8000-0000000000d2','e1000000-0000-4000-8000-0000000000d2','HMD2','confirmed','Ben','2026-10-01','2026-10-03');
 select set_config('request.jwt.claims', json_build_object('sub','e2000000-0000-4000-8000-0000000000d1','role','authenticated','aal','aal1','iat',extract(epoch from now())::bigint)::text, true);
 select set_config('role','authenticated',true);
-select is((select count(*) from public.airbnb_reservations where confirmation_code in ('HMD1','HMD2')), 1::bigint, 'cleaner sees only her property');
+-- s80 (20261013000000_s80_rls_tighten.sql) dropped airbnb_reservations_staff_read for airbnb_reservations_finance_read (read_finance),
+-- so a cleaner now sees none of the reservations, hers included (guest names and payouts are finance data).
+select is((select count(*) from public.airbnb_reservations where confirmation_code in ('HMD1','HMD2')), 0::bigint, 'cleaner sees no reservation, not even her property (s80 narrowed the read to read_finance)');
 select lives_ok($$select count(*) from public.job_heartbeats$$, 'cleaner can read heartbeats without error');
 
 select * from finish();

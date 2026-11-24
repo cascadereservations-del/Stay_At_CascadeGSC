@@ -17,5 +17,52 @@
   "recovery_assertion_only_migrations": [
     "20260910070000_verify_turnover_requires_a_guest_checkout.sql"
   ],
-  "source_description": "Historical production public-schema snapshot captured before the Wave 0 booking/security migrations, with the recursive price-history view corrected from its base-table contract; contains no table data or credentials. The excluded migration only removes production ledger backup rows that are not contained in this snapshot; its irreversible production guard remains validated by its release contract. The assertion-only migration preserves its function replacement while omitting its production-date assertions, which require historical calendar data absent from this schema-only baseline."
+  "recovery_bridge_migrations": [
+    "20260925025900_hand_applied_functions.sql"
+  ],
+  "recovery_bridge_sha256": {
+    "20260925025900_hand_applied_functions.sql": "a01c4e9a106ac1f76491a658d76bd30ce61f21a96c81bf03917204b66b2858e2"
+  },
+  "recovery_statement_omissions": {
+    "20260926020000_rate_card.sql": [
+      {
+        "first_line": "insert into public.booking_rate_policy_versions (property_id, effective_from, effective_to, nightly_rate, currency, terms, approved_by, idempotency_key)",
+        "sha256": "bc1b041ccbfc4a6e3ef9584521b103aba0204f59d0d73c2c16bdff61e8d61ce7"
+      },
+      {
+        "first_line": "insert into public.rate_promotions (property_id, name, first_night, last_night, nightly_rate, created_by)",
+        "sha256": "00a319506077a96420c8f95e832d9fb43414ee73bcac43d709906d6dcf0d5a0a"
+      }
+    ],
+    "20261020000000_s86_inventory_db.sql": [
+      {
+        "first_line": "  select count(*) into v_n from public.inventory_purchases where lower(btrim(supplier)) = 'test';",
+        "last_line": "  end if;",
+        "sha256": "6585bfbb65eefd0ef0925eba4203741fb5e4402416ac112987322a6faf84a0db"
+      },
+      {
+        "first_line": "  select count(*) into v_n from public.inventory_shopping_list s join public.inventory_purchases p on p.id = s.purchase_id where lower(btrim(p.supplier)) = 'test';",
+        "last_line": "  end if;",
+        "sha256": "9959ffbd61c46520a47626f3bf28b512bc27e0a315e70105b4ea14acd81c9133"
+      },
+      {
+        "first_line": "  -- the item the test purchase restocked (Liquid Hand Soap): must still be exactly as read live 2026-10-15, untouched since the test receipt",
+        "last_line": "  end if;",
+        "sha256": "12f73c391f5306449870a8a91f22f91979dcc9a7cfb91a748a68c0f593b01ea3"
+      },
+      {
+        "first_line": "-- ...and so goes its effect on the item (stock 1 and unit cost 1.00 came from that one receipt; guarded in section 0), with an audit row",
+        "last_line": "end $$;",
+        "sha256": "e071c7deadc7ef8d78356a7d139633556c0b802fcd73f851c1220fe2e9bfd1d3"
+      }
+    ],
+    "20261022000000_s89_signin_pin.sql": [
+      {
+        "first_line": "  select count(*) into n",
+        "last_line": "  end if;",
+        "sha256": "cc4487bfdd45235917e8a8952afa15cc6361dc28004ef63b50d0c4118aa5c957"
+      }
+    ]
+  },
+  "source_description": "Historical production public-schema snapshot captured before the Wave 0 booking/security migrations, with the recursive price-history view corrected from its base-table contract; contains no table data or credentials. The excluded migration only removes production ledger backup rows that are not contained in this snapshot; its irreversible production guard remains validated by its release contract. The assertion-only migration preserves its function replacement while omitting its production-date assertions, which require historical calendar data absent from this schema-only baseline. Statement omissions remove production-data seed inserts (pinned by sha256) that need the production property or owner rows; in a row-less baseline their effect equals the properties-exists guard later migrations use, because the seed would insert nothing. The s86 inventory migration is prepared without its production-row checks (the test-purchase count, the shopping-row-points-at-test check, the Liquid Hand Soap item state check) and the block that resets that item, because the disposable database has no inventory rows; its function-body md5 and OCR checks are kept. The s89 sign-in PIN migration is prepared without its check that exactly one admin named Lloyd exists, because the disposable database has no auth users; the update after it changes nothing there."
 }
