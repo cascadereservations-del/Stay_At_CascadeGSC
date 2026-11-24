@@ -40,7 +40,7 @@ export function splitStatements(sql) {
       push(sql.slice(i, j + 1), true);
       i = j + 1;
     } else if (c === '$') {
-      const tag = /^\$[A-Za-z_]*\$/.exec(sql.slice(i, i + 40));
+      const tag = /^\$(?:[A-Za-z_][A-Za-z0-9_]*)?\$/.exec(sql.slice(i, i + 40));
       if (tag) {
         let j = sql.indexOf(tag[0], i + tag[0].length);
         j = j < 0 ? n : j + tag[0].length;
@@ -60,14 +60,14 @@ export function splitStatements(sql) {
 }
 
 const INSERT_RE = /^\s*insert\s+into\s+public\.[a-z_][a-z0-9_]*/i;
-const GUARD_RE = /exists\s*\(\s*select\s+1\s+from\s+public\.properties/i;
+const GUARD_RE = /(?<!not\s+)exists\s*\(\s*select\s+1\s+from\s+public\.properties\b[^;]*?6ae230f4-c189-4547-84b1-cb6e0b2cc9bd/i;
 
 // Returns the unguarded production-seed statements of one migration as [{ firstLine, text }].
 export function findUnguardedSeeds(sql) {
   const found = [];
   for (const { raw, code } of splitStatements(sql)) {
     if (!INSERT_RE.test(code)) continue;
-    const touchesProduction = code.includes(PROPERTY_ID) || /staff_access_profiles\s+where\s+role/i.test(code);
+    const touchesProduction = code.toLowerCase().includes(PROPERTY_ID) || /staff_access_profiles\b[^;]*\brole\b/i.test(code);
     if (!touchesProduction || GUARD_RE.test(code)) continue;
     const firstLine = raw.split('\n').map(line => line.replace(/\r$/, '')).find(line => INSERT_RE.test(line)) ?? '';
     found.push({ firstLine, text: raw.trim() });

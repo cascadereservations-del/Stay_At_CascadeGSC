@@ -6,7 +6,9 @@
 -- "function public.get_cleanable_bookings(date, uuid, integer, integer) does not exist".
 -- Definitions below are pg_get_functiondef output read read-only from production on 2026-11-24.
 -- Production md5(prosrc) per function:
---   get_cleanable_bookings: 5892699aa705abf5a4d17fa654f8f6bc
+--   get_cleanable_bookings: NOT the current production body. It is the pre-s82 body (md5 7306b53090e34765717a5a65ea700219, copied from
+--     supabase/rollbacks/20261015_s82_checklist.sql), because 20261015010000_s82_checklist.sql refuses to run unless the function
+--     has exactly that body. Production had it from 2026-09-12 (hand-applied) until s82 replaced it on 2026-10-15.
 --   can_skip_meter_photos: 03c8084770288bcd9d28ac478938bb3e
 --   get_meter_photo_objects: bcab40f78d6158bd5612886b22f8d814
 --   get_meter_sessions_pending_vision: d85edf8955e57a90da077d22e276c1a6
@@ -18,12 +20,26 @@
 
 set check_function_bodies = off;
 
-CREATE OR REPLACE FUNCTION public.get_cleanable_bookings(p_date date, p_property_id uuid DEFAULT '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd'::uuid, p_lookback integer DEFAULT 10, p_midstay_min integer DEFAULT 5)
- RETURNS TABLE(event_id uuid, checkin_date date, checkout_date date, nights integer, guest_name text, kind text, already_reported boolean)
- LANGUAGE plpgsql
- STABLE SECURITY DEFINER
- SET search_path TO ''
-AS $function$
+create or replace function public.get_cleanable_bookings(
+  p_date        date,
+  p_property_id uuid default '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd'::uuid,
+  p_lookback    integer default 10,
+  p_midstay_min integer default 5
+)
+returns table (
+  event_id         uuid,
+  checkin_date     date,
+  checkout_date    date,
+  nights           integer,
+  guest_name       text,
+  kind             text,
+  already_reported boolean
+)
+language plpgsql
+stable
+security definer
+set search_path to ''
+as $function$
 begin
   if not public.current_staff_authorized('read_operations', p_property_id) then
     raise exception 'not authorized to read operations for this property'
@@ -39,7 +55,6 @@ begin
       ce.nights,
       nullif(trim(coalesce(ce.guest_name, '')), '') as guest_name,
       case
-        when ce.status = 'blocked'                                     then 'block'
         when ce.checkout_date <= p_date                               then 'checkout'
         when ce.checkin_date  <  p_date and ce.checkout_date > p_date  then 'mid_stay'
         else 'checkin'
@@ -48,19 +63,13 @@ begin
     where ce.property_id = p_property_id
       and ce.status <> 'cancelled'
       and (
-        -- a block: only the cleaning date itself, and only when it was scheduled
-        (ce.status = 'blocked'
-         and public.k_calendar_row_offered(ce.property_id, ce.status, ce.block_reason, ce.block_reason_source,
-                                           ce.checkin_date, ce.checkout_date, p_date))
-        or (ce.status <> 'blocked' and (
-          -- ended on or shortly before the cleaning date
-          (ce.checkout_date <= p_date and ce.checkout_date >= p_date - p_lookback)
-          -- guest still in residence, stay long enough to earn a mid-stay clean
-          or (ce.checkin_date < p_date and ce.checkout_date > p_date
-              and coalesce(ce.nights, 0) >= p_midstay_min)
-          -- arriving today
-          or ce.checkin_date = p_date
-        ))
+        -- ended on or shortly before the cleaning date
+        (ce.checkout_date <= p_date and ce.checkout_date >= p_date - p_lookback)
+        -- guest still in residence, stay long enough to earn a mid-stay clean
+        or (ce.checkin_date < p_date and ce.checkout_date > p_date
+            and coalesce(ce.nights, 0) >= p_midstay_min)
+        -- arriving today
+        or ce.checkin_date = p_date
       )
   )
   select
@@ -75,9 +84,6 @@ begin
       from public.cleaning_sessions cs
       where cs.property_id = p_property_id
         and case
-              when c.kind = 'block' then
-                cs.checkout_date = c.checkout_date
-                and cs.cleaned_at::date = p_date
               when c.kind = 'mid_stay' then
                 coalesce(cs.cleaning_type, '') = 'mid_stay'
                 and cs.checkout_date = c.checkout_date

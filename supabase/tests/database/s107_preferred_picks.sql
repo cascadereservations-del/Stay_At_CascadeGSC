@@ -144,12 +144,10 @@ select ok(not exists (select 1 from public.properties where id = '6ae230f4-c189-
 select ok(not exists (select 1 from public.properties where id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd')
           or ((select count(*)::int from public.inventory_item_options where image_url like 'https://down-ph.img.susercontent.com/%' and property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd')) is not distinct from (9),
   'the 8 Shopee picks keep their susercontent images, + the s116 Midea option = 9 (production property only)');
-select ok(not exists (select 1 from public.properties where id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd')
-          or (not has_function_privilege('anon', 'public.s_inventory_preferred_picks_v1()', 'execute') and not has_function_privilege('authenticated', 'public.s_inventory_preferred_picks_v1()', 'execute')
+select ok(not has_function_privilege('anon', 'public.s_inventory_preferred_picks_v1()', 'execute') and not has_function_privilege('authenticated', 'public.s_inventory_preferred_picks_v1()', 'execute')
           and not has_function_privilege('service_role', 'public.s_inventory_preferred_picks_v1()', 'execute')
           and not has_function_privilege('anon', 'public.s_inventory_option_make_usual_v1(uuid)', 'execute') and not has_function_privilege('authenticated', 'public.s_inventory_option_make_usual_v1(uuid)', 'execute')
-          and not has_function_privilege('service_role', 'public.s_inventory_option_make_usual_v1(uuid)', 'execute')),
-  'both internal functions have no grants (production property only)');
+          and not has_function_privilege('service_role', 'public.s_inventory_option_make_usual_v1(uuid)', 'execute'), 'both internal functions have no grants');
 
 insert into _t select 'h_o', to_jsonb(md5((select string_agg(o::text, '|' order by o.id) from public.inventory_item_options o where o.property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd')));
 insert into _t select 'h_l', to_jsonb(md5((select string_agg(k::text, '|' order by k.item_id, k.supplier_id) from public.inventory_item_suppliers k join public.inventory_items i on i.id = k.item_id where i.property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd')));
