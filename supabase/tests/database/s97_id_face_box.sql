@@ -6,7 +6,7 @@ begin;
 select plan(57);
 
 -- baseline grants a --no-acl restore lacks (idempotent, rolled back with the suite)
-alter role service_role bypassrls;
+do $sr$ begin if not (select rolbypassrls from pg_roles where rolname = 'service_role') then alter role service_role bypassrls; end if; end $sr$;
 grant usage on schema public, auth, storage to anon, authenticated, service_role;
 grant execute on function auth.uid(), auth.jwt() to anon, authenticated, service_role;
 grant execute on function public.current_staff_authorized(text, uuid), public.current_staff_active(text[]) to authenticated, service_role;
