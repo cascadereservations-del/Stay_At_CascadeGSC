@@ -148,7 +148,7 @@
       "name": "How do I confirm my booking?",
       "acceptedAnswer": {
         "@type": "Answer",
-        "text": "Once you send your booking request, you’ll receive an Acknowledgement Receipt (AR) by email within 1–2 hours if you gave an email address. Five or more days before check-in, submitting also holds your dates for 24 hours while you send the reservation fee; if nothing arrives, the hold is released quietly and nothing is owed. We verify both payment and availability, then send your personal confirmation by email if you gave one, otherwise on Messenger or by call. Your dates are not confirmed until that message arrives. The balance and the refundable security deposit are settled at least a day before check-in — no surprises."
+        "text": "Once you send your booking request, you’ll receive an Acknowledgement Receipt (AR) by email within 1–2 hours if you gave an email address. Five or more days before check-in, submitting also holds your dates for 24 hours while you send the reservation fee; if nothing arrives, the hold is released quietly and nothing is owed. We verify both payment and availability, then send your personal confirmation by email if you gave one, otherwise on Messenger or by call. Your dates are not confirmed until that message arrives. The balance and the refundable security deposit are settled at least a day before check-in — no surprises. When full payment is made up front (check-in within 5 days), the deposit is handed over on arrival."
       }
     },
     {
@@ -5544,6 +5544,7 @@
   .bs-err { margin: 0; font-size: 0.875rem; line-height: 1.45; color: #9C3A1E; }
   [data-theme="espresso"] .bs-err { color: #F0A58E; }
   .bs-err:empty { display: none; }
+  .bs-err a { display: inline-block; min-height: 2.75rem; line-height: 2.75rem; color: inherit; text-decoration: underline; }
   .bs-cta, .bs-ghost { display: flex; align-items: center; justify-content: center; min-height: 3.25rem; padding: 0 1.25rem; border-radius: 1.125rem; font-family: var(--gs-body); font-size: 1.0625rem; font-weight: 600; cursor: pointer; width: 100%; box-sizing: border-box; text-decoration: none; white-space: nowrap; }
   .bs-cta { border: 0; background: var(--gs-deep); color: var(--gs-on-deep); }
   [data-theme="espresso"] .bs-cta { background: var(--gs-accent); color: var(--gs-on-accent); }
@@ -6271,7 +6272,7 @@
 
               <!-- Reservation instruction — dynamic: hidden for full payment -->
               <p class="pay-deposit-note" id="payDepositNote">
-                Send the <strong>reservation fee</strong> for review &mdash; after confirmation, the balance and &#x20B1;1,000 refundable deposit are collected at least a day before check-in.
+                Send the <strong>reservation fee</strong> for review &mdash; after confirmation, the balance and &#x20B1;1,000 refundable deposit are collected at least a day before check-in. When full payment is made up front (check-in within 5 days), the deposit is handed over on arrival.
               </p>
 
               <!-- Tab switcher — Bank Transfer first (faster confirmation) -->
@@ -6528,7 +6529,7 @@
           </summary>
           <div class="faq-body-wrap">
             <div class="faq-body">
-              <p class="faq-answer">Once you send your booking request, you&rsquo;ll receive an Acknowledgement Receipt (AR) by email within 1&ndash;2 hours if you gave an email address. Five or more days before check-in, submitting also holds your dates for 24 hours while you send the reservation fee; if nothing arrives, the hold is released quietly and nothing is owed. We verify both payment and availability, then send your personal confirmation by email if you gave one, otherwise on Messenger or by call. Your dates are not confirmed until that message arrives. The balance and the refundable security deposit are settled at least a day before check-in &mdash; no surprises.</p>
+              <p class="faq-answer">Once you send your booking request, you&rsquo;ll receive an Acknowledgement Receipt (AR) by email within 1&ndash;2 hours if you gave an email address. Five or more days before check-in, submitting also holds your dates for 24 hours while you send the reservation fee; if nothing arrives, the hold is released quietly and nothing is owed. We verify both payment and availability, then send your personal confirmation by email if you gave one, otherwise on Messenger or by call. Your dates are not confirmed until that message arrives. The balance and the refundable security deposit are settled at least a day before check-in &mdash; no surprises. When full payment is made up front (check-in within 5 days), the deposit is handed over on arrival.</p>
             </div>
           </div>
         </details>
@@ -7175,7 +7176,7 @@
           <p class="bs-sub" id="bsDoneKicker" style="font-weight:600;color:var(--gs-accent-text)">Payment reported</p>
           <h2 class="bs-h bs-h--big" id="bsH4" tabindex="-1">Request sent.</h2>
           <p class="bs-sub" style="font-size:1rem;color:var(--gs-ink)">We confirm personally, usually within a couple of hours. Your smart-lock code and guide arrive before check-in.</p>
-          <div class="bs-card" style="width:100%;box-sizing:border-box"><div><span id="bsDoneRange"></span><strong id="bsDoneTotal"></strong></div><div class="bs-sub"><span id="bsDoneRef"></span><span id="bsDoneFee"></span></div><div class="bs-sub"><span>Check-in 2 PM &middot; Check-out 12 noon</span></div><div class="bs-sub"><span>Plus a &#8369;1,000 refundable security deposit with the balance, returned after check-out.</span></div></div>
+          <div class="bs-card" style="width:100%;box-sizing:border-box"><div><span id="bsDoneRange"></span><strong id="bsDoneTotal"></strong></div><div class="bs-sub"><span id="bsDoneRef"></span><span id="bsDoneFee"></span></div><div class="bs-sub"><span>Check-in 2 PM &middot; Check-out 12 noon</span></div><div class="bs-sub"><span id="bsDoneDep">Plus a &#8369;1,000 refundable security deposit with the balance, returned after check-out.</span></div></div>
           <p class="bs-sub" id="bsDoneReach" style="font-size:1rem;color:var(--gs-ink)"></p>
           <div class="bs-actions" style="width:100%">
             <p class="bs-sub" id="bsDoneNote" role="status"></p>
@@ -10264,6 +10265,8 @@
     var g = $('gcashNumber'), b = $('bankAcctNumber');
     return { gcash: g ? g.textContent.trim() : '', bank: b ? b.textContent.trim() : '' };
   }
+  var DEP_BALANCE = 'Plus a ₱1,000 refundable security deposit with the balance, returned after check-out.',
+      DEP_ARRIVAL = 'Plus a ₱1,000 refundable security deposit, handed over on arrival and returned after check-out.';
   function paint3() {
     var mn = money(), a = acct(), gc = S.method === 'gcash';
     ensureQuote();
@@ -10272,6 +10275,7 @@
     setText('bsH3', holdOn ? 'Your dates are held' : 'Pay and confirm');
     if (!busy) setText('bsNext3', mn ? 'I\u2019ve sent ' + peso(mn.dep) : 'I\u2019ve sent the payment');
     setText('bsPayLbl', mn ? (mn.last ? 'Pay now (full amount)' : 'Pay now (' + mn.pct + '%)') : 'Pay now');
+    setText('bsDepLine', mn && mn.last ? DEP_ARRIVAL : DEP_BALANCE);
     setText('bsPayTotal', mn ? 'Total ' + peso(mn.total) : ''); setText('bsPayLater', mn && mn.later > 0 ? 'Later ' + peso(mn.later) : '');
     setText('bsHoldLine', !mn ? '' : mn.last ? 'Check-in is close, so we reserve on receipt. Send the full amount to book ' + rangeLabel() + '.'
       : 'Send half within 24 hours to keep ' + fmtMd(S.ci) + ' to ' + (S.ci.slice(0, 7) === S.co.slice(0, 7) ? +S.co.slice(8) : fmtMd(S.co)) + '. The rest is due a day before you arrive.');
@@ -10302,7 +10306,13 @@
   function pay3() {
     showErr('bsErr3', '');
     var mn = money(); if (!mn) { showErr('bsErr3', 'Confirming your price… please tap again in a moment.'); ensureQuote(); return; }
-    if (holdLive() && !file) { showErr('bsErr3', 'Please attach a screenshot of your receipt so we can match your payment.'); return; }
+    if (holdLive() && !file) {
+      var er = $('bsErr3'), ea = document.createElement('a');
+      er.textContent = "Please attach a screenshot of your receipt so we can match your payment. Can't add one? ";
+      ea.textContent = 'Send your reference number on Messenger'; ea.href = msgrHref(); ea.target = '_blank'; ea.rel = 'noopener';
+      er.appendChild(ea); er.appendChild(document.createTextNode('.'));
+      $('bsFile').focus(); return;
+    }
     if (!(S.ref.trim().length >= 4) && !file) { showErr('bsErr3', 'Add the reference number from your receipt, or upload a screenshot.'); $('bsRef').focus(); return; }
     lastAction = pay3; setBusy('bsNext3', true, 'Sending…');
     var sendRef = S.ref.trim() ? 'Payment ref: ' + S.ref.trim() : undefined;
@@ -10334,11 +10344,12 @@
     setText('bsH4', 'Request sent, ' + first + '.');
     setText('bsDoneRange', S.ci && S.co ? rangeLabel() : ''); setText('bsDoneTotal', mn.total ? peso(mn.total) : '');
     setText('bsDoneRef', 'Payment reported' + (d.ref ? ' · ref ' + d.ref : '')); setText('bsDoneFee', mn.dep ? peso(mn.dep) : '');
+    setText('bsDoneDep', d.mn && d.mn.last ? DEP_ARRIVAL : DEP_BALANCE);
     setText('bsDoneNote', d.upload === 'unavailable' ? 'Your screenshot did not upload. Please send it on Messenger.' : d.upload === 'none' ? 'Send your reference number on Messenger so we can match it quickly.' : '');
     var digits = S.phone.replace(/\D/g, ''), em = S.email.trim();
-    var ph = S.cc + ' ' + (digits.length >= 4 ? '•••• ' + digits.slice(-4) : '••••');
+    var ph = S.cc + ' ' + (digits.length >= 4 ? '•••• ' + digits.slice(-4) : '••••');
     setText('bsDoneReach', em ? 'We will confirm by email at ' + em + ', and on Messenger or by call at ' + ph + '.' : 'We will confirm on Messenger or by call at ' + ph + '.');
-    $('bsMsgr').href = MESSENGER + '?text=' + encodeURIComponent('Hi Cascade, I just sent a booking request for ' + (S.ci && S.co ? rangeLabel() : 'a stay') + (d.ref ? ' (ref ' + d.ref + ')' : '') + (mn.dep ? ' and my payment of ' + peso(mn.dep) : '') + '.');
+    $('bsMsgr').href = MESSENGER + '?text=' + encodeURIComponent('Hi Cascade, I just sent a booking request for ' + (S.ci && S.co ? rangeLabel() : 'a stay') + (d.ref ? ' (ref ' + d.ref + ')' : '') + (mn.dep ? ' and my payment of ' + peso(mn.dep) : '') + (S.ref.trim() ? ', payment ref ' + S.ref.trim() : '') + '.');
   }
   function showError() { show('E'); }
   function paintErrState() {

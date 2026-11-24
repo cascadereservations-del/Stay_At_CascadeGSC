@@ -132,6 +132,10 @@ test.describe('booking sheet', () => {
     await expect(page.locator('#bsHeldNote')).toContainText('Your dates are held under Maria Santos · •••• 4567. To change these details, message us on Messenger.');
     await expect(page.locator('#bsHeldNoteA')).toHaveAttribute('href', /^https:\/\/www\.messenger\.com\/t\/699640026568720/);
     expect(posts.length).toBe(1);
+    await page.locator('#bsNext3').click();                                    /* no receipt: the error's Messenger link carries the summary */
+    const held = decodeURIComponent(await page.locator('#bsErr3 a').getAttribute('href'));
+    expect(held).toContain('Held under Maria Santos');                         /* the Messenger summary names the hold's original name */
+    expect(held).not.toContain('Held under Maria S. Santos');
     await page.locator('#bsBack').click();
     await page.locator('#bsName').fill('Maria Santos'); await page.locator('#bsPhone').fill('917 999 0000');
     await page.locator('#bsNext2').click();
@@ -176,6 +180,28 @@ test.describe('booking sheet', () => {
     expect(posts.length).toBe(1);
   });
 
+  test('deposit wording follows the pay-in-full rule: check-in 6 days out says with the balance, 3 days out says handed over on arrival (step 3 and success)', async ({ page }) => {
+    await mock(page); await openHeader(page);
+    await step1(page, plus(6), plus(8)); await step2(page);
+    await expect(page.locator('#bsDepLine')).toHaveText('Plus a ₱1,000 refundable security deposit with the balance, returned after check-out.');
+    await page.locator('#bsFile').setInputFiles({ name: 'receipt.png', mimeType: 'image/png', buffer: PNG });
+    await page.locator('#bsNext3').click();
+    await expect(page.locator('#bsH4')).toBeVisible();
+    await expect(page.locator('#bsDoneDep')).toHaveText('Plus a ₱1,000 refundable security deposit with the balance, returned after check-out.');
+  });
+
+  test('check-in 3 days out (pay in full) says the deposit is handed over on arrival, on step 3 and on the success card', async ({ page }) => {
+    await mock(page); await openHeader(page);
+    await step1(page, plus(3), plus(5)); await step2(page);
+    const want = 'Plus a ₱1,000 refundable security deposit, handed over on arrival and returned after check-out.';
+    await expect(page.locator('#bsDepLine')).toHaveText(want);
+    await expect(page.locator('#bsDepLine')).not.toContainText('with the balance');
+    await page.locator('#bsRef').fill('1234567890');
+    await page.locator('#bsNext3').click();
+    await expect(page.locator('#bsH4')).toBeVisible();
+    await expect(page.locator('#bsDoneDep')).toHaveText(want);
+  });
+
   test('WMO codes classify to rain, cloudy and clear', async ({ page }) => {
     await mock(page);
     await page.goto('/index.html');
@@ -207,14 +233,23 @@ test.describe('booking sheet', () => {
   });
 
   test('step 3 on a held booking requires a screenshot (a typed reference alone is not enough), then reports payment and offers calendar and Messenger', async ({ page }) => {
+    test.setTimeout(60000);                                                    /* the longest sheet flow; the mobile project runs it near 25 s */
     const posts = await mock(page); await openHeader(page); await step1(page); await step2(page);
     await expect(page.locator('#bsHeld')).toContainText('Held');
     const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64');
     await page.locator('#bsNext3').click();
-    await expect(page.locator('#bsErr3')).toHaveText('Please attach a screenshot of your receipt so we can match your payment.');
+    await expect(page.locator('#bsErr3')).toHaveText("Please attach a screenshot of your receipt so we can match your payment. Can't add one? Send your reference number on Messenger.");
+    await expect(page.locator('#bsFile')).toBeFocused();
+    const link = page.locator('#bsErr3 a');
+    await expect(link).toHaveText('Send your reference number on Messenger');
+    await expect(link).toHaveAttribute('href', /^https:\/\/www\.messenger\.com\/t\/699640026568720\?text=/);
+    let pre = decodeURIComponent(await link.getAttribute('href'));
+    expect(pre).toContain('Booking ref CH-TEST1'); expect(pre).not.toContain('Payment ref');
     await page.locator('#bsRef').fill('1234567890');
     await page.locator('#bsNext3').click();
     await expect(page.locator('#bsErr3')).toContainText('attach a screenshot');
+    pre = decodeURIComponent(await link.getAttribute('href'));
+    expect(pre).toContain('Booking ref CH-TEST1'); expect(pre).toContain('Payment ref 1234567890');
     await expect(page.locator('#bsH3')).toBeVisible();
     expect(posts.uploads.length).toBe(0);
     await page.locator('#bsFile').setInputFiles({ name: 'receipt.png', mimeType: 'image/png', buffer: PNG });
@@ -222,8 +257,10 @@ test.describe('booking sheet', () => {
     await expect(page.locator('#bsH4')).toHaveText('Request sent, Maria.');
     expect(posts.uploads.length).toBe(1);
     await expect(page.locator('#bsDoneKicker')).toHaveText('Payment reported');
-    await expect(page.locator('#bsDoneReach')).toHaveText(/^We will confirm on Messenger or by call at \+63 •••• 4567\.$/);
+    await expect(page.locator('#bsDoneReach')).toHaveText(/^We will confirm on Messenger or by call at \+63 •••• 4567\.$/);
     await expect(page.locator('#bsH4 ~ .bs-card')).toContainText('₱1,000 refundable security deposit');
+    expect(await page.locator('#bsDoneReach').evaluate((el) => el.textContent)).toContain('+63 •••• 4567');   /* the masked number never wraps */
+    expect(decodeURIComponent(await page.locator('#bsMsgr').getAttribute('href'))).toContain(', payment ref 1234567890.');
     await expect(page.locator('#bsMsgr')).toHaveAttribute('href', /text=Hi%20Cascade%2C%20I%20just%20sent%20a%20booking%20request%20for%20.*%20\(ref%20CH-TEST1\)%20and%20my%20payment%20of%20/);
     const [dl] = await Promise.all([page.waitForEvent('download'), page.locator('#bsIcs').click()]);
     expect(dl.suggestedFilename()).toBe('cascade-hideaway-stay.ics');
