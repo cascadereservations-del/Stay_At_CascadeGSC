@@ -21,7 +21,7 @@
     "20260925025900_hand_applied_functions.sql"
   ],
   "recovery_bridge_sha256": {
-    "20260925025900_hand_applied_functions.sql": "d9f18cdbbeb23538489f5cbf9b8001c2c9d67ee1f6041d2988d39f48a1e1bc06"
+    "20260925025900_hand_applied_functions.sql": "44f4f912c21e75d3aafe752fdbada061babff6111dee281702d0a9c06ae69b9c"
   },
   "source_description": "Historical production public-schema snapshot captured before the Wave 0 booking/security migrations, with the recursive price-history view corrected from its base-table contract; contains no table data or credentials. The excluded migration only removes production ledger backup rows that are not contained in this snapshot; its irreversible production guard remains validated by its release contract. The assertion-only migration preserves its function replacement while omitting its production-date assertions, which require historical calendar data absent from this schema-only baseline."
 }

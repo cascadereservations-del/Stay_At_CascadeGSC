@@ -1,6 +1,6 @@
 -- RECOVERY-ONLY BRIDGE. Never apply to production; it is not part of supabase/migrations history.
 --
--- Production received these five functions by hand from CH-Cleaners-Checklist/sql/ and they were never recorded
+-- Production received these six functions by hand from CH-Cleaners-Checklist/sql/ and they were never recorded
 -- in supabase/migrations/. The disposable CI database (supabase/recovery/baseline.json) is built from a schema
 -- snapshot plus the forward migrations, so it lacked them and 20260925030000_security_grants.sql failed with
 -- "function public.get_cleanable_bookings(date, uuid, integer, integer) does not exist".
@@ -11,7 +11,10 @@
 --   get_meter_photo_objects: bcab40f78d6158bd5612886b22f8d814
 --   get_meter_sessions_pending_vision: d85edf8955e57a90da077d22e276c1a6
 --   get_usage_medians: eb605dd66ebd70bb83061e2f38795132
--- Grants are not set here; 20260925030000_security_grants.sql sets them.
+--   get_checklist_staff_names: e77d9b3cda3e67fc088ab2a057b220eb
+-- Grants are not set here, except get_checklist_staff_names: no migration grants it (anon by design, D-228), so it
+-- reproduces the production ACL {postgres=X, anon=X, authenticated=X, service_role=X} at the end of this file.
+-- The other five get their grants from 20260925030000_security_grants.sql.
 
 set check_function_bodies = off;
 
@@ -195,3 +198,21 @@ AS $function$
     and undone_at is null
   group by item_id;
 $function$;
+
+CREATE OR REPLACE FUNCTION public.get_checklist_staff_names()
+ RETURNS TABLE(display_name text)
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+  select distinct u.raw_user_meta_data->>'display_name'
+  from public.staff_access_profiles sap
+  join auth.users u on u.id = sap.user_id
+  where sap.role = 'cleaner'
+    and sap.disabled_at is null
+    and nullif(trim(coalesce(u.raw_user_meta_data->>'display_name', '')), '') is not null
+  order by 1;
+$function$;
+
+revoke execute on function public.get_checklist_staff_names() from public;
+grant execute on function public.get_checklist_staff_names() to anon, authenticated, service_role;

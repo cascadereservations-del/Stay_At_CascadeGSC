@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { findFunctionGaps, loadPreparedPlan } from '../../scripts/ci/check-function-refs.mjs';
+import { findFunctionGaps, findTestFunctionGaps, loadPreparedPlan, loadTestFiles } from '../../scripts/ci/check-function-refs.mjs';
 
 test('grant on a function no earlier file creates is a gap', () => {
   const gaps = findFunctionGaps([
@@ -21,4 +21,23 @@ test('quoted pg_dump names, comments and renames are understood', () => {
 
 test('the prepared recovery plan has no function reference gaps', () => {
   assert.deepEqual(findFunctionGaps(loadPreparedPlan()), []);
+});
+
+test('pgTAP has_function_privilege and regprocedure references are checked against the whole plan', () => {
+  const plan = [{ name: 'a.sql', sql: 'create function public.one() returns int language sql as $$ select 1 $$;' }];
+  const tests = [{
+    name: 't.sql',
+    sql: [
+      "select ok(has_function_privilege('anon', 'public.one()', 'execute'));",
+      "select ok(has_function_privilege('anon', 'public.ghost()', 'execute'));",
+      "select ok(not has_function_privilege(current_user, 'public.phantom(uuid, text)', 'execute'));",
+      "select 'public.spectre(uuid)'::regprocedure;",
+      "-- select has_function_privilege('anon', 'public.commented()', 'execute');",
+    ].join('\n'),
+  }];
+  assert.deepEqual(findTestFunctionGaps(plan, tests).map(gap => gap.fn).sort(), ['ghost', 'phantom', 'spectre']);
+});
+
+test('the pgTAP files reference only functions the prepared plan creates', () => {
+  assert.deepEqual(findTestFunctionGaps(loadPreparedPlan(), loadTestFiles()), []);
 });
