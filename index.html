@@ -5879,7 +5879,6 @@
   @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
     .theme-quiet-luxury .gs-band.gs-lg--dark { background-color: var(--gs-scrim-solid); -webkit-backdrop-filter: none; backdrop-filter: none; }
   }
-  @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) { .theme-quiet-luxury .gs-band.gs-lg--dark { background-color: var(--gs-scrim-solid); } }
   .gs-bleed-scrim { background: linear-gradient(0deg, rgb(28 18 10 / .78) 0, rgb(28 18 10 / .66) 55%, rgb(28 18 10 / .2) 100%), var(--gs-scrim); }
   @media (min-width: 1024px) { .gs-bleed-scrim { background: linear-gradient(90deg, rgb(28 18 10 / .80) 0, rgb(28 18 10 / .70) 46%, rgb(28 18 10 / .18) 72%, rgb(28 18 10 / 0) 100%), linear-gradient(0deg, rgb(28 18 10 / .35) 0, rgb(28 18 10 / 0) 45%); } }
   .gs-quotes-sec .gs-railbtn:disabled { background: transparent; border: 1px solid rgb(255 255 255 / .4); }
@@ -6134,7 +6133,7 @@
         <figure class="gs-floatq"><blockquote class="gs-disp">“I cannot emphasize enough how above and beyond these hosts went for me.”</blockquote><figcaption>A guest from San Diego, January 2026</figcaption></figure>
       </div>
       <div class="gs-ch-body">
-        <p class="gs-bd">Treats on the table when you arrive, replies right away, and a note inviting you back. Bianca, Dale Anwen, Tel and Hirofumi have each come back three times or more.</p>
+        <p class="gs-bd">Treats on the table when you arrive, replies right away, and a note inviting you back. Bianca, Dale Anwen, Tel and Hirofumi have each stayed three times or more.</p>
         <figure class="gs-pq"><blockquote class="gs-disp">“…genuinely concerned about the comfort and needs of their guests.”</blockquote><figcaption class="gs-meta">Christopher, August 2026, second stay</figcaption></figure>
         <figure class="gs-aside"><img class="gs-photo gs-aside-img" src="assets/images/stay/living-bright-960.webp" srcset="assets/images/stay/living-bright-480.webp 480w, assets/images/stay/living-bright-960.webp 960w, assets/images/stay/living-bright.webp 1600w" sizes="(min-width:1024px) 24rem, 46vw" alt="Bright studio with a floor lamp, a sofa and the kitchen counter beyond" width="1600" height="1067" loading="lazy" decoding="async"></figure>
       </div>
@@ -7683,8 +7682,10 @@
 
       /* r6: hide on scroll down once past the hero top; show on scroll up, at the top, on keyboard focus inside, after a dialog closes */
       var lastY = window.scrollY, DELTA = 6, holdUntil = 0;
+      /* :focus-visible throws in Safari < 15.4 / Chrome < 86; fall back to any focus inside the header */
+      function fv() { try { return header.querySelector(':focus-visible'); } catch (e) { return header.contains(document.activeElement) ? document.activeElement : null; } }
       function setHidden(h) {
-        if (h && (header.querySelector(':focus-visible') || header.querySelector('[aria-expanded="true"]'))) h = false;
+        if (h && (fv() || header.querySelector('[aria-expanded="true"]'))) h = false;
         header.classList.toggle('gs-hdr-hide', h);
       }
       function update() {
@@ -7710,7 +7711,7 @@
         if (!ticking) { requestAnimationFrame(update); ticking = true; }
       }
       window.addEventListener('scroll', onScroll, { passive: true });
-      header.addEventListener('focusin', function () { if (header.querySelector(':focus-visible')) setHidden(false); });
+      header.addEventListener('focusin', function () { if (fv()) setHidden(false); });
       document.addEventListener('close', function (e) { if (e.target && e.target.tagName === 'DIALOG') { setHidden(false); holdUntil = Date.now() + 600; lastY = window.scrollY; } }, true);
       update();
     }());
@@ -10864,7 +10865,7 @@
     });
   }());
 
-  /* 3. Tap to enlarge photos: native <dialog>, swipe, arrows, Esc, currentSrc (no extra request) */
+  /* 3. Tap to enlarge photos: native <dialog>, swipe, arrows, Esc; loads the widest srcset candidate per photo shown (capped at 960w when Save-Data is on) */
   (function () {
     var imgs = [].slice.call(document.querySelectorAll('#spotless .gs-photo, #hospitality .gs-photo, #location .gs-photo, #location .gs-trip-img, #photos .gs-strip-img'));
     if (!imgs.length || !window.HTMLDialogElement) return;
@@ -10876,7 +10877,8 @@
       '<p class="gs-lb-count" aria-live="polite"></p>';
     document.body.appendChild(d);
     var im = d.querySelector('.gs-lb-img'), cap = d.querySelector('.gs-lb-cap'), cnt = d.querySelector('.gs-lb-count'), i = 0, opener = null, x0 = 0, y0 = 0;
-    function widest(el) { var best = el.currentSrc || el.src, bw = 0; (el.getAttribute('srcset') || '').split(',').forEach(function (c) { var p = c.trim().split(/\s+/), w = parseInt(p[1], 10) || 0; if (p[0] && w > bw) { bw = w; best = new URL(p[0], document.baseURI).href; } }); return best; }
+    var lim = (navigator.connection && navigator.connection.saveData) ? 960 : Infinity;
+    function widest(el) { var best = el.currentSrc || el.src, bw = 0; (el.getAttribute('srcset') || '').split(',').forEach(function (c) { var p = c.trim().split(/\s+/), w = parseInt(p[1], 10) || 0; if (p[0] && w > bw && w <= lim) { bw = w; best = new URL(p[0], document.baseURI).href; } }); return best; }
     function show(n) { i = (n + imgs.length) % imgs.length; var s = imgs[i];
       im.src = widest(s); im.alt = s.alt; cap.textContent = s.alt; cnt.textContent = (i + 1) + ' of ' + imgs.length; }
     /* r6: zoom from the tapped tile with a View Transition where supported (else the CSS fade); the name sits on one element at a time */
@@ -10905,7 +10907,9 @@
     d.querySelector('.gs-lb-next').addEventListener('click', function () { show(i + 1); });
     d.addEventListener('click', function (e) { if (e.target === d || e.target.classList.contains('gs-lb-fig')) closeLb(); });
     d.addEventListener('keydown', function (e) { if (e.key === 'ArrowLeft') show(i - 1); if (e.key === 'ArrowRight') show(i + 1); });
-    d.addEventListener('close', function () { document.documentElement.classList.remove('gs-lb-open'); if (opener) opener.focus(); });
+    d.addEventListener('close', function () { document.documentElement.classList.remove('gs-lb-open');
+      /* return focus to the photo last shown when it is on screen (matches the zoom-back), else the opener */
+      var tile = imgs[i], back = tile && onScreen(tile) ? tile : opener; if (back) back.focus(); });
     im.addEventListener('pointerdown', function (e) { x0 = e.clientX; y0 = e.clientY; });
     im.addEventListener('pointerup', function (e) {
       var dx = e.clientX - x0, dy = e.clientY - y0;
