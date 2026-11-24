@@ -160,7 +160,7 @@ export function rewriteDisposableSupabaseConfig(source, { projectId, dbPort, sha
   return rewritten;
 }
 
-export function validateRecoveryBaselineManifest(manifest, { baselineSql, prerequisiteSql, compatibilitySql }) {
+export function validateRecoveryBaselineManifest(manifest, { baselineSql, prerequisiteSql, compatibilitySql, bridgeSql }) {
   if (manifest?.schema_version !== 1) throw new Error('Recovery baseline schema_version must be 1.');
   for (const field of ['prerequisite_migration_version', 'baseline_migration_version', 'compatibility_migration_version', 'includes_through', 'forward_migrations_from']) {
     if (!/^\d{14}$/.test(manifest?.[field] ?? '')) throw new Error(`Recovery baseline ${field} must be a 14-digit migration version.`);
@@ -204,6 +204,33 @@ export function validateRecoveryBaselineManifest(manifest, { baselineSql, prereq
       }
       names.add(fileName);
     }
+  }
+  if (manifest.recovery_bridge_migrations !== undefined) {
+    if (!Array.isArray(manifest.recovery_bridge_migrations) || manifest.recovery_bridge_migrations.length === 0) {
+      throw new Error('Recovery bridge migrations must be a non-empty array when provided.');
+    }
+    const pins = manifest.recovery_bridge_sha256;
+    if (!pins || typeof pins !== 'object' || Array.isArray(pins)) {
+      throw new Error('Recovery bridge migrations require a recovery_bridge_sha256 map.');
+    }
+    const names = new Set();
+    for (const fileName of manifest.recovery_bridge_migrations) {
+      if (!/^\d{14}_[A-Za-z0-9._-]+\.sql$/.test(fileName) || names.has(fileName)) {
+        throw new Error('Recovery bridge migrations must be unique, filename-shaped SQL files.');
+      }
+      names.add(fileName);
+      if (fileName.slice(0, 14) < manifest.forward_migrations_from) {
+        throw new Error(`Recovery bridge version must be >= forward_migrations_from: ${fileName}.`);
+      }
+      if (!/^[0-9a-f]{64}$/.test(pins[fileName] ?? '')) throw new Error(`Recovery bridge has no sha256 pin: ${fileName}.`);
+      const source = bridgeSql?.[fileName];
+      if (typeof source !== 'string') throw new Error(`Recovery bridge source was not provided: ${fileName}.`);
+      const bridgeHash = normalizedSqlHash(source);
+      if (pins[fileName] !== bridgeHash) {
+        throw new Error(`Recovery bridge hash mismatch for ${fileName}: expected ${pins[fileName]}, actual ${bridgeHash}.`);
+      }
+    }
+    if (Object.keys(pins).some(name => !names.has(name))) throw new Error('Recovery bridge sha256 map names an unlisted file.');
   }
   const prerequisiteHash = normalizedSqlHash(prerequisiteSql);
   if (manifest.prerequisite_sha256 !== prerequisiteHash) {
@@ -253,10 +280,20 @@ export function buildRecoveryMigrationPlan(manifest, sourceMigrationFiles) {
     manifest?.forward_migrations_from,
     manifest?.recovery_excluded_migrations,
   );
+  const bridges = manifest?.recovery_bridge_migrations ?? [];
+  if (!Array.isArray(bridges)) throw new Error('Recovery bridge migrations must be an array.');
+  const versions = new Set(sourceMigrationFiles.filter(name => /^\d{14}_.+\.sql$/.test(name)).map(name => name.slice(0, 14)));
+  for (const bridge of bridges) {
+    if (!/^\d{14}_.+\.sql$/.test(bridge)) throw new Error(`Recovery bridge is not filename-shaped: ${bridge}.`);
+    const version = bridge.slice(0, 14);
+    if (version < manifest.forward_migrations_from) throw new Error(`Recovery bridge version must be >= forward_migrations_from: ${bridge}.`);
+    if (versions.has(version)) throw new Error(`Recovery bridge version collides with a migration version: ${bridge}.`);
+  }
+  const merged = [...forward, ...bridges].sort((left, right) => left.slice(0, 14).localeCompare(right.slice(0, 14)));
   return [
     `${manifest.prerequisite_migration_version}_recovery_prerequisites.sql`,
     `${manifest.baseline_migration_version}_recovered_production_baseline.sql`,
     `${manifest.compatibility_migration_version}_pre_forward_compat.sql`,
-    ...forward,
+    ...merged,
   ];
 }

@@ -12,8 +12,8 @@ import {
   assertDisposableProjectId,
   prepareRecoveryMigrationContent,
   rewriteDisposableSupabaseConfig,
-  selectRecoveryMigrationFiles,
   validateRecoveryBaselineManifest,
+  buildRecoveryMigrationPlan,
 } from './recovery-contract.mjs';
 
 const ACTIVE_DB_CONTAINER = 'supabase_db_direct-booking';
@@ -93,12 +93,12 @@ async function main() {
   const baselineSql = readFileSync(baselinePath, 'utf8');
   const prerequisiteSql = readFileSync(prerequisitePath, 'utf8');
   const compatibilitySql = readFileSync(compatibilityPath, 'utf8');
-  const validatedBaseline = validateRecoveryBaselineManifest(manifest, { baselineSql, prerequisiteSql, compatibilitySql });
-  const forwardMigrationFiles = selectRecoveryMigrationFiles(
-    sourceMigrationFiles,
-    validatedBaseline.forward_migrations_from,
-    validatedBaseline.recovery_excluded_migrations,
-  );
+  const bridgeSql = Object.fromEntries((manifest.recovery_bridge_migrations ?? []).map(name => [
+    name,
+    readFileSync(path.join(sourceSupabase, 'recovery', 'bridges', name), 'utf8'),
+  ]));
+  const validatedBaseline = validateRecoveryBaselineManifest(manifest, { baselineSql, prerequisiteSql, compatibilitySql, bridgeSql });
+  const forwardMigrationFiles = buildRecoveryMigrationPlan(validatedBaseline, sourceMigrationFiles).slice(3);
   const sourceVersions = [
     validatedBaseline.prerequisite_migration_version,
     validatedBaseline.baseline_migration_version,
@@ -134,6 +134,10 @@ async function main() {
       path.join(tempMigrationDirectory, `${validatedBaseline.compatibility_migration_version}_pre_forward_compat.sql`),
     );
     for (const migrationFile of forwardMigrationFiles) {
+      if (migrationFile in bridgeSql) {
+        writeFileSync(path.join(tempMigrationDirectory, migrationFile), bridgeSql[migrationFile], 'utf8');
+        continue;
+      }
       const source = readFileSync(path.join(sourceMigrationDirectory, migrationFile), 'utf8');
       const prepared = prepareRecoveryMigrationContent(
         migrationFile,
@@ -177,7 +181,7 @@ async function main() {
       recovery_baseline_sha256: validatedBaseline.baseline_sha256,
       recovery_compatibility_sha256: validatedBaseline.compatibility_sha256,
       baseline_includes_through: validatedBaseline.includes_through,
-      historical_migrations_replaced_by_baseline: sourceMigrationFiles.length - forwardMigrationFiles.length,
+      historical_migrations_replaced_by_baseline: sourceMigrationFiles.length - (forwardMigrationFiles.length - Object.keys(bridgeSql).length),
       forward_migrations: forwardMigrationFiles.length,
       source_migrations: sourceVersions.length,
       applied_migrations: appliedVersions.length,
