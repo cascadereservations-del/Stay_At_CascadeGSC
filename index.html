@@ -5585,15 +5585,377 @@
   .bs-legal a { color: var(--gs-accent-text); }
   </style>
 
+<style id="gs-style-refresh">
+  /* ============================================================
+     GS refresh r5 (mockup): quiet luxury, photo-backed glass, motion, QoL.
+     Order: tokens, glass recipe, hero, spotless, stage band, rail, ch I, location,
+     graphics, motion, QoL states, lightbox, rail nav, reduced-* fallbacks.
+     ============================================================ */
+  :root {
+    --gs-pad: clamp(1.25rem, 4vw, 3rem); /* equals .gs-wrap side padding: used for full-bleed breakouts */
+    --lg-rim: linear-gradient(135deg, rgb(255 255 255 / .55) 0%, rgb(255 255 255 / .10) 32%, rgb(255 255 255 / 0) 55%, rgb(255 255 255 / .22) 100%);
+    --lg-shadow: inset 0 1px 0 rgb(255 255 255 / .35), inset 0 -1px 0 rgb(255 255 255 / .06), 0 1px 2px rgb(30 18 8 / .10), 0 22px 48px -18px rgb(30 18 8 / .40);
+  }
+  .theme-quiet-luxury { --gs-scrim-solid: #2E241B; --gs-scrim-rgb: 46 36 27; --gs-scrim-top: 30 22 15; }
+  .gs-meta, .gs-attrib, .gs-hero-proof, .gs-score, .gs-band, .gs-rows li { font-variant-numeric: lining-nums tabular-nums; }
+  #spotless, #location, #hospitality, [id^="gs-ch"] { scroll-margin-top: 6rem; }
+
+  /* ---------- One liquid-glass recipe: tint + masked specular rim + inset highlight ---------- */
+  .gs-lg { box-shadow: var(--lg-shadow); }
+  body.theme-quiet-luxury .gs-lg.gs-lg::before {
+    content: "" !important; display: block !important; position: absolute; inset: 0; z-index: 1; pointer-events: none;
+    border-radius: inherit; padding: 1px; background: var(--lg-rim) !important; backdrop-filter: none !important; -webkit-backdrop-filter: none !important; transition: none;
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask-composite: exclude;
+  }
+  .theme-quiet-luxury .gs-lg.gs-lg--dark { background-color: rgb(28 18 10 / .64); background-image: none; -webkit-backdrop-filter: blur(14px) saturate(180%); backdrop-filter: blur(14px) saturate(180%); color: #fff; text-shadow: none; }
+  .theme-quiet-luxury .gs-lg.gs-lg--light { background-color: rgb(251 248 243 / .86); -webkit-backdrop-filter: blur(20px) saturate(160%); backdrop-filter: blur(20px) saturate(160%); color: var(--gs-ink); text-shadow: none; }
+  .gs-lg--light .gs-link, .gs-lg--light .gs-eb { color: var(--gs-ink); text-decoration-color: var(--gs-accent-text); }
+  .gs-lg--light .gs-meta { color: var(--gs-ink); }
+  /* refraction: the two non-fixed surfaces only, Chromium only (html.gs-refract is set by refresh.js) */
+  @media (min-width: 1024px) and (hover: hover) and (pointer: fine) {
+    html.gs-refract .theme-quiet-luxury .hero-bk.gs-lg,
+    html.gs-refract .theme-quiet-luxury .gs-band.gs-lg { -webkit-backdrop-filter: url(#gs-lg) blur(6px) saturate(170%); backdrop-filter: url(#gs-lg) blur(6px) saturate(170%); }
+  }
+
+  /* ---------- Hero ---------- */
+  .theme-quiet-luxury .hero-overlay { background: linear-gradient(180deg, rgb(var(--gs-scrim-top) / 0.34) 0%, rgb(var(--gs-scrim-top) / 0) 16%); }
+  .theme-quiet-luxury .luxury-hero-media img, .theme-quiet-luxury .luxury-hero-media .hero-slide img { object-position: 64% 50%; }
+  .theme-quiet-luxury .luxury-hero-grid { min-height: max(min-content, min(100svh, 60rem)); }
+  .theme-quiet-luxury .luxury-hero-grid .luxury-hero-copy { position: relative; z-index: 2; isolation: isolate; gap: 0.5rem; }
+  .theme-quiet-luxury .luxury-hero-grid .luxury-hero-copy::before { content: ""; position: absolute; z-index: -1; inset: -5rem -100vw -60rem -100vw; pointer-events: none;
+    background: linear-gradient(180deg, rgb(var(--gs-scrim-rgb) / 0) 0, rgb(var(--gs-scrim-rgb) / 0.6) 2.5rem, rgb(var(--gs-scrim-rgb) / 0.74) 5rem, rgb(var(--gs-scrim-rgb) / 0.78) 8rem, rgb(var(--gs-scrim-rgb) / 0.78) 100%); }
+  .theme-quiet-luxury .luxury-hero-grid .hero-bk { position: relative; z-index: 3; margin-top: 0.75rem; }
+  .gs-eb--hero { color: #fff; font-size: 0.8125rem; text-shadow: none; }
+  .theme-quiet-luxury .luxury-hero-copy .hero-title.gs-quote { font-size: clamp(2.25rem, 1.3rem + 3.9vw, 5rem); line-height: 1.02; text-shadow: none; }
+  .gs-attrib { font-size: 0.9375rem; color: #F1E8DC; }
+  .gs-hero-proof { margin: 0; display: flex; flex-wrap: wrap; align-items: center; column-gap: 0.5rem; font-size: 0.9375rem; color: #fff; }
+  .gs-hero-proof a { display: inline-block; padding-block: 12px; line-height: 20px; color: #fff; font-weight: 600; text-decoration: underline; text-decoration-color: rgb(255 255 255 / 0.55); text-underline-offset: 0.25em; }
+  @media (max-width: 600px) {
+    .theme-quiet-luxury .luxury-hero-media img, .theme-quiet-luxury .luxury-hero-media .hero-slide img { object-position: 44% 62%; }
+  }
+  @media (max-width: 600px) and (max-height: 700px) {
+    .theme-quiet-luxury .luxury-hero-copy .hero-title.gs-quote { font-size: 2rem; }
+    .theme-quiet-luxury .luxury-hero-grid .luxury-hero-copy::before { inset-block-start: -3rem; }
+  }
+  @media (min-width: 1024px) {
+    .theme-quiet-luxury .luxury-hero-grid { align-items: end; }
+    .theme-quiet-luxury .luxury-hero-grid .hero-bk { align-self: end; margin: 0; }
+    .theme-quiet-luxury .luxury-hero-grid .luxury-hero-copy::before { inset-block-start: -14rem;
+      background: linear-gradient(180deg, rgb(var(--gs-scrim-rgb) / 0) 0, rgb(var(--gs-scrim-rgb) / 0.62) 9rem, rgb(var(--gs-scrim-rgb) / 0.8) 14rem, rgb(var(--gs-scrim-rgb) / 0.86) 100%); }
+  }
+  .theme-quiet-luxury .hero-bk-cta, .theme-quiet-luxury .sticky-book-cta-btn, .theme-quiet-luxury .site-header .header-cta { text-shadow: none; transition: transform 160ms cubic-bezier(0.23, 1, 0.32, 1), filter 160ms ease; }
+  .theme-quiet-luxury .hero-bk-cta:active, .theme-quiet-luxury .sticky-book-cta-btn:active, .theme-quiet-luxury .site-header .header-cta:active { transform: scale(0.97); }
+
+  /* ---------- Spotless: one big shower photo, bathroom inset, glass quote on it ---------- */
+  .gs-spot-grid { display: grid; gap: 2rem; }
+  .gs-spot-head { display: flex; flex-direction: column; gap: 1rem; }
+  .gs-spot-quotes { display: flex; flex-direction: column; gap: 1.25rem; }
+  .gs-spot-feature blockquote { font-size: clamp(1.75rem, 1.4rem + 1.4vw, 2.5rem); line-height: 1.15; }
+  .gs-spot-media { position: relative; display: block; }
+  .gs-spot-media .gs-duo-a { display: block; width: 100%; height: auto; min-height: 0; aspect-ratio: 4 / 5; object-position: 50% 32%; border-radius: 1.75rem; }
+  .gs-spot-media .gs-duo-b { display: block; margin-top: 0.75rem; }
+  .gs-spot-media .gs-duo-img { width: 100%; aspect-ratio: 4 / 3; object-position: 50% 50%; border-radius: 1.5rem; }
+  .gs-spot-media .gs-minicard { position: relative; z-index: 2; margin: -3rem 0.75rem 0; padding: 1rem 1.125rem; border-radius: 1.25rem; display: flex; flex-direction: column; gap: 0.25rem; }
+  .gs-spot-media .gs-minicard blockquote { color: var(--gs-ink); }
+  .gs-spot-media .gs-minicard figcaption { color: var(--gs-ink); }
+  @media (max-width: 640px) {
+    .gs-spot-media .gs-duo-a { max-width: none; width: calc(100% + 2 * var(--gs-pad)); margin-inline: calc(-1 * var(--gs-pad)); border-radius: 0; }
+  }
+  @media (min-width: 641px) and (max-width: 1023px) { .gs-spot-media { max-width: 34rem; margin-inline: auto; } }
+  @media (min-width: 1024px) {
+    .gs-spot-grid { grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.25fr); grid-template-areas: "head media" "quotes media"; column-gap: clamp(3rem, 5vw, 4.5rem); align-items: start; }
+    .gs-spot-head { grid-area: head; } .gs-spot-media { grid-area: media; } .gs-spot-quotes { grid-area: quotes; }
+    .gs-spot-media .gs-duo-a { min-height: 36rem; border-radius: 2rem; }
+    .gs-spot-media .gs-duo-b { position: absolute; left: -3rem; bottom: 2.5rem; width: 46%; margin: 0; }
+    .gs-spot-media .gs-duo-img { border: 6px solid var(--gs-bg); border-radius: 1.25rem; box-sizing: border-box; }
+  }
+
+  /* ---------- Rating band on a photo stage ---------- */
+  .gs-stage { position: relative; isolation: isolate; overflow: clip; margin-top: clamp(2rem, 4vw, 3rem); border-radius: 2rem; padding: 15rem 0.75rem 0.75rem; display: grid; align-items: end; background: var(--gs-deep); }
+  .gs-stage-img { position: absolute; inset: 0; z-index: -1; width: 100%; height: 100%; object-fit: cover; object-position: 50% 42%; transform-origin: 60% 40%; border-radius: 0; max-width: none; }
+  .gs-stage .gs-band { margin-top: 0; }
+  .gs-band { padding: 1.5rem; border-radius: 1.5rem; display: grid; gap: 1rem; position: relative; }
+  .gs-band-score { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.5rem 0.875rem; }
+  .gs-band-num { font-size: clamp(3.5rem, 2.5rem + 3vw, 5.5rem); line-height: 1; font-weight: 500; letter-spacing: -0.03em; }
+  .gs-band-cats { margin: 0; }
+  .gs-band-cats .gs-score { font-size: 1.25rem; }
+  .gs-band-cats li.is-lead { background: none; border-radius: 0; padding-inline: 0; border-bottom: 1px solid var(--gs-accent-text); font-weight: 600; }
+  .gs-band-cats li { min-width: 0; }
+  @media (max-width: 420px) { .gs-band-cats { column-gap: 1rem; } .gs-band-cats li { font-size: 0.9375rem; } .gs-band-cats .gs-ico { display: none; } }
+  .gs-band-links { display: flex; flex-wrap: wrap; align-items: center; gap: 0 1.25rem; }
+  .gs-band .gs-proof-embed:has(.airbnb-proof-embed-slot:empty) { display: none; }
+  .gs-catl, .gs-rowl { display: inline-flex; align-items: center; gap: 0.5rem; }
+  .gs-ico { width: 1rem; height: 1rem; flex: none; fill: none; stroke: currentColor; stroke-width: 1.25; stroke-linecap: round; stroke-linejoin: round; color: var(--gs-accent-text); }
+  .gs-lg--light .gs-ico { color: var(--gs-ink); }
+  @media (max-width: 1023px) { .gs-stage { margin-inline: calc(-1 * var(--gs-pad)); border-radius: 0; } }
+  @media (min-width: 1024px) {
+    .gs-stage { padding: clamp(10rem, 18vw, 16rem) 2.5rem 2.5rem; min-height: 34rem; }
+    .gs-band { grid-template-columns: auto minmax(0, 1fr); align-items: center; column-gap: 3rem; padding: 1.75rem 2.25rem; }
+    .gs-band-score { flex-direction: column; align-items: flex-start; max-width: 19rem; }
+    .gs-band-cats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .gs-band-links { grid-column: 1 / -1; }
+  }
+  .gs-seal { display: inline-grid; place-items: center; flex: none; width: 2.5rem; height: 2.5rem; margin-right: 0.625rem; border: 1px solid currentColor; border-radius: 50%; font-family: var(--gs-display); font-style: italic; font-weight: 500; font-size: 0.875rem; letter-spacing: 0; color: var(--gs-accent-text); }
+  .gs-verified { display: inline-flex; align-items: center; }
+
+  /* ---------- Quote rail: full-bleed beach band, espresso wash, tint-only cards ---------- */
+  .gs-quotes-sec { position: relative; isolation: isolate; overflow: clip; background: var(--gs-scrim-solid); padding-block: clamp(3rem, 7vw, 5.5rem); }
+  .gs-quotes-sec::before { content: ""; position: absolute; inset: -4rem; z-index: -2; background: url(assets/images/stay/beach-480.webp) 50% 40% / cover; filter: blur(3px) saturate(115%) brightness(.95); }
+  .gs-quotes-sec::after { content: ""; position: absolute; inset: 0; z-index: -1; background: linear-gradient(180deg, rgb(46 36 27 / .52), rgb(46 36 27 / .64)); }
+  .gs-rail-head { display: flex; justify-content: space-between; align-items: baseline; gap: 1rem; padding-top: 0.5rem; }
+  .gs-rail-head h2.gs-eb { font-family: var(--gs-body); font-size: 0.8125rem; letter-spacing: .14em; font-weight: 600; color: #fff; }
+  .gs-rail-head .gs-meta { color: #fff; }
+  .gs-qcard { position: relative; display: flex; flex-direction: column; justify-content: space-between; gap: 0.75rem; width: 17.5rem; padding: 1.25rem 1.375rem; border-radius: 1.25rem; background: rgb(251 248 243 / .9); color: var(--gs-ink); box-shadow: var(--lg-shadow); }
+  .gs-qcard::before { content: ""; position: absolute; inset: 0; border-radius: inherit; padding: 1px; background: var(--lg-rim); pointer-events: none;
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask-composite: exclude; }
+  .gs-qcard q { font-size: 1.375rem; line-height: 1.25; font-style: italic; quotes: "“" "”" "‘" "’"; }
+  .gs-qcard .gs-meta { color: var(--gs-ink); }
+  @media (min-width: 1024px) { .gs-qcard { width: 20rem; } }
+
+  /* ---------- Chapter I: coffee-on-bed + living-bright ---------- */
+  .gs-ch .gs-photo--tall { aspect-ratio: 4 / 5; object-position: 62% 50%; }
+  .gs-ch-body .gs-aside { display: none; margin: 0; }
+  @media (max-width: 640px) {
+    #hospitality .gs-photo--tall { width: calc(100% + 2 * var(--gs-pad)); max-width: none; margin-inline: calc(-1 * var(--gs-pad)); border-radius: 0; }
+    .gs-floatq { margin-top: -3rem; }
+    .gs-ch-head--end, .gs-ch--rev .gs-ch-head { flex-direction: row; justify-content: flex-start; text-align: left; }
+    .gs-ch--rev .gs-ch-title { text-align: left; }
+  }
+  @media (min-width: 641px) {
+    .gs-ch-body .gs-aside { display: block; max-width: 24rem; margin-top: 0.5rem; position: relative; }
+    .gs-aside-img { aspect-ratio: 3 / 2; object-position: 50% 60%; border-radius: 1rem; }
+  }
+  @media (min-width: 1024px) {
+    .gs-ch .gs-ch-copy { align-self: center; }
+    .gs-ch-media, .gs-spot-media { --tick: rgb(117 90 42 / .55); }
+    .gs-ch-media::before, .gs-spot-media::before, .gs-aside::before { content: ""; position: absolute; z-index: 3; width: 14px; height: 14px; top: -10px; left: -10px; border-top: 1px solid var(--tick, rgb(117 90 42 / .55)); border-left: 1px solid var(--tick, rgb(117 90 42 / .55)); pointer-events: none; }
+    .gs-ch-media::after, .gs-spot-media::after, .gs-aside::after { content: ""; position: absolute; z-index: 3; width: 14px; height: 14px; bottom: -10px; right: -10px; border-bottom: 1px solid var(--tick, rgb(117 90 42 / .55)); border-right: 1px solid var(--tick, rgb(117 90 42 / .55)); pointer-events: none; }
+  }
+
+  /* ---------- Location: bigger sticky photo, glass greeting on it ---------- */
+  #location .gs-ch-media { position: relative; }
+  #location .gs-ch-media .gs-photo { aspect-ratio: 4 / 5; height: auto; object-position: 62% 45%; }
+  #location .gs-greet--loc { position: absolute; z-index: 2; left: 0.75rem; bottom: 0.75rem; margin: 0; width: fit-content; max-width: calc(100% - 1.5rem); padding: 0.5rem 1rem; border-radius: 999px; font-size: 0.9375rem; line-height: 1.35; color: #fff; display: inline-flex; align-items: center; gap: 0.5em; }
+  .gs-greet--loc::after { content: "\2600\FE0E"; content: "\2600\FE0E" / ""; order: -1; }
+  html[data-wx="cloudy"] .gs-greet--loc::after { content: "\2601\FE0E"; content: "\2601\FE0E" / ""; }
+  html[data-wx="rain"] .gs-greet--loc::after { content: "\2602\FE0E"; content: "\2602\FE0E" / ""; }
+  html[data-tod="night"][data-wx="clear"] .gs-greet--loc::after { content: "\263E\FE0E"; content: "\263E\FE0E" / ""; }
+  /* the chip's ::before is the glass rim ring, so the weather glyph rides on ::after, ordered first */
+  .gs-honest { margin-top: 1rem; padding: 1.125rem 1.25rem; border-radius: 1.25rem; background: var(--gs-paper); display: flex; flex-direction: column; gap: 0.5rem; }
+  @media (max-width: 640px) {
+    #location .gs-ch-media .gs-photo { width: calc(100% + 2 * var(--gs-pad)); max-width: none; margin-inline: calc(-1 * var(--gs-pad)); border-radius: 0; aspect-ratio: 5 / 4; }
+    #location .gs-greet--loc { left: calc(-1 * var(--gs-pad) + 0.75rem); }
+  }
+  @media (min-width: 1024px) {
+    #location .gs-ch-media { position: sticky; top: 6rem; align-self: start; }
+    #location .gs-ch-media .gs-photo { height: min(76svh, 42rem); min-height: 34rem; aspect-ratio: auto; border-radius: 2rem; }
+  }
+  .gs-copy { background: none; border: 0; padding-inline: 0; cursor: pointer; font-family: inherit; }
+  .gs-copyrow { margin: 0.25rem 0 0; }
+  .gs-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
+  /* ---------- Graphics: wave hairline between sections ---------- */
+  .gs-waverule { display: grid; place-items: center; padding-block: 1.25rem; background: var(--gs-bg); color: var(--gs-accent-text); }
+  .gs-waverule svg { width: 7.5rem; height: 0.75rem; fill: none; stroke: currentColor; stroke-width: 1; opacity: .45; }
+
+  /* ---------- Motion (all inside no-preference) ---------- */
+  @keyframes gs-drift { 0% { transform: translate3d(0, -23.333%, 0); } 100% { transform: translate3d(-30%, -30%, 0); } }
+  @keyframes gs-unveil { from { clip-path: inset(10% 6% 10% 6% round 1.5rem); } to { clip-path: inset(0 0 0 0 round 0); } }
+  @keyframes gs-settle { from { transform: scale(1.12); } to { transform: scale(1); } }
+  @keyframes gs-rise { from { opacity: 0; transform: translateY(18px); } to { opacity: 1; transform: none; } }
+  @media (prefers-reduced-motion: no-preference) {
+    .gs-toned > .gs-tone { animation-duration: 64s; animation-timing-function: cubic-bezier(0.45, 0, 0.55, 1); }
+    .gs-stage-img { animation: gs-kb 30s ease-in-out infinite alternate; }
+    /* CTA sheen: no loop; one pass on hover for a fine pointer */
+    .gs-cta::after, .theme-quiet-luxury .hero-bk-cta::after { animation: none; transform: translateX(-140%) skewX(-18deg); }
+  }
+  @media (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference) {
+    .gs-cta:hover::after, .theme-quiet-luxury .hero-bk-cta:hover::after { transform: translateX(260%) skewX(-18deg); transition: transform 900ms cubic-bezier(0.23, 1, 0.32, 1); }
+  }
+  @supports (animation-timeline: view()) {
+    @media (prefers-reduced-motion: no-preference) {
+      .gs-spot-media .gs-duo-a, #hospitality .gs-ch-media, .gs-stage { animation: gs-unveil linear backwards; animation-timeline: view(); animation-range: entry 0% cover 30%; }
+      #hospitality .gs-ch-media > img { animation: gs-settle linear backwards; animation-timeline: view(); animation-range: entry 0% cover 45%; }
+      .gs-spot-quotes .gs-pq, #hospitality .gs-ch-body .gs-pq, #location .gs-honest { animation: gs-rise linear both; animation-timeline: view(); animation-range: entry 0% entry 55%; }
+    }
+  }
+
+  /* ---------- QoL: sticky bar, focus, states ---------- */
+  @media (max-width: 1023px) {
+    .theme-quiet-luxury .sticky-book-cta.gs-dock { visibility: visible; transition: transform 260ms var(--gs-ease), opacity 200ms var(--gs-ease), visibility 0s; }
+    .theme-quiet-luxury .sticky-book-cta.gs-dock.is-hidden, body.gs-hero-in .theme-quiet-luxury .sticky-book-cta.gs-dock, body.gs-hero-in .sticky-book-cta.gs-dock { visibility: hidden; transition: transform 200ms var(--gs-ease), opacity 200ms var(--gs-ease), visibility 0s linear 200ms; }
+    html { scroll-padding-bottom: calc(6.5rem + env(safe-area-inset-bottom, 0px)); }
+  }
+  .theme-quiet-luxury .sticky-book-cta-rate span[hidden] { display: none; }
+  .theme-quiet-luxury .hero-bk-field:focus-visible, .theme-quiet-luxury .hero-bk-cta:focus-visible, .gs-hero-proof a:focus-visible,
+  .theme-quiet-luxury .sticky-book-cta-btn:focus-visible, .theme-quiet-luxury .site-header .header-cta:focus-visible, .theme-quiet-luxury .site-header a:focus-visible { outline: 2px solid #fff; outline-offset: 3px; }
+  .theme-quiet-luxury .hero-bk-field:active { background: rgb(46 36 27 / 0.10); }
+  @media (hover: hover) and (pointer: fine) {
+    .gs-btn:hover, .theme-quiet-luxury .site-header .header-cta:hover { filter: brightness(1.04); transform: translateY(-1px); }
+    .theme-quiet-luxury .hero-bk-field:hover { background: rgb(46 36 27 / 0.06); }
+    .theme-quiet-luxury .hero-bk-cta:hover { filter: brightness(0.97); }
+    .gs-qcard { transition: transform 200ms var(--gs-ease); } .gs-qcard:hover { transform: translateY(-2px); }
+  }
+  @media (hover: hover) and (pointer: fine) { .gs-touch { display: none; } }
+
+  /* ---------- QoL: photo lightbox ---------- */
+  .gs-zoomable { cursor: zoom-in; }
+  .gs-zoomable:focus-visible { outline: 2px solid var(--gs-accent-text); outline-offset: 3px; }
+  html.gs-lb-open { overflow: hidden; }
+  .gs-lb { width: 100vw; height: 100dvh; max-width: none; max-height: none; margin: 0; padding: 0; border: 0; background: rgb(20 14 9 / 0.94); color: #fff; }
+  .gs-lb[open] { display: grid; place-items: center; }
+  .gs-lb::backdrop { background: transparent; }
+  .gs-lb-fig { margin: 0; display: grid; justify-items: center; gap: 0.75rem; width: 100%; padding: 4.5rem 1rem 5rem; box-sizing: border-box; }
+  .gs-lb-img { width: min(100%, 90rem); height: calc(100dvh - 11rem); object-fit: contain; border-radius: 0; touch-action: pinch-zoom; user-select: none; -webkit-user-drag: none; }
+  .gs-lb-cap { font-size: 0.9375rem; color: #F1E8DC; text-align: center; }
+  .gs-lb-btn { position: fixed; width: 48px; height: 48px; border-radius: 50%; border: 1px solid rgb(255 255 255 / .35); background: rgb(20 14 9 / .55); color: #fff; font-size: 1.75rem; line-height: 1; cursor: pointer; }
+  .gs-lb-btn:focus-visible { outline: 2px solid #fff; outline-offset: 3px; }
+  .gs-lb-x { top: max(1rem, env(safe-area-inset-top)); right: 1rem; }
+  .gs-lb-prev, .gs-lb-next { top: 50%; transform: translateY(-50%); }
+  .gs-lb-prev { left: 0.75rem; } .gs-lb-next { right: 0.75rem; }
+  .gs-lb-count { position: fixed; left: 50%; bottom: calc(1.25rem + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); margin: 0; font-size: 0.875rem; }
+  @keyframes gs-lb-fade { from { opacity: 0; } }
+  @keyframes gs-lb-zoom { from { opacity: 0; transform: scale(0.96); } }
+  @media (prefers-reduced-motion: no-preference) {
+    .gs-lb[open] { animation: gs-lb-fade 220ms cubic-bezier(0, 0, 0.2, 1); }
+    .gs-lb[open] .gs-lb-img { animation: gs-lb-zoom 250ms cubic-bezier(0, 0, 0.2, 1); }
+  }
+
+  /* ---------- QoL: rail buttons + dots ---------- */
+  .gs-railnav { display: flex; align-items: center; gap: 0.5rem; width: 100%; max-width: 75rem; margin: 0.5rem auto 0; padding-inline: var(--gs-pad); box-sizing: border-box; }
+  .gs-dots { display: flex; gap: 12px; margin-inline-end: auto; }
+  .gs-dots i { width: 6px; height: 6px; border-radius: 3px; background: var(--gs-ink); opacity: 0.25; transition: transform 200ms var(--gs-ease), opacity 200ms var(--gs-ease); }
+  .gs-quotes-sec .gs-dots i { background: #fff; opacity: 0.45; }
+  .gs-dots i.on { opacity: 0.9; transform: scaleX(2); }
+  .gs-railbtn { width: 44px; height: 44px; border-radius: 50%; border: 1px solid rgb(40 24 10 / 0.18); background: var(--gs-paper); color: var(--gs-ink); font-size: 1.5rem; line-height: 1; cursor: pointer; transition: transform 160ms var(--gs-ease), opacity 160ms; }
+  .gs-railbtn:disabled { opacity: 0.35; cursor: default; }
+  .gs-railbtn:active:not(:disabled) { transform: scale(0.94); }
+  .gs-railbtn:focus-visible { outline: 2px solid var(--gs-accent-text); outline-offset: 3px; }
+  .gs-quotes-sec .gs-railbtn:focus-visible, .gs-quotes-sec .gs-quotes:focus-visible { outline-color: #fff; }
+
+  /* ---------- Reduced transparency / more contrast: solid surfaces, no rims ---------- */
+  @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+    .theme-quiet-luxury .gs-lg.gs-lg--dark { -webkit-backdrop-filter: none; backdrop-filter: none; background-color: var(--gs-scrim-solid); }
+    .theme-quiet-luxury .gs-lg.gs-lg--light { -webkit-backdrop-filter: none; backdrop-filter: none; background-color: var(--gs-paper); }
+    html.gs-refract .theme-quiet-luxury .hero-bk.gs-lg, html.gs-refract .theme-quiet-luxury .gs-band.gs-lg { -webkit-backdrop-filter: none; backdrop-filter: none; }
+    body.theme-quiet-luxury .gs-lg.gs-lg::before, .gs-qcard::before { display: none !important; }
+    .gs-quotes-sec::before { filter: none; }
+    .gs-qcard { background: var(--gs-paper); }
+  }
+  /* ---------- Reduced motion: nothing animates in the refreshed sections ---------- */
+  @media (prefers-reduced-motion: reduce) {
+    .gs-stage-img, .gs-stage, .gs-spot-media .gs-duo-a, #hospitality .gs-ch-media, #hospitality .gs-ch-media > img, .gs-pq, .gs-honest { animation: none !important; }
+    .gs-btn:hover, .gs-qcard:hover, .theme-quiet-luxury .site-header .header-cta:hover, .theme-quiet-luxury .sticky-book-cta-btn:active, .theme-quiet-luxury .site-header .header-cta:active, .theme-quiet-luxury .hero-bk-cta:active { transform: none; }
+    .theme-quiet-luxury .sticky-book-cta.gs-dock { transition: none; }
+    .gs-dots i, .gs-railbtn { transition: none; }
+  }
+
+  /* ---------- r5b: rating band is dark glass over the photo; The space gets big photos ---------- */
+  .gs-lg--dark .gs-link, .gs-lg--dark .gs-eb, .gs-lg--dark .gs-meta, .gs-lg--dark .gs-score, .gs-lg--dark .gs-band-num { color: #fff; text-decoration-color: rgb(255 255 255 / .6); }
+  .gs-lg--dark .gs-meta { color: #F1E8DC; }
+  .theme-quiet-luxury .gs-band.gs-lg--dark { background-color: rgb(28 18 10 / .66); -webkit-backdrop-filter: blur(18px) saturate(190%); backdrop-filter: blur(18px) saturate(190%); }
+  .gs-band .gs-rows li, .gs-band-cats li { border-color: rgb(255 255 255 / .22); }
+  .gs-band-cats li.is-lead { background: rgb(255 255 255 / .07); border-radius: .5rem; padding-inline: .5rem; border-bottom-color: rgb(255 255 255 / .5); }
+  .gs-seal { color: #F1E8DC; }
+  @media (max-width: 420px) { .gs-band-cats li.is-lead { padding-inline: .375rem; } }
+
+  .gs-space .gs-wrap { padding-inline: var(--gs-pad); }
+  .gs-space .gs-strip { gap: 1rem; padding-inline: max(var(--gs-pad), calc((100% - 75rem) / 2 + var(--gs-pad))); scroll-padding-inline: max(var(--gs-pad), calc((100% - 75rem) / 2 + var(--gs-pad))); }
+  .gs-space .gs-strip-img { width: min(78vw, 22rem); height: auto; aspect-ratio: 4 / 5; border-radius: 1.5rem; }
+  .gs-space .gs-chips { gap: .5rem; }
+  .gs-space .gs-chip { padding: .3125rem .75rem; font-size: .875rem; line-height: 1.3; }
+  .gs-space .gs-meta { font-size: .9375rem; margin: 0; }
+  @media (min-width: 768px) { .gs-space .gs-strip-img { width: 20rem; } }
+  @media (min-width: 1024px) {
+    .gs-space .gs-strip-img { width: 26rem; aspect-ratio: 4 / 5; }
+    .gs-space-info { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .75rem 2rem; align-items: center; margin-top: 1.25rem; }
+    .gs-space-info .gs-chips { grid-column: 1; grid-row: 1 / span 2; }
+    .gs-space-info .gs-meta { grid-column: 2; grid-row: 1; }
+    .gs-space-info .gs-btn { grid-column: 2; grid-row: 2; align-self: auto; }
+  }
+  .gs-lg--dark .gs-ico, .gs-lg--dark .gs-catl { color: #F1E8DC; }
+  @media (min-width: 1024px) { #arrival .gs-photo--wide { aspect-ratio: 1 / 1; height: auto; object-fit: cover; width: 100%; } }
+  @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+    .theme-quiet-luxury .gs-band.gs-lg--dark { background-color: var(--gs-scrim-solid); -webkit-backdrop-filter: none; backdrop-filter: none; }
+  }
+  @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) { .theme-quiet-luxury .gs-band.gs-lg--dark { background-color: var(--gs-scrim-solid); } }
+  .gs-bleed-scrim { background: linear-gradient(0deg, rgb(28 18 10 / .78) 0, rgb(28 18 10 / .66) 55%, rgb(28 18 10 / .2) 100%), var(--gs-scrim); }
+  @media (min-width: 1024px) { .gs-bleed-scrim { background: linear-gradient(90deg, rgb(28 18 10 / .80) 0, rgb(28 18 10 / .70) 46%, rgb(28 18 10 / .18) 72%, rgb(28 18 10 / 0) 100%), linear-gradient(0deg, rgb(28 18 10 / .35) 0, rgb(28 18 10 / 0) 45%); } }
+  .gs-quotes-sec .gs-railbtn:disabled { background: transparent; border: 1px solid rgb(255 255 255 / .4); }
+  .gs-quotes-sec .gs-railbtn:disabled { color: #fff; opacity: .75; }
+
+  /* ---------- r6: header auto-hide (class set by the page's own header scroll handler) ---------- */
+  .theme-quiet-luxury .site-header { transition: transform 250ms ease, opacity 250ms ease, box-shadow 400ms var(--gs-ease); }
+  @media (max-width: 1023.98px) {
+  .theme-quiet-luxury .site-header.gs-hdr-hide { transform: translateY(calc(-100% - 1.5rem)); opacity: 0; }
+  }
+
+  /* ---------- r6: motion (transform / opacity only; everything off under reduced motion) ---------- */
+  @keyframes gs-zoomout { from { scale: 1.1; } to { scale: 1; } }
+  @media (prefers-reduced-motion: no-preference) {
+    /* Ken-burns on the comfort bleed photo, paused by .gs-off while off screen (refresh.js observer) */
+    .gs-bleed-img { animation: gs-kb 34s ease-in-out infinite alternate; transform-origin: 40% 55%; }
+    /* Staggered section reveals reuse the page's .ch-reveal / .ch-revealed pair; shorter so at most ~3 overlap */
+    main .ch-reveal.gs-rv { transition-duration: 420ms; }
+    /* Photo zoom inside its frame: The space cards */
+    #photos .gs-strip:not(.gs-strip--trips) > li { overflow: clip; border-radius: 1.5rem; }
+    #photos .gs-strip:not(.gs-strip--trips) > li > .gs-strip-img { transition: scale 450ms var(--gs-ease); }
+    #photos .gs-strip:not(.gs-strip--trips) > li > .gs-strip-img:active { scale: 1.03; }
+    /* Lightbox: View Transition from the tapped tile (refresh.js names the pair only while it runs) */
+    ::view-transition-group(gs-lb-photo) { animation-duration: 320ms; animation-timing-function: cubic-bezier(0.2, 0, 0, 1); }
+    ::view-transition-old(root), ::view-transition-new(root) { animation-duration: 220ms; }
+    .gs-lb.gs-lb--vt[open], .gs-lb.gs-lb--vt[open] .gs-lb-img { animation: none; }
+  }
+  @media (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference) {
+    #photos .gs-strip:not(.gs-strip--trips) > li > .gs-strip-img:hover { scale: 1.045; }
+    .gs-qcard { transition: transform 260ms var(--gs-ease); } .gs-qcard:hover { transform: translateY(-4px); }
+    .gs-trip { transition: transform 260ms var(--gs-ease); } .gs-trip:hover { transform: translateY(-4px); }
+  }
+  /* Focus ring moves to the clipping card so overflow:clip does not cut it */
+  #photos .gs-strip:not(.gs-strip--trips) > li:has(> .gs-zoomable:focus-visible) { outline: 2px solid var(--gs-accent-text); outline-offset: 3px; }
+  #photos .gs-strip:not(.gs-strip--trips) > li > .gs-zoomable:focus-visible { outline: none; }
+  @supports (animation-timeline: view()) {
+    @media (prefers-reduced-motion: no-preference) {
+      /* Scroll-driven zoom-out on the photo stages (scale composes with the ken-burns transform) */
+      .gs-stage-img { animation: gs-kb 30s ease-in-out infinite alternate, gs-zoomout linear both; animation-timeline: auto, view(); animation-range: normal, cover 0% cover 100%; }
+      .gs-bleed-img { animation: gs-kb 34s ease-in-out infinite alternate, gs-zoomout linear both; animation-timeline: auto, view(); animation-range: normal, cover 0% cover 100%; }
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .theme-quiet-luxury .site-header { transition: none; }
+    .gs-bleed-img, .gs-stage-img { animation: none !important; }
+    #photos .gs-strip-img:hover, #photos .gs-strip-img:active { scale: none; }
+    .gs-qcard:hover, .gs-trip:hover { transform: none; }
+    ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation: none !important; }
+  }
+
+</style>
 </head>
 
 <body class="theme-quiet-luxury">
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <defs>
+    <symbol id="gi-sparkle" viewBox="0 0 24 24"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/><path d="M19 15l.7 1.8 1.8.7-1.8.7L19 20l-.7-1.8-1.8-.7 1.8-.7z"/></symbol>
+    <symbol id="gi-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4.5"/><circle cx="12" cy="12" r=".6"/></symbol>
+    <symbol id="gi-key" viewBox="0 0 24 24"><circle cx="8" cy="15" r="4"/><path d="M11 12l9-9M16 7l3 3M14 9l2 2"/></symbol>
+    <symbol id="gi-chat" viewBox="0 0 24 24"><path d="M20 4H4v12h4v4l5-4h7z"/></symbol>
+    <symbol id="gi-coin" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M14.5 9c-.6-.8-1.5-1.2-2.5-1.2-1.4 0-2.5.8-2.5 2s1 1.7 2.5 2 2.5.8 2.5 2-1.1 2-2.5 2c-1 0-1.9-.4-2.5-1.2M12 6.5v1.3M12 16.2v1.3"/></symbol>
+    <symbol id="gi-pin" viewBox="0 0 24 24"><path d="M12 21s-6.5-5.6-6.5-11a6.5 6.5 0 0113 0c0 5.4-6.5 11-6.5 11z"/><circle cx="12" cy="10" r="2.3"/></symbol>
+    <symbol id="gi-plane" viewBox="0 0 24 24"><path d="M21 3L3 11l7 3 3 7z"/><path d="M10 14l11-11"/></symbol>
+    <filter id="gs-lg" x="0" y="0" width="100%" height="100%" color-interpolation-filters="sRGB">
+      <feImage result="mx" preserveAspectRatio="none" width="100%" height="100%" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100' preserveAspectRatio='none'%3E%3ClinearGradient id='g'%3E%3Cstop offset='0' stop-color='rgb(255,0,0)'/%3E%3Cstop offset='.18' stop-color='rgb(128,0,0)'/%3E%3Cstop offset='.82' stop-color='rgb(128,0,0)'/%3E%3Cstop offset='1' stop-color='rgb(0,0,0)'/%3E%3C/linearGradient%3E%3Crect width='100' height='100' fill='url(%23g)'/%3E%3C/svg%3E"/>
+      <feImage result="my" preserveAspectRatio="none" width="100%" height="100%" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100' preserveAspectRatio='none'%3E%3ClinearGradient id='g' x2='0' y2='1'%3E%3Cstop offset='0' stop-color='rgb(0,255,0)'/%3E%3Cstop offset='.18' stop-color='rgb(0,128,0)'/%3E%3Cstop offset='.82' stop-color='rgb(0,128,0)'/%3E%3Cstop offset='1' stop-color='rgb(0,0,0)'/%3E%3C/linearGradient%3E%3Crect width='100' height='100' fill='url(%23g)'/%3E%3C/svg%3E"/>
+      <feComposite in="mx" in2="my" operator="arithmetic" k2="1" k3="1" result="map"/>
+      <feDisplacementMap in="SourceGraphic" in2="map" scale="44" xChannelSelector="R" yChannelSelector="G"/>
+    </filter>
+  </defs>
+</svg>
   <a href="#main" class="skip-link">Skip to main content</a>
 
   <!-- ============================================================
        STICKY HEADER
   ============================================================ -->
-  <header class="site-header" role="banner">
+  <header class="site-header gs-lg gs-lg--dark" role="banner">
     <div class="container header-inner">
 
       <a href="#hero" class="site-logo" aria-label="Cascade Hideaway — return to top">
@@ -5648,7 +6010,7 @@
     </div>
 
     <!-- Hero Booking Card — airline-style glass morphism widget -->
-    <div class="hero-bk" id="heroBookBar" role="region" aria-label="Book your stay">
+    <div class="hero-bk gs-lg gs-lg--dark" id="heroBookBar" role="region" aria-label="Book your stay">
 
       <div class="hero-bk-inner">
         <p class="hero-bk-eyebrow">Select your dates</p>
@@ -5737,7 +6099,7 @@
       </div>
       <div class="gs-stage">
         <img class="gs-stage-img" src="assets/images/stay/bed-bright-960.webp" srcset="assets/images/stay/bed-bright-480.webp 480w, assets/images/stay/bed-bright-960.webp 960w, assets/images/stay/bed-bright.webp 1600w" sizes="(min-width:1024px) 72rem, 100vw" alt="" width="1600" height="1067" loading="lazy" decoding="async">
-      <div class="gs-band gs-lg gs-lg--light" role="group" aria-label="Airbnb rating" data-rating-label="{score} out of 5 from {count} reviews on Airbnb, verified {verified}">
+      <div class="gs-band gs-lg gs-lg--dark" role="group" aria-label="Airbnb rating" data-rating-label="{score} out of 5 from {count} reviews on Airbnb, verified {verified}">
         <div class="gs-band-score"><span class="gs-disp gs-band-num" data-rating="score">4.97</span><span class="gs-meta"><span class="gs-star" aria-hidden="true">&#9733;</span> from <span data-rating="count">64</span> reviews &middot; <span data-rating="fiveStar"></span> five-star &middot; Guest Favorite</span></div>
         <ul class="gs-scores gs-band-cats" aria-label="Airbnb category ratings out of 5"><li class="is-lead"><span class="gs-catl"><svg class="gs-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#gi-sparkle"/></svg>Cleanliness</span><span class="gs-disp gs-score">5.0</span></li><li><span class="gs-catl"><svg class="gs-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#gi-target"/></svg>Accuracy</span><span class="gs-disp gs-score">5.0</span></li><li><span class="gs-catl"><svg class="gs-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#gi-key"/></svg>Check-in</span><span class="gs-disp gs-score">5.0</span></li><li><span class="gs-catl"><svg class="gs-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#gi-chat"/></svg>Communication</span><span class="gs-disp gs-score">5.0</span></li><li><span class="gs-catl"><svg class="gs-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#gi-coin"/></svg>Value</span><span class="gs-disp gs-score">4.9</span></li><li><span class="gs-catl"><svg class="gs-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#gi-pin"/></svg>Location</span><span class="gs-disp gs-score">4.8</span></li></ul>
         <div class="gs-band-links">
@@ -5760,6 +6122,7 @@
     <ul class="gs-quotes" tabindex="0" aria-labelledby="gs-more-h"><li class="gs-qcard"><q class="gs-disp">…for me, it was beyond hotel quality.</q><span class="gs-meta">Carissa, July 2026</span></li><li class="gs-qcard"><q class="gs-disp">Even the remote had a guide.</q><span class="gs-meta">Angelica, January 2026</span></li><li class="gs-qcard"><q class="gs-disp">…they even left us a small treat since it was our 3rd stay…</q><span class="gs-meta">Tel, August 2026</span></li><li class="gs-qcard"><q class="gs-disp">Malinis, comfortable, and perfect for relaxing.</q><span class="gs-meta">Abe, October 2026</span></li><li class="gs-qcard"><q class="gs-disp">…felt right at home, especially we have an infant with us.</q><span class="gs-meta">Queenie, September 2026</span></li></ul>
   </section>
 
+  <div class="gs-waverule" aria-hidden="true"><svg viewBox="0 0 120 12" focusable="false"><path d="M0 6 Q10 0 20 6 T40 6 T60 6 T80 6 T100 6 T120 6"/></svg></div>
   <section class="gs-sec gs-toned gs-ch" id="hospitality" aria-labelledby="gs-ch1-h">
     <div class="gs-tone gs-tone-b" aria-hidden="true"></div>
     <div class="gs-wrap gs-ch-grid">
@@ -5834,9 +6197,9 @@
       <div class="gs-ch-media"><img class="gs-photo gs-photo--wide" src="assets/images/stay/gensan-coast.webp" srcset="assets/images/stay/gensan-coast-480.webp 480w, assets/images/stay/gensan-coast-960.webp 960w, assets/images/stay/gensan-coast.webp 1200w" sizes="(min-width:1024px) 34rem, (min-width:641px) 46vw, 100vw" alt="General Santos coastline from above" width="1200" height="680" loading="lazy" decoding="async"><p class="gs-greet gs-greet--loc gs-lg gs-lg--dark" id="gsGreet">Welcome to GenSan</p></div>
       <div class="gs-ch-body">
         <ul class="gs-rows">
-          <li><span>Gated Bria Homes, 24/7 guards</span><span class="gs-meta">on site</span></li>
-          <li><span>Robinsons &middot; KCC &middot; SM</span><span class="gs-meta">10 to 15 min</span></li>
-          <li><span>GenSan Airport</span><span class="gs-meta">~28 min</span></li>
+          <li><span class="gs-rowl"><svg class="gs-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#gi-key"/></svg>Gated Bria Homes, 24/7 guards</span><span class="gs-meta">on site</span></li>
+          <li><span class="gs-rowl"><svg class="gs-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#gi-pin"/></svg>Robinsons &middot; KCC &middot; SM</span><span class="gs-meta">10 to 15 min</span></li>
+          <li><span class="gs-rowl"><svg class="gs-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#gi-plane"/></svg>GenSan Airport</span><span class="gs-meta">~28 min</span></li>
         </ul>
         <div class="gs-honest"><p class="gs-eb">Good to know</p><p class="gs-bd">A gated village away from the city centre, about 10 to 15 minutes by car to the malls. Grab and Foodpanda both deliver here.</p><p class="gs-meta">“…far from the centre but nothing Grab can’t handle.” Sean, January 2026</p></div>
         <div class="gs-maps"><a class="gs-btn gs-btn--paper" href="https://www.google.com/maps/search/?api=1&amp;query=6.1545469,125.1852321" target="_blank" rel="noopener noreferrer">Google Maps</a><a class="gs-btn gs-btn--paper" href="https://waze.com/ul?ll=6.1545469,125.1852321&amp;navigate=yes" target="_blank" rel="noopener noreferrer">Waze</a></div>
@@ -5846,6 +6209,7 @@
     <ul class="gs-strip gs-strip--trips" tabindex="0" aria-label="Day trips, not on site"><li><figure class="gs-trip"><img class="gs-trip-img" src="assets/images/stay/beach.webp" srcset="assets/images/stay/beach-480.webp 480w, assets/images/stay/beach-960.webp 960w, assets/images/stay/beach.webp 1600w" sizes="(min-width:1024px) 20rem, 14.5rem" alt="Turquoise sea under a palm frond" width="1600" height="1067" loading="lazy" decoding="async"><figcaption>Sea and sand</figcaption></figure></li><li><figure class="gs-trip"><img class="gs-trip-img" src="assets/images/stay/paraglide.webp" srcset="assets/images/stay/paraglide-480.webp 480w, assets/images/stay/paraglide-960.webp 960w, assets/images/stay/paraglide.webp 1200w" sizes="(min-width:1024px) 20rem, 14.5rem" alt="Paraglider over green hills and the sea" width="1200" height="675" loading="lazy" decoding="async"><figcaption>Sky and hills</figcaption></figure></li><li><figure class="gs-trip"><img class="gs-trip-img" src="assets/images/stay/cabins.webp" srcset="assets/images/stay/cabins-480.webp 480w, assets/images/stay/cabins-960.webp 960w, assets/images/stay/cabins.webp 1024w" sizes="(min-width:1024px) 20rem, 14.5rem" alt="Colourful cabins beneath a mountain" width="1024" height="684" loading="lazy" decoding="async"><figcaption>Highlands</figcaption></figure></li></ul>
   </section>
 
+  <div class="gs-waverule" aria-hidden="true"><svg viewBox="0 0 120 12" focusable="false"><path d="M0 6 Q10 0 20 6 T40 6 T60 6 T80 6 T100 6 T120 6"/></svg></div>
   <section class="gs-sec gs-bookdirect" id="book-direct" aria-labelledby="gs-bd-h">
     <div class="gs-card">
       <div class="gs-card-main">
