@@ -40,7 +40,7 @@
     },
     {
       "name": "still_security_definer_empty_search_path",
-      "query": "select p.prosecdef and array_to_string(p.proconfig, ',') like 'search_path=%' from pg_proc p where p.oid = 'public.staff_pay_request_create_v2(jsonb,uuid[],jsonb,jsonb,text)'::regprocedure",
+      "query": "select p.prosecdef and exists (select 1 from unnest(p.proconfig) c where c in ('search_path=\"\"', 'search_path=')) from pg_proc p where p.oid = 'public.staff_pay_request_create_v2(jsonb,uuid[],jsonb,jsonb,text)'::regprocedure",
       "expect": true
     }
   ],
