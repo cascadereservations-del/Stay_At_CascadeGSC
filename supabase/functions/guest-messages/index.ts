@@ -16,7 +16,7 @@ import { withObservability } from '../_shared/observability.ts';
 import { heartbeat } from '../_shared/heartbeat.ts';
 import { cronSecretMatches } from '../_shared/cron-auth.ts';
 import { autoKeyboard } from '../_shared/cascade-core/format.ts';
-import { fbSendText, threadForBooking } from '../_shared/cascade-core/messenger.ts';
+import { fbSendText, setFlowStep, threadForBooking } from '../_shared/cascade-core/messenger.ts';
 import { SUBJECT, channelFor, chunks, declineReason, doorCodeCard, messageCards, render, type Key } from './templates.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
@@ -141,6 +141,9 @@ Deno.serve(withObservability({ functionName: 'guest-messages', route: 'ops' }, a
           .eq('booking_id', d.booking_id).eq('message_key', key);
         // The booking is confirmed whatever the channel: the Messenger flow leaves the payment steps (was notifyMessengerBookingConfirmed's job).
         if (key === 'confirmation' && t) await db.from('concierge_threads').update({ booking_flow: { ...(t.booking_flow ?? {}), step: 'confirmed', updated_at: new Date().toISOString() }, updated_at: new Date().toISOString() }).eq('psid', t.psid);
+        // A declined request ends the flow whatever the channel, like a confirmation: a later "paid na po?" must not get the await_receipt line.
+        // 'cancelled' is the terminal step the Telegram decline already writes (inquiry-send patchFlow) and booking.ts treats as closed.
+        if (key === 'declined' && t) await setFlowStep(db, t, 'cancelled');
 
         const outcome = status === 'sent' ? (channel === 'messenger' ? '✅ sent on Messenger' : `✅ e-mailed to ${b.guest_email}`)
           : hostHolds ? '✋ not sent: you are handling this chat. Send it yourself if it still helps'

@@ -225,3 +225,10 @@ Deno.test('declined: matches the shared golden fixture (Staff copy) word for wor
     assertEquals(render('declined', f, c.channel as Channel), c.text, `${c.reason_code}/${c.channel}/${c.receipt_sent}`);
   }
 });
+
+// D-418 follow-up: a declined request ends the Messenger flow (index.ts has no fake-db harness, so this pins the wiring by source).
+Deno.test('index.ts: a declined message ends the flow via setFlowStep(cancelled), after the log update', async () => {
+  const src = await Deno.readTextFile(new URL('./index.ts', import.meta.url));
+  const logAt = src.indexOf("update({ channel, status"), flowAt = src.indexOf("key === 'declined' && t) await setFlowStep(db, t, 'cancelled')");
+  assert(logAt > 0 && flowAt > logAt, 'decline flow step must be written after the send and log update');
+});
