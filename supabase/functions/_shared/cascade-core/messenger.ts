@@ -38,16 +38,23 @@ export function fbSendImage(psid: string, url: string): Promise<boolean> {
   return post({ recipient: { id: psid }, messaging_type: 'RESPONSE', message: { attachment: { type: 'image', payload: { url, is_reusable: true } } } });
 }
 
-/** The Messenger thread a direct booking came from (SPEC-33 s2), or null when it came from the site. */
 /** D-317 (Lloyd 2026-10-08): once a host has replied, the bot sends nothing on that chat for 30 days from the latest host reply. */
 export const HOST_HOLD_MS = 30 * 24 * 3_600_000;
 /** The later of the stored hold and `ms`, so a hold never shortens. */
 export const laterOf = (a: string | null | undefined, ms: number): string => (a && Date.parse(a) > ms ? a : new Date(ms).toISOString());
 
+/** The Messenger thread a direct booking came from (SPEC-33 s2), or null when it came from the site. Several threads can carry
+ *  one booking id (a guest who messaged from two accounts), so the most recently updated one wins, deterministically. */
 // deno-lint-ignore no-explicit-any
 export async function threadForBooking(db: any, bookingId: string): Promise<{ psid: string; guest_name: string | null; booking_flow: any; history: any[]; human_until?: string | null } | null> {
-  const { data: t } = await db.from('concierge_threads').select('psid, guest_name, booking_flow, history, human_until').eq('booking_flow->>booking_id', bookingId).maybeSingle();
+  const { data: t } = await db.from('concierge_threads').select('psid, guest_name, booking_flow, history, human_until').eq('booking_flow->>booking_id', bookingId).order('updated_at', { ascending: false }).order('psid').limit(1).maybeSingle();
   return t?.psid ? t : null;
+}
+
+/** Move a thread's booking_flow to a terminal step, keeping the rest of the flow (guest-messages: declined request). */
+// deno-lint-ignore no-explicit-any
+export async function setFlowStep(db: any, t: { psid: string; booking_flow?: any }, step: string, at = new Date().toISOString()): Promise<void> {
+  await db.from('concierge_threads').update({ booking_flow: { ...(t.booking_flow ?? {}), step, updated_at: at }, updated_at: at }).eq('psid', t.psid);
 }
 
 /** SPEC-33 s2: a declined receipt reaches the guest (English; one "po" for a Taglish flow, D-258) and the flow waits at
