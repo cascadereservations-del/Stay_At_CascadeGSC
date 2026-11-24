@@ -31,7 +31,7 @@ union all
 select 'authenticated has no execute on the token helper, the sweep or the push trigger function', not bool_or(has_function_privilege('authenticated', f, 'execute')) from unnest(array[
   'public.guide_token_thread_v1(text)','public.guide_sweep_v1()','public.guide_messages_push_trg()']::regprocedure[]) f
 union all
-select 'service_role may execute the sweep', has_function_privilege('service_role', 'public.guide_sweep_v1()', 'execute')
+select 'service_role may execute the sweep and none of the other twelve guide functions', select has_function_privilege('service_role', 'public.guide_sweep_v1()', 'execute') and (select not bool_or(has_function_privilege('service_role', f, 'execute')) from unnest(array['public.guide_session_v1(date,text,text,uuid)','public.guide_thread_v1(text,timestamptz)','public.guide_send_v1(text,text,text)','public.guide_track_v1(text,jsonb,text,text)','public.guide_token_thread_v1(text)','public.guide_messages_push_trg()','public.staff_guide_threads_v1(uuid)','public.staff_guide_thread_v1(uuid)','public.staff_guide_reply_v1(uuid,text,text)','public.staff_guide_resolve_v1(uuid,boolean)','public.staff_guide_usage_v1(integer,uuid)','public.staff_guide_guests_v1(integer,uuid)']::regprocedure[]) f)
 union all
 select 'service_role has full access to the five tables', bool_and(has_table_privilege('service_role', 'public.' || t, p)) from
   unnest(array['guide_threads','guide_sessions','guide_messages','guide_auth_attempts','guide_events']) t, unnest(array['select','insert','update','delete']) p
