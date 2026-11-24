@@ -6203,6 +6203,7 @@
         </ul>
         <div class="gs-honest"><p class="gs-eb">Good to know</p><p class="gs-bd">A gated village away from the city centre, about 10 to 15 minutes by car to the malls. Grab and Foodpanda both deliver here.</p><p class="gs-meta">“…far from the centre but nothing Grab can’t handle.” Sean, January 2026</p></div>
         <div class="gs-maps"><a class="gs-btn gs-btn--paper" href="https://www.google.com/maps/search/?api=1&amp;query=6.1545469,125.1852321" target="_blank" rel="noopener noreferrer">Google Maps</a><a class="gs-btn gs-btn--paper" href="https://waze.com/ul?ll=6.1545469,125.1852321&amp;navigate=yes" target="_blank" rel="noopener noreferrer">Waze</a></div>
+        <p class="gs-copyrow"><button type="button" class="gs-link gs-copy" data-copy="Cascade Hideaway, Bria Homes, General Santos City">Copy address</button><span class="gs-sr" aria-live="polite"></span></p>
       </div>
     </div>
     <div class="gs-wrap gs-trips-head"><p class="gs-eb">Day trips (not on site)</p><span class="gs-meta">Swipe &rarr;</span></div>
@@ -7679,6 +7680,12 @@
       var ticking = false;
       var SHRINK_THRESHOLD = 40;
 
+      /* r6: hide on scroll down once past the hero top; show on scroll up, at the top, on keyboard focus inside, after a dialog closes */
+      var lastY = window.scrollY, DELTA = 6, holdUntil = 0;
+      function setHidden(h) {
+        if (h && (header.querySelector(':focus-visible') || header.querySelector('[aria-expanded="true"]'))) h = false;
+        header.classList.toggle('gs-hdr-hide', h);
+      }
       function update() {
         /* Shrink on any scroll past threshold */
         header.classList.toggle('is-scrolled', window.scrollY > SHRINK_THRESHOLD);
@@ -7691,12 +7698,19 @@
           /* Fallback: reveal after hero height */
           header.classList.toggle('is-revealed', window.scrollY > window.innerHeight * 0.85);
         }
+        var y = window.scrollY, d = y - lastY;
+        if (y <= header.offsetTop + header.offsetHeight) { setHidden(false); lastY = y; }
+        else if (Date.now() < holdUntil) { lastY = y; }
+        else if (d > DELTA) { setHidden(true); lastY = y; }
+        else if (d < -DELTA) { setHidden(false); lastY = y; }
         ticking = false;
       }
       function onScroll() {
         if (!ticking) { requestAnimationFrame(update); ticking = true; }
       }
       window.addEventListener('scroll', onScroll, { passive: true });
+      header.addEventListener('focusin', function () { if (header.querySelector(':focus-visible')) setHidden(false); });
+      document.addEventListener('close', function (e) { if (e.target && e.target.tagName === 'DIALOG') { setHidden(false); holdUntil = Date.now() + 600; lastY = window.scrollY; } }, true);
       update();
     }());
 
@@ -10393,7 +10407,7 @@
   function fresh() { return { step: 1, open: false, ci: '', co: '', guests: 2, name: '', cc: '+63', phone: '', email: '', ref: '', method: 'gcash', view: '', hold: null, done: null }; }
   function load() { try { var s = JSON.parse(sessionStorage.getItem(KEY)); return s && typeof s === 'object' ? Object.assign(fresh(), s) : fresh(); } catch (e) { return fresh(); } }
   var S = load(), file = null, opener = null, Q = null, qBusy = '', qFail = '', qFailN = 0, qFailKey = '', holdTimer = 0, lastAction = null, busy = false;
-  function save() { try { sessionStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { /* private mode */ } }
+  function save() { try { sessionStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { /* private mode */ } document.dispatchEvent(new CustomEvent('cascade:sheet', { detail: { ci: S.ci, co: S.co } })); }
 
   /* ---------- dates ---------- */
   function pad(n) { return String(n).padStart(2, '0'); }
@@ -10805,5 +10819,189 @@
 }());
 </script>
 <script src="assets/js/airbnb-proof.js" defer></script>
+<!-- gs-refresh: Guest Stories refresh behaviour (refraction gate, motion pause, reveals, lightbox, sticky-bar dates, rail buttons, copy address, share). Must stay after the page's own .ch-reveal observer. -->
+<script id="gs-refresh">
+/* GS refresh r5: refraction gate, motion pause, lightbox, sticky-bar dates, rail buttons, copy address, share. Vanilla, no network. */
+(function () {
+  'use strict';
+
+  /* 1. Refraction only where the browser really renders backdrop-filter:url() (Chromium) and transparency is allowed */
+  try {
+    if ('userAgentData' in navigator && window.CSS && CSS.supports('backdrop-filter', 'url(#gs-lg)') &&
+        !matchMedia('(prefers-reduced-transparency: reduce)').matches) document.documentElement.classList.add('gs-refract');
+  } catch (e) { /* plain blur stays */ }
+
+  /* 2. Pause the ken-burns stage photo while it is off screen (reuses the page's .gs-off rule) */
+  if ('IntersectionObserver' in window) {
+    var io = new IntersectionObserver(function (es) { es.forEach(function (e) { e.target.classList.toggle('gs-off', !e.isIntersecting); }); }, { rootMargin: '120px' });
+    [].forEach.call(document.querySelectorAll('.gs-stage-img, .gs-bleed-img'), function (el) { io.observe(el); });
+  }
+
+  /* 2b. r6: staggered reveals for section text below the fold. Reuses the page's .ch-reveal / .ch-revealed pair
+     (its own observer ran earlier in the page, so this one handles only the elements added here). Hero excluded (LCP). */
+  (function () {
+    if (!('IntersectionObserver' in window) || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    var SKIP = '[aria-hidden="true"], .gs-pq, .gs-honest, .gs-band, .gs-minicard, figure, .gs-quotes, .gs-lg, .ch-reveal';
+    var io = new IntersectionObserver(function (es) {
+      es.forEach(function (e) { if (e.isIntersecting) { e.target.classList.add('ch-revealed'); io.unobserve(e.target); } });
+    }, { rootMargin: '0px 0px -40px 0px', threshold: 0.06 });
+    [].forEach.call(document.querySelectorAll('main > section:not(#hero):not(#booking):not(#faq-section):not(#contact)'), function (sec) {
+      var n = 0, picked = [];
+      [].forEach.call(sec.querySelectorAll('.gs-ch-head, h2, .gs-bd, .gs-space-info, .gs-rail-head'), function (el) {
+        if (el.closest(SKIP) || picked.some(function (p) { return p.contains(el); })) return;
+        if (el.getBoundingClientRect().top < innerHeight) return; /* already on screen: leave it alone */
+        picked.push(el);
+        el.classList.add('ch-reveal', 'gs-rv');
+        el.style.transitionDelay = (Math.min(n++, 3) * 140) + 'ms';
+        io.observe(el);
+      });
+    });
+  }());
+
+  /* 3. Tap to enlarge photos: native <dialog>, swipe, arrows, Esc, currentSrc (no extra request) */
+  (function () {
+    var imgs = [].slice.call(document.querySelectorAll('#spotless .gs-photo, #hospitality .gs-photo, #location .gs-photo, #location .gs-trip-img, #photos .gs-strip-img'));
+    if (!imgs.length || !window.HTMLDialogElement) return;
+    var d = document.createElement('dialog'); d.className = 'gs-lb'; d.setAttribute('aria-label', 'Photo viewer');
+    d.innerHTML = '<figure class="gs-lb-fig"><img class="gs-lb-img" alt=""><figcaption class="gs-lb-cap"></figcaption></figure>' +
+      '<button type="button" class="gs-lb-btn gs-lb-x" aria-label="Close photo">&times;</button>' +
+      '<button type="button" class="gs-lb-btn gs-lb-prev" aria-label="Previous photo">&lsaquo;</button>' +
+      '<button type="button" class="gs-lb-btn gs-lb-next" aria-label="Next photo">&rsaquo;</button>' +
+      '<p class="gs-lb-count" aria-live="polite"></p>';
+    document.body.appendChild(d);
+    var im = d.querySelector('.gs-lb-img'), cap = d.querySelector('.gs-lb-cap'), cnt = d.querySelector('.gs-lb-count'), i = 0, opener = null, x0 = 0, y0 = 0;
+    function widest(el) { var best = el.currentSrc || el.src, bw = 0; (el.getAttribute('srcset') || '').split(',').forEach(function (c) { var p = c.trim().split(/\s+/), w = parseInt(p[1], 10) || 0; if (p[0] && w > bw) { bw = w; best = new URL(p[0], document.baseURI).href; } }); return best; }
+    function show(n) { i = (n + imgs.length) % imgs.length; var s = imgs[i];
+      im.src = widest(s); im.alt = s.alt; cap.textContent = s.alt; cnt.textContent = (i + 1) + ' of ' + imgs.length; }
+    /* r6: zoom from the tapped tile with a View Transition where supported (else the CSS fade); the name sits on one element at a time */
+    var rmq = matchMedia('(prefers-reduced-motion: reduce)'), VTN = 'gs-lb-photo';
+    function canVT() { return !!document.startViewTransition && !rmq.matches; }
+    function onScreen(el) { var r = el.getBoundingClientRect(); return r.bottom > 0 && r.top < innerHeight && r.right > 0 && r.left < innerWidth; }
+    function vt(from, to, change) {
+      if (!canVT() || !from || !onScreen(from)) { change(); return; }
+      d.classList.add('gs-lb--vt'); from.style.viewTransitionName = VTN;
+      var t = document.startViewTransition(function () { from.style.viewTransitionName = ''; var p = change(); if (to) to.style.viewTransitionName = VTN; return p; });
+      t.finished.catch(function () {}).then(function () { if (to) to.style.viewTransitionName = ''; from.style.viewTransitionName = ''; d.classList.remove('gs-lb--vt'); });
+    }
+    function open(n, el) { opener = el; show(n); vt(el, im, function () { d.showModal(); document.documentElement.classList.add('gs-lb-open');
+      /* wait (max 300 ms) for the large file so the new snapshot is not blank */
+      return im.decode ? Promise.race([im.decode().catch(function () {}), new Promise(function (r) { setTimeout(r, 300); })]) : null; }); }
+    function closeLb() { if (!d.open) return; var tile = imgs[i]; vt(im, tile && onScreen(tile) ? tile : null, function () { d.close(); }); }
+    imgs.forEach(function (img, n) {
+      img.classList.add('gs-zoomable'); img.tabIndex = 0; img.setAttribute('role', 'button');
+      img.setAttribute('aria-label', 'Enlarge photo: ' + img.alt);
+      img.addEventListener('click', function () { open(n, img); });
+      img.addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(n, img); } });
+    });
+    d.querySelector('.gs-lb-x').addEventListener('click', closeLb);
+    d.addEventListener('cancel', function (e) { if (canVT()) { e.preventDefault(); closeLb(); } });
+    d.querySelector('.gs-lb-prev').addEventListener('click', function () { show(i - 1); });
+    d.querySelector('.gs-lb-next').addEventListener('click', function () { show(i + 1); });
+    d.addEventListener('click', function (e) { if (e.target === d || e.target.classList.contains('gs-lb-fig')) closeLb(); });
+    d.addEventListener('keydown', function (e) { if (e.key === 'ArrowLeft') show(i - 1); if (e.key === 'ArrowRight') show(i + 1); });
+    d.addEventListener('close', function () { document.documentElement.classList.remove('gs-lb-open'); if (opener) opener.focus(); });
+    im.addEventListener('pointerdown', function (e) { x0 = e.clientX; y0 = e.clientY; });
+    im.addEventListener('pointerup', function (e) {
+      var dx = e.clientX - x0, dy = e.clientY - y0;
+      if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy)) show(i + (dx < 0 ? 1 : -1));
+      else if (dy > 80) closeLb();
+    });
+  }());
+
+  /* 4. Sticky bar remembers the guest's dates (the sheet fires cascade:sheet from save()) */
+  (function () {
+    var bar = document.getElementById('stickyBookCta'), btn = document.getElementById('stickyBookCtaBtn');
+    if (!bar || !btn) return;
+    var rate = bar.querySelector('.sticky-book-cta-rate'); if (!rate) return;
+    var strong = rate.querySelector('strong'), sub = strong && strong.nextElementSibling; if (!sub) return;
+    var dates = document.createElement('span'); dates.hidden = true; rate.appendChild(dates);
+    var M = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'], base = { s: strong.textContent, b: btn.textContent };
+    function p2(n) { return (n < 10 ? '0' : '') + n; }
+    function today() { var d = new Date(); return d.getFullYear() + '-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate()); }
+    function fmt(s) { var p = s.split('-'); return M[+p[1] - 1] + ' ' + (+p[2]); }
+    function paint(ci, co) {
+      var ok = ci && co && ci >= today() && co > ci;
+      if (ok) {
+        var n = Math.round((Date.parse(co) - Date.parse(ci)) / 864e5), sameM = ci.slice(0, 7) === co.slice(0, 7);
+        strong.textContent = fmt(ci) + ' – ' + (sameM ? (+co.slice(8)) : fmt(co));
+        dates.textContent = n + (n === 1 ? ' night' : ' nights') + ' · no platform fees';
+        btn.textContent = 'See my total';
+      } else { strong.textContent = base.s; btn.textContent = base.b; }
+      sub.hidden = !!ok; dates.hidden = !ok;
+    }
+    try { var s = JSON.parse(sessionStorage.getItem('cascade.sheet.v1') || 'null') || {}; paint(s.ci, s.co); } catch (e) { /* storage blocked: default bar */ }
+    document.addEventListener('cascade:sheet', function (e) { paint(e.detail.ci, e.detail.co); });
+  }());
+
+  /* 5. Quote rail and day-trip strip: buttons, dots, arrow keys */
+  (function () {
+    var rm = window.matchMedia('(prefers-reduced-motion: reduce)');
+    [].forEach.call(document.querySelectorAll('.gs-quotes, .gs-strip--trips'), function (ul) {
+      var items = [].slice.call(ul.children); if (items.length < 2) return;
+      var noun = ul.classList.contains('gs-quotes') ? 'quote' : 'day trip';
+      var nav = document.createElement('div'); nav.className = 'gs-railnav';
+      nav.innerHTML = '<span class="gs-dots" aria-hidden="true">' + items.map(function () { return '<i></i>'; }).join('') + '</span>' +
+        '<button type="button" class="gs-railbtn" data-dir="-1" aria-label="Previous ' + noun + '">&lsaquo;</button>' +
+        '<button type="button" class="gs-railbtn" data-dir="1" aria-label="Next ' + noun + '">&rsaquo;</button>';
+      ul.parentNode.insertBefore(nav, ul.nextSibling);
+      var dots = nav.querySelectorAll('i'), btns = nav.querySelectorAll('button'), raf = 0;
+      function idx() {
+        var l = ul.getBoundingClientRect().left + (parseFloat(getComputedStyle(ul).scrollPaddingLeft) || 0), best = 0, bd = 1e9;
+        items.forEach(function (li, n) { var d = Math.abs(li.getBoundingClientRect().left - l); if (d < bd) { bd = d; best = n; } });
+        return best;
+      }
+      function go(n) { n = Math.max(0, Math.min(items.length - 1, n));
+        ul.scrollTo({ left: items[n].offsetLeft - items[0].offsetLeft, behavior: rm.matches ? 'auto' : 'smooth' }); }
+      function paint() {
+        var i = idx(), max = ul.scrollWidth - ul.clientWidth;
+        nav.hidden = max < 2;
+        for (var n = 0; n < dots.length; n++) dots[n].classList.toggle('on', n === i);
+        btns[0].disabled = ul.scrollLeft < 2; btns[1].disabled = ul.scrollLeft > max - 2;
+      }
+      ul.addEventListener('scroll', function () { cancelAnimationFrame(raf); raf = requestAnimationFrame(paint); }, { passive: true });
+      nav.addEventListener('click', function (e) { var b = e.target.closest('button'); if (b && !b.disabled) go(idx() + (+b.getAttribute('data-dir'))); });
+      ul.addEventListener('keydown', function (e) {
+        var k = e.key, t = k === 'ArrowRight' ? idx() + 1 : k === 'ArrowLeft' ? idx() - 1 : k === 'Home' ? 0 : k === 'End' ? items.length - 1 : null;
+        if (t !== null) { e.preventDefault(); go(t); }
+      });
+      window.addEventListener('resize', paint); paint();
+    });
+  }());
+
+  /* 6. Copy address (village level, as the page already shows) */
+  (function () {
+    [].forEach.call(document.querySelectorAll('.gs-copy[data-copy]'), function (b) {
+      var live = b.nextElementSibling, label = b.textContent, t = 0;
+      b.addEventListener('click', function () {
+        var s = b.getAttribute('data-copy');
+        var p = navigator.clipboard && navigator.clipboard.writeText ? navigator.clipboard.writeText(s) : Promise.reject();
+        p.catch(function () { var ta = document.createElement('textarea'); ta.value = s; ta.style.cssText = 'position:fixed;opacity:0'; document.body.appendChild(ta); ta.select(); try { document.execCommand('copy'); } catch (e) {} ta.remove(); })
+         .then(function () { b.textContent = 'Address copied'; if (live) live.textContent = 'Address copied'; clearTimeout(t);
+           t = setTimeout(function () { b.textContent = label; if (live) live.textContent = ''; }, 2000); });
+      });
+    });
+  }());
+
+  /* 7. Share this stay (adds the saved dates when there are any) */
+  (function () {
+    var band = document.querySelector('.gs-band-links'); if (!band) return;
+    var b = document.createElement('button'); b.type = 'button'; b.className = 'gs-link gs-copy gs-copy-share'; b.textContent = 'Share this stay';
+    var live = document.createElement('span'); live.className = 'gs-sr'; live.setAttribute('aria-live', 'polite');
+    band.appendChild(b); band.appendChild(live);
+    b.addEventListener('click', function () {
+      var url = location.origin + location.pathname, s = {};
+      try { s = JSON.parse(sessionStorage.getItem('cascade.sheet.v1') || 'null') || {}; } catch (e) {}
+      if (s.ci && s.co) url += '?checkin=' + s.ci + '&checkout=' + s.co;
+      var sc = document.querySelector('[data-rating="score"]');
+      if (navigator.share) { navigator.share({ title: 'Cascade Hideaway', text: 'Guest Favorite in General Santos City, ' + (sc ? sc.textContent : '') + ' on Airbnb', url: url }).catch(function () {}); return; }
+      (navigator.clipboard ? navigator.clipboard.writeText(url) : Promise.reject()).then(function () {
+        b.textContent = 'Link copied'; live.textContent = 'Link copied';
+        setTimeout(function () { b.textContent = 'Share this stay'; live.textContent = ''; }, 2000);
+      }, function () {});
+    });
+  }());
+}());
+
+</script>
 </body>
 </html>
