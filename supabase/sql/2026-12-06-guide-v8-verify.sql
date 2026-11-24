@@ -1,4 +1,4 @@
--- verify_20261205_guide_v8.sql: read-only forward checks after the release (run with the read-only runner).
+-- verify_20261206_guide_v8.sql: read-only forward checks after the release (run with the read-only runner).
 -- Every row must say ok = true.
 begin transaction read only;
 select 'tables' as check, count(*) = 5 as ok from pg_tables where schemaname = 'public'

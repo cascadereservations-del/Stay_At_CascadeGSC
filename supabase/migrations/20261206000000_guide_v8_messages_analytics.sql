@@ -1,8 +1,8 @@
--- 20261205000000_guide_v8_messages_analytics.sql
+-- 20261206000000_guide_v8_messages_analytics.sql
 -- Guest guide v8.0.0: (1) two-way guest <-> host messages inside the guide, read and answered from the Cascade Staff app,
 -- (2) privacy-safe usage analytics (which sections, cards and buttons guests open), read from the Staff app.
 -- NOT APPLIED. Ships through the stay-site release flow (copy into stay-site/supabase/migrations, add a release contract,
--- rehearse with pgTAP, Lloyd runs the release block). Rollback: backend/rollback_20261205_guide_v8.sql. Checks: backend/verify_20261205_guide_v8.sql.
+-- rehearse with pgTAP, Lloyd runs the release block). Rollback: backend/rollback_20261206_guide_v8.sql. Checks: backend/verify_20261206_guide_v8.sql.
 --
 -- Design rules
 --  * Additive only. No existing table or function body is changed. verify_booking is CALLED, not replaced.
@@ -20,7 +20,6 @@
 --    owner/admin phones with kind guest_wrote and psid 'guide:<thread id>' (fits that function's PSID pattern). Where pg_net or
 --    the vault secret is absent (a rehearsal copy) nothing is sent and the insert still succeeds.
 
-begin;
 
 -- 0. guards -------------------------------------------------------------------------------------------------------------------------------
 do $$
@@ -409,4 +408,3 @@ $$;
 revoke all on function public.guide_sweep_v1() from public, anon, authenticated;
 grant execute on function public.guide_sweep_v1() to service_role;
 
-commit;

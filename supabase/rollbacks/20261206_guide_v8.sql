@@ -1,4 +1,4 @@
--- rollback_20261205_guide_v8.sql: removes everything 20261205000000_guide_v8_messages_analytics.sql created.
+-- rollback_20261206_guide_v8.sql: removes everything 20261206000000_guide_v8_messages_analytics.sql created.
 -- Guest messages and usage events are deleted with their tables. Export them first if they matter:
 --   copy (select * from public.guide_messages) to stdout with csv header;  (run through the read-only runner)
 begin;

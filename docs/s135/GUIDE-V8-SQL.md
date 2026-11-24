@@ -6,11 +6,11 @@ Branch `s135/guide-v8-sql`, worktree `C:\Users\Lloyd\Claude\Projects\Cascade\s13
 
 | File | What |
 |---|---|
-| `supabase/migrations/20261205000000_guide_v8_messages_analytics.sql` | The migration. Newer than the newest on origin/main (`20261204000000_s134_expenses.sql`), so no rename. sha256 `70b5de1b70d632a40c77f63335b9c9b607a2fc42ac054566b6346ee7f2886bf5` (LF-normalised, equal to the cloud file). Staff thread / reply / resolve raise P0002 for a missing thread before the 42501 access check. |
-| `supabase/rollbacks/20261205_guide_v8.sql` | Drops the trigger, 12 functions and 5 tables. Byte-equal to the cloud file. |
-| `supabase/releases/20261205_guide_v8.release.json` | Release contract, same keys as `s134_expenses_20261204.release.json`. 8 forward checks from the verify file. |
+| `supabase/migrations/20261206000000_guide_v8_messages_analytics.sql` | The migration. Re-timed from 20261205000000 to 20261206000000 in s136 because cf_confirm_flow holds 20261205000000 live. sha256 `5602950d120a12a65296fa2462de93c74bd09be20e94eb62563e0aab7bb430ad` (LF-normalised; differs from the cloud file by the file name header and the removed begin/commit, the runner wraps the file). Staff thread / reply / resolve raise P0002 for a missing thread before the 42501 access check. |
+| `supabase/rollbacks/20261206_guide_v8.sql` | Drops the trigger, 12 functions and 5 tables. Byte-equal to the cloud file. |
+| `supabase/releases/20261206_guide_v8.release.json` | Release contract, same keys as `s134_expenses_20261204.release.json`. 8 forward checks from the verify file. |
 | `supabase/tests/database/guide_v8_messages_analytics.sql` | pgTAP suite, `plan(72)`. |
-| `supabase/sql/2026-12-05-guide-v8-verify.sql` | The 8 read-only checks (run through `run-sql-on-host.sh` after the apply). Byte-equal to the cloud file. |
+| `supabase/sql/2026-12-06-guide-v8-verify.sql` | The 8 read-only checks (run through `run-sql-on-host.sh` after the apply). Byte-equal to the cloud file. |
 | `docs/s135/guide-v8-backend-README.md` | The cloud README, byte-equal. |
 
 Contract notes you should know:
@@ -25,8 +25,8 @@ Contract notes you should know:
 
 ```
 runner check (validateReleaseContract + validateMigrationFiles + validateSourceState):
-contract valid: guide_v8_messages_analytics_20261205 (backfill), 1 migrations, source.commit ancestor of HEAD
-node scripts/migrations/verify-expand-contract.mjs --release supabase/releases/20261205_guide_v8.release.json   -> exit 0 (silent)
+contract valid: guide_v8_messages_analytics_20261206 (backfill), 1 migrations, source.commit ancestor of HEAD
+node scripts/migrations/verify-expand-contract.mjs --release supabase/releases/20261206_guide_v8.release.json   -> exit 0 (silent)
 npm run test:release-safety   -> tests 17, pass 17, fail 0
 npm run test:platform-safety  -> tests 43, pass 43, fail 0
 node scripts/migrations/preflight.mjs --local ...  -> not usable here (needs the local Supabase stack, Docker is not running); left out of the block
@@ -44,7 +44,7 @@ Order: checks, fresh backup, stamp, rehearsal with the pgTAP suite, a typed APPL
 $ErrorActionPreference = 'Stop'
 $bash = 'C:\Program Files\Git\bin\bash.exe'
 $wt   = '/c/Users/Lloyd/Claude/Projects/Cascade/s135-guide-sql'
-$rel  = 'supabase/releases/20261205_guide_v8.release.json'
+$rel  = 'supabase/releases/20261206_guide_v8.release.json'
 $ssh  = '/c/Windows/System32/OpenSSH/ssh.exe'
 function Step([string]$name, [string]$cmd) {
   Write-Host ''; Write-Host "=== $name" -ForegroundColor Cyan
@@ -54,23 +54,23 @@ function Step([string]$name, [string]$cmd) {
 
 Step '1 branch is s135/guide-v8-sql' '[ $(git rev-parse --abbrev-ref HEAD) = s135/guide-v8-sql ] && git log -1 --oneline && git status --short'
 Step '2 release-safety tests' 'npm run test:release-safety'
-Step '3 contract and source commit check' 'node scripts/migrations/verify-expand-contract.mjs --release supabase/releases/20261205_guide_v8.release.json'
+Step '3 contract and source commit check' 'node scripts/migrations/verify-expand-contract.mjs --release supabase/releases/20261206_guide_v8.release.json'
 Step '4 fresh backup' 'bash scripts/recovery/p5/supabase-backup-over-alfred.sh'
-Step '5 stamp restore point' 'node scripts/migrations/fill-restore-point.mjs /c/Cascade-Backups supabase/releases/20261205_guide_v8.release.json'
-Step '6 rehearsal on Alfred (apply, forward checks, pgTAP 72)' 'SET=$(ls -d /c/Cascade-Backups/cascade-supabase-* | sort | tail -1); echo backup set $SET; REHEARSAL_TAP_LINES=all bash scripts/recovery/p6/migration-rehearsal-on-host.sh $SET supabase/releases/20261205_guide_v8.release.json supabase/tests/database/guide_v8_messages_analytics.sql'
+Step '5 stamp restore point' 'node scripts/migrations/fill-restore-point.mjs /c/Cascade-Backups supabase/releases/20261206_guide_v8.release.json'
+Step '6 rehearsal on Alfred (apply, forward checks, pgTAP 73)' 'SET=$(ls -d /c/Cascade-Backups/cascade-supabase-* | sort | tail -1); echo backup set $SET; REHEARSAL_TAP_LINES=all bash scripts/recovery/p6/migration-rehearsal-on-host.sh $SET supabase/releases/20261206_guide_v8.release.json supabase/tests/database/guide_v8_messages_analytics.sql'
 
-$ans = Read-Host 'Rehearsal above: forward checks all ok, guide_v8 suite 72 of 72, cleanup leftovers 0? Type APPLY to go to production'
+$ans = Read-Host 'Rehearsal above: forward checks all ok, guide_v8 suite 73 of 73, cleanup leftovers 0? Type APPLY to go to production'
 if ($ans -ne 'APPLY') { throw 'Stopped by you before the apply. Nothing was applied.' }
 
-Step '7 apply to production' 'bash scripts/migrations/apply-release-on-host.sh supabase/releases/20261205_guide_v8.release.json'
+Step '7 apply to production' 'bash scripts/migrations/apply-release-on-host.sh supabase/releases/20261206_guide_v8.release.json'
 
 Write-Host ''; Write-Host '=== 8 verify (8 rows, all t)' -ForegroundColor Cyan
-$out = & $bash -lc "cd $wt && export CASCADE_SSH_BIN=$ssh && bash scripts/migrations/run-sql-on-host.sh supabase/sql/2026-12-05-guide-v8-verify.sql"
+$out = & $bash -lc "cd $wt && export CASCADE_SSH_BIN=$ssh && bash scripts/migrations/run-sql-on-host.sh supabase/sql/2026-12-06-guide-v8-verify.sql"
 if ($LASTEXITCODE -ne 0) { throw "STOPPED at verify (exit $LASTEXITCODE)." }
 $out
 $good = @($out | Select-String -Pattern '\|\s*t\s*$').Count
 $bad  = @($out | Select-String -Pattern '\|\s*f\s*$').Count
-if ($good -ne 8 -or $bad -ne 0) { throw "VERIFY FAILED: $good ok, $bad not ok (need 8 and 0). Rollback: supabase/rollbacks/20261205_guide_v8.sql" }
+if ($good -ne 8 -or $bad -ne 0) { throw "VERIFY FAILED: $good ok, $bad not ok (need 8 and 0). Rollback: supabase/rollbacks/20261206_guide_v8.sql" }
 Write-Host 'Guide v8 SQL applied and verified (8 of 8).' -ForegroundColor Green
 ```
 
@@ -80,4 +80,4 @@ After a green run:
 2. Add `select public.guide_sweep_v1();` to the weekly sweep, or a pg_cron job `guide-sweep-weekly` (service_role).
 3. Check `notify-staff-inbox` accepts `{kind:'guest_wrote', psid:'guide:<uuid>'}` from the database caller (cron-secret path); if only service role may send that kind, add the database path in the waves repo. Until then guest messages arrive but the owner phone push is silent.
 
-Rollback (clients first: revert the guide v8.0.0 frontend and the Staff Guide inbox): `bash scripts/migrations/run-sql-on-host.sh supabase/rollbacks/20261205_guide_v8.sql` from `stay-site`-style Git Bash with `CASCADE_SSH_BIN` set. Export `public.guide_messages` first if the messages matter.
+Rollback (clients first: revert the guide v8.0.0 frontend and the Staff Guide inbox): `bash scripts/migrations/run-sql-on-host.sh supabase/rollbacks/20261206_guide_v8.sql` from `stay-site`-style Git Bash with `CASCADE_SSH_BIN` set. Export `public.guide_messages` first if the messages matter.
