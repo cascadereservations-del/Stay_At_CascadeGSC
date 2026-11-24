@@ -198,3 +198,29 @@ test('package scripts expose focused release verification', () => {
   assert.equal(pkg.scripts['test:release-safety'], 'node --test tests/migrations/release-safety.test.mjs');
   assert.equal(pkg.scripts['preflight:local'], 'node scripts/migrations/preflight.mjs --local');
 });
+
+test('findTransactionControl sees top-level begin/commit only (s136: the apply runner owns the transaction)', () => {
+  const sql = [
+    '-- commit; in a comment',
+    'begin;',
+    "comment on table public.t is 'commit; begin;';",
+    'create function public.f() returns int language plpgsql as $$ begin return 1; end $$;',
+    'do $g$ begin null; end $g$;',
+    'commit;',
+  ].join('\n');
+  assert.deepEqual(api().findTransactionControl(sql), ['begin', 'commit']);
+  assert.deepEqual(api().findTransactionControl('start transaction isolation level serializable;\nrollback;'), ['start', 'rollback']);
+  assert.deepEqual(api().findTransactionControl('create function public.f() returns int language plpgsql as $$ begin return 1; end $$;'), []);
+});
+
+test('validateMigrationFiles refuses begin/commit in a migration from 20261206000000 on, and tolerates older ones', () => {
+  const wrapped = `begin;\n${FIXTURE_SQL}\ncommit;\n`;
+  for (const [file, expectError] of [['20261206100000_add_fixture.sql', true], ['20261204100000_add_fixture.sql', false]]) {
+    const root = fixtureRoot(wrapped);
+    const dir = join(root, 'supabase', 'migrations');
+    writeFileSync(join(dir, file), wrapped);
+    const contract = { ...goodContract, migrations: [file], migration_sha256: { [file]: createHash('sha256').update(wrapped).digest('hex') } };
+    const errors = api().validateMigrationFiles(contract, root);
+    assert.equal(errors.some(e => /transaction control/.test(e)), expectError, errors.join('; '));
+  }
+});

@@ -6,6 +6,11 @@ import { fileURLToPath } from 'node:url';
 
 const VERSIONED_MIGRATION = /^\d{14}_[a-z0-9_]+\.sql$/;
 const COMMIT_SHA = /^[0-9a-f]{40}$/;
+// apply-release-on-host.sh wraps every migration in its own begin; ...; insert ledger row; commit;. A begin/commit inside the file ends that
+// transaction early, so the ledger row is written on its own and a failed ledger insert leaves the schema changed with no ledger row (s136).
+// Older migrations carry their own begin/commit and are already applied; the rule starts at this version.
+const NO_TX_CONTROL_FROM_VERSION = '20261206000000';
+const TX_CONTROL = /^(begin|commit|rollback|abort|start\s+transaction|end)(\s+(transaction|work|and\s+(no\s+)?chain|isolation\s+level\s+\w+(\s+\w+)?|read\s+(only|write)))*$/i;
 
 function isReadOnlyVerificationQuery(query) {
   const normalized = String(query ?? '')
@@ -86,6 +91,15 @@ export function findUnsafeExpandSql(sql) {
   return [...dynamic, ...rules.filter(([pattern]) => pattern.test(normalized)).map(([, label]) => label)];
 }
 
+export function findTransactionControl(sql) {
+  const stripped = String(sql)
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/--[^\r\n]*/g, ' ')
+    .replace(/\$([A-Za-z_][A-Za-z0-9_]*)?\$[\s\S]*?\$\1\$/g, ' ')
+    .replace(/'(?:''|[^'])*'/g, "''");
+  return stripped.split(';').map(statement => statement.trim()).filter(statement => TX_CONTROL.test(statement)).map(statement => statement.toLowerCase().split(/\s+/)[0]);
+}
+
 export function validateMigrationFiles(contract, root) {
   const errors = [];
   for (const filename of contract.migrations ?? []) {
@@ -97,6 +111,10 @@ export function validateMigrationFiles(contract, root) {
     const sql = readFileSync(path, 'utf8');
     const actualHash = createHash('sha256').update(sql.replace(/\r\n/g, '\n')).digest('hex');
     if (contract.migration_sha256?.[filename] !== actualHash) errors.push(`${filename}: SHA-256 mismatch from reviewed release contract`);
+    if (filename.slice(0, 14) >= NO_TX_CONTROL_FROM_VERSION) {
+      const control = findTransactionControl(sql);
+      if (control.length) errors.push(`${filename}: transaction control (${[...new Set(control)].join(', ')}) inside a migration: the apply runner already wraps it in begin/commit with the ledger row`);
+    }
     if (contract.phase === 'expand') {
       const unsafe = findUnsafeExpandSql(sql);
       if (unsafe.length) errors.push(`${filename}: destructive SQL is not allowed in expand phase (${unsafe.join(', ')})`);
