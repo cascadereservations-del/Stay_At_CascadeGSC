@@ -5034,13 +5034,13 @@
 
   <!-- gs-core: RATING is the ONLY place the score, review count and verified date live; every [data-rating] node renders from it. -->
   <script id="gs-core">
-  const RATING = { score: 4.97, count: 64, verifiedOn: '2026-11-23' };
+  const RATING = { score: 4.97, count: 64, fiveStar: 97, verifiedOn: '2026-11-24' };
   (function () {
     'use strict';
     var MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
     function fmtDate(iso) { var p = iso.split('-'); return (+p[2]) + ' ' + MON[+p[1] - 1] + ' ' + p[0]; }
     function renderRating() {
-      var vals = { score: RATING.score.toFixed(2), count: String(RATING.count), verified: fmtDate(RATING.verifiedOn) };
+      var vals = { score: RATING.score.toFixed(2), count: String(RATING.count), fiveStar: RATING.fiveStar + '%', verified: fmtDate(RATING.verifiedOn) };
       Array.prototype.forEach.call(document.querySelectorAll('[data-rating]'), function (el) { var v = vals[el.getAttribute('data-rating')]; if (v != null) el.textContent = v; });
       Array.prototype.forEach.call(document.querySelectorAll('[data-rating-label]'), function (el) {
         el.setAttribute('aria-label', el.getAttribute('data-rating-label').replace(/\{(score|count|verified)\}/g, function (m, k) { return vals[k]; }));

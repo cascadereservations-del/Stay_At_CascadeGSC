@@ -59,7 +59,7 @@ test('JSON-LD does not disclose a precise street address or coordinates', () => 
 test('Airbnb rating and review count come from the single RATING constant', () => {
   // Visible markup renders from RATING at runtime; JSON-LD (structured data) is updated in a later task, so it is excluded here.
   const visible = html.replace(/<script type="application\/ld\+json">[\s\S]*?<\/script>/g, '');
-  assert.match(visible, /const RATING = \{ score: 4\.97, count: 64, verifiedOn: '2026-11-23' \};/);
+  assert.match(visible, /const RATING = \{ score: 4\.97, count: 64, fiveStar: 97, verifiedOn: '2026-11-24' \};/);
   assert.equal((visible.match(/const RATING\b/g) || []).length, 1);
   assert.doesNotMatch(visible, /\b4\.98\b/);
   assert.doesNotMatch(visible, /\b45\s+(Airbnb\s+)?[Rr]eviews\b/);
