@@ -10654,7 +10654,7 @@
     setText('bsDepLine', mn && mn.last ? DEP_ARRIVAL : DEP_BALANCE);
     setText('bsPayTotal', mn ? 'Total ' + peso(mn.total) : ''); setText('bsPayLater', mn && mn.later > 0 ? 'Later ' + peso(mn.later) : '');
     setText('bsHoldLine', !mn ? '' : mn.last ? 'Check-in is close, so we reserve on receipt. Send the full amount to book ' + rangeLabel() + '.'
-      : 'Send half within 24 hours to keep ' + fmtMd(S.ci) + ' to ' + (S.ci.slice(0, 7) === S.co.slice(0, 7) ? +S.co.slice(8) : fmtMd(S.co)) + '. The rest is due a day before you arrive.');
+      : 'We’ll hold ' + fmtMd(S.ci) + ' to ' + (S.ci.slice(0, 7) === S.co.slice(0, 7) ? +S.co.slice(8) : fmtMd(S.co)) + ' for 24 hours. Settle half to keep them; the rest is due a day before you arrive.');
     $('bsG').setAttribute('aria-pressed', String(gc)); $('bsB').setAttribute('aria-pressed', String(!gc));
     var qr = $('bsQr'); qr.src = gc ? 'assets/images/qr-gcash.png' : 'assets/images/qr-unionbank.png'; qr.alt = gc ? 'GCash QR code for ' + PAY_NAME : 'UnionBank InstaPay QR code';
     setText('bsAcctT', gc ? 'Scan with GCash' : 'UnionBank InstaPay or bank transfer');
@@ -10890,7 +10890,9 @@
       im.src = widest(s); im.alt = s.alt; cap.textContent = s.alt; cnt.textContent = (i + 1) + ' of ' + imgs.length; }
     /* r6: zoom from the tapped tile with a View Transition where supported (else the CSS fade); the name sits on one element at a time */
     var rmq = matchMedia('(prefers-reduced-motion: reduce)'), VTN = 'gs-lb-photo';
-    function canVT() { return !!document.startViewTransition && !rmq.matches; }
+    /* WebKit (Safari, every iOS browser) uses the CSS fade: the VT close crashed Playwright WebKit and is unverified on a real iPhone */
+    var WK = /AppleWebKit/.test(navigator.userAgent) && !/Chrome\/|Chromium|Edg\//.test(navigator.userAgent);
+    function canVT() { return !!document.startViewTransition && !rmq.matches && !WK; }
     function onScreen(el) { var r = el.getBoundingClientRect(); return r.bottom > 0 && r.top < innerHeight && r.right > 0 && r.left < innerWidth; }
     function vt(from, to, change) {
       if (!canVT() || !from || !onScreen(from)) { change(); return; }

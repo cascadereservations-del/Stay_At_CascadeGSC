@@ -300,7 +300,7 @@ test.describe('booking sheet', () => {
     await mock(page); await openHeader(page);
     await step1(page); await step2(page);
     await expect(page.locator('#bsH3')).toHaveText('Your dates are held');
-    await expect(page.locator('#bsHoldLine')).toContainText('Send half within 24 hours to keep');
+    await expect(page.locator('#bsHoldLine')).toContainText(/^We’ll hold .+ for 24 hours\. Settle half to keep them; the rest is due a day before you arrive\.$/);
     await expect(page.locator('#bsDepLine')).toHaveText('Plus a ₱1,000 refundable security deposit with the balance, returned after check-out.');
     await expect(page.locator('#bsFileLbl')).toHaveText('Add receipt');
     await expect(page.locator('#bsNext3')).toHaveText(/^I.ve sent ₱[\d,]+$/);
