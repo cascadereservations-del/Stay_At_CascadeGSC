@@ -101,3 +101,57 @@ test('the real baseline prepares the rate card without its production-data seeds
   assert.ok(prepared.includes('create or replace function public.get_rate_card_v1'));
   assert.equal((prepared.match(/-- recovery: omitted production-data seed/g) ?? []).length, 2);
 });
+
+const BLOCK_FIRST = '  select count(*) into v_n from public.t where x;';
+const BLOCK = `${BLOCK_FIRST}\n  if v_n <> 1 then\n    raise exception 'nope';\n  end if;\n`;
+const BLOCK_SOURCE = `do $$\nbegin\n${BLOCK}  end if;\nend $$;\n`;
+const blockEntry = (overrides = {}) => ({ first_line: BLOCK_FIRST, last_line: '  end if;', sha256: sha(BLOCK), ...overrides });
+
+test('last_line ends the omission at the first later line equal to it, not at a line ending in a semicolon', () => {
+  const prepared = prepareRecoveryMigrationContent(FILE, BLOCK_SOURCE, [], { [FILE]: [blockEntry()] });
+  assert.equal(prepared, `do $$\nbegin\n-- recovery: omitted production-data seed (sha256 ${sha(BLOCK).slice(0, 12)})\n  end if;\nend $$;\n`);
+});
+
+test('last_line works on a CRLF source', () => {
+  const prepared = prepareRecoveryMigrationContent(FILE, BLOCK_SOURCE.replace(/\n/g, '\r\n'), [], { [FILE]: [blockEntry()] });
+  assert.doesNotMatch(prepared, /raise exception/);
+});
+
+test('a last_line that never appears after first_line is refused', () => {
+  assert.throws(() => prepareRecoveryMigrationContent(FILE, BLOCK_SOURCE, [], { [FILE]: [blockEntry({ last_line: '  end loop;' })] }), /no last_line match/);
+});
+
+test('a last_line that only appears before first_line is refused', () => {
+  const source = `  end if;\n${BLOCK_FIRST}\nselect 1;\n`;
+  assert.throws(() => prepareRecoveryMigrationContent(FILE, source, [], { [FILE]: [blockEntry()] }), /no last_line match/);
+});
+
+test('a last_line match is exact: a longer line that merely contains it does not end the omission', () => {
+  const source = `${BLOCK_FIRST}\n  end if; -- trailing\n`;
+  assert.throws(() => prepareRecoveryMigrationContent(FILE, source, [], { [FILE]: [blockEntry()] }), /no last_line match/);
+});
+
+test('manifest validation refuses a last_line that is not a non-empty string', () => {
+  const manifest = last => ({ ...baseManifest(), recovery_statement_omissions: { [FILE]: [blockEntry({ last_line: last })] } });
+  assert.doesNotThrow(() => validate(manifest('  end if;')));
+  assert.throws(() => validate(manifest('')), /last_line/);
+  assert.throws(() => validate(manifest(7)), /last_line/);
+});
+
+test('the real baseline prepares the s86 and s89 migrations without their production-row checks, keeping the md5 and OCR guards', () => {
+  const supabase = path.join(repoRoot, 'supabase');
+  const manifest = JSON.parse(readFileSync(path.join(supabase, 'recovery', 'baseline.json'), 'utf8'));
+  const prepare = file => prepareRecoveryMigrationContent(file, readFileSync(path.join(supabase, 'migrations', file), 'utf8'), manifest.recovery_assertion_only_migrations, manifest.recovery_statement_omissions);
+  const s86 = prepare('20261020000000_s86_inventory_db.sql');
+  assert.ok(!s86.includes('expected exactly 1 purchase with supplier test'));
+  assert.ok(!s86.includes('a shopping row points at the test purchase'));
+  assert.ok(!s86.includes('the test purchase stock is not as read live'));
+  assert.ok(!s86.includes('could not reset the test purchase stock'));
+  assert.ok(s86.includes("delete from public.inventory_purchases where lower(btrim(supplier)) = 'test';"));
+  assert.ok(s86.includes('OCR purchase row(s) with units_per_purchase <> 1'));
+  assert.ok(s86.includes('5a2625ae6aab612a0f9c054df904e9b7'));
+  assert.equal((s86.match(/-- recovery: omitted production-data seed/g) ?? []).length, 4);
+  const s89 = prepare('20261022000000_s89_signin_pin.sql');
+  assert.ok(!s89.includes('expected exactly one admin named Lloyd'));
+  assert.ok(s89.includes('update auth.users u'));
+});

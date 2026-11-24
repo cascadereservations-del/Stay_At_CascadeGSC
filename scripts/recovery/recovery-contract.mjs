@@ -249,6 +249,9 @@ export function validateRecoveryBaselineManifest(manifest, { baselineSql, prereq
         if (typeof entry?.first_line !== 'string' || entry.first_line.trim() === '' || !/^[0-9a-f]{64}$/.test(entry?.sha256 ?? '')) {
           throw new Error(`Recovery statement omission needs first_line and a sha256 hex pin: ${fileName}.`);
         }
+        if (entry.last_line !== undefined && (typeof entry.last_line !== 'string' || entry.last_line.trim() === '')) {
+          throw new Error(`Recovery statement omission last_line must be a non-empty string when given: ${fileName}.`);
+        }
       }
     }
   }
@@ -285,8 +288,9 @@ export function selectRecoveryMigrationFiles(fileNames, forwardFrom, excludedFil
 }
 
 // Removes one production-data seed statement: from the line equal to first_line through the first later line ending
-// in ';'. The removed text (LF-normalized, trailing newline included) must match the pinned sha256.
-export function omitRecoveryStatement(fileName, source, { first_line: firstLine, sha256 }) {
+// in ';', or, when last_line is given, through the first later line exactly equal to last_line (a block that ends in
+// something other than ';', such as an 'end if;' inside a DO block). The removed text (LF-normalized, trailing newline included) must match the pinned sha256.
+export function omitRecoveryStatement(fileName, source, { first_line: firstLine, last_line: lastLine, sha256 }) {
   const lines = source.split('\n');
   const bare = line => line.replace(/\r$/, '');
   const starts = [];
@@ -296,9 +300,13 @@ export function omitRecoveryStatement(fileName, source, { first_line: firstLine,
   }
   let end = -1;
   for (let index = starts[0]; index < lines.length; index += 1) {
-    if (bare(lines[index]).endsWith(';')) { end = index; break; }
+    if (lastLine === undefined ? bare(lines[index]).endsWith(';') : bare(lines[index]) === lastLine) { end = index; break; }
   }
-  if (end < 0) throw new Error(`Recovery statement omission has no terminating ';' line in ${fileName}: ${firstLine}`);
+  if (end < 0) {
+    throw new Error(lastLine === undefined
+      ? `Recovery statement omission has no terminating ';' line in ${fileName}: ${firstLine}`
+      : `Recovery statement omission has no last_line match after first_line in ${fileName}: ${lastLine}`);
+  }
   const removed = `${lines.slice(starts[0], end + 1).map(bare).join('\n')}\n`;
   const actual = createHash('sha256').update(removed).digest('hex');
   if (actual !== sha256) {
