@@ -270,7 +270,7 @@ insert into _t values ('us1', pg_temp.try(format('select public.staff_guide_usag
 insert into _t values ('us30', pg_temp.try(format('select public.staff_guide_usage_v1(30, %L::uuid)', pg_temp.id('b1'))));
 reset role;
 select ok((select (v ->> 'since')::date = pg_temp.today() - 2 from _t where k = 'us3') and (select (v ->> 'since')::date = pg_temp.today() from _t where k = 'us1'), 'usage window: since is the Manila date of the first plotted day (today minus p_days plus 1), today for one day');
-select ok((select (v ->> 'devices')::int = 4 from _t where k = 'us3') and (select (v ->> 'devices')::int = 4 from _t where k = 'us30'), 'usage window: an event one minute after Manila midnight of the first day is counted, one minute before it is not in a 3-day window (3 original devices + dev71)');
+select ok((select (v ->> 'devices')::int = 4 from _t where k = 'us3') and (select (v ->> 'devices')::int = 5 from _t where k = 'us30'), 'usage window: an event one minute after Manila midnight of the first day is counted, one minute before it is not in a 3-day window (3 original devices + dev71), while a 30-day window holds both probes (5)');
 select ok((select (select min((d ->> 'day')::date) from jsonb_array_elements(v -> 'by_day') d) = pg_temp.today() - 2 and (select max((d ->> 'day')::date) from jsonb_array_elements(v -> 'by_day') d) <= pg_temp.today() from _t where k = 'us3'), 'usage window: by_day starts on the first plotted Manila date and never runs past today');
 select ok((select jsonb_array_length(v -> 'by_day') <= 3 from _t where k = 'us3'), 'usage window: a 3-day window holds at most three Manila dates');
 delete from public.guide_events where device in ('zz135dev71', 'zz135dev72');
