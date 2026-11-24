@@ -150,6 +150,8 @@ test.describe('Guest stories motion and network', () => {
     expect(await page.locator('[data-rating="fiveStar"]').allTextContents()).toEqual(['97%', '97%']);
     await expect(page.locator('#airbnbProofVerifiedNote')).toContainText('Verified on 24 Nov 2026');
     expect(errors).toEqual([]);
+    /* Chromium keeps the scroll-driven zoom (html.gs-sda); WebKit is gated out (Fable r6 N6) */
+    expect(await page.evaluate(() => document.documentElement.classList.contains('gs-sda') && getComputedStyle(document.querySelector('.gs-stage-img')).animationName)).toContain('gs-zoomout');
     for (const h of page.hosts) expect(h).toMatch(/^(127\.0\.0\.1|localhost|fonts\.googleapis\.com|fonts\.gstatic\.com|[a-z0-9]+\.supabase\.co)$/);
   });
 });

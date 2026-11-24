@@ -5772,11 +5772,12 @@
   @media (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference) {
     .gs-cta:hover::after, .theme-quiet-luxury .hero-bk-cta:hover::after { transform: translateX(260%) skewX(-18deg); transition: transform 900ms cubic-bezier(0.23, 1, 0.32, 1); }
   }
+  /* Scroll-driven motion runs only under html.gs-sda (Chromium, set by the gs-refresh script): Fable r6 N6; WebKit stalled the booking sheet with it */
   @supports (animation-timeline: view()) {
     @media (prefers-reduced-motion: no-preference) {
-      .gs-spot-media .gs-duo-a, #hospitality .gs-ch-media, .gs-stage { animation: gs-unveil linear backwards; animation-timeline: view(); animation-range: entry 0% cover 30%; }
-      #hospitality .gs-ch-media > img { animation: gs-settle linear backwards; animation-timeline: view(); animation-range: entry 0% cover 45%; }
-      .gs-spot-quotes .gs-pq, #hospitality .gs-ch-body .gs-pq, #location .gs-honest { animation: gs-rise linear both; animation-timeline: view(); animation-range: entry 0% entry 55%; }
+      html.gs-sda .gs-spot-media .gs-duo-a, html.gs-sda #hospitality .gs-ch-media, html.gs-sda .gs-stage { animation: gs-unveil linear backwards; animation-timeline: view(); animation-range: entry 0% cover 30%; }
+      html.gs-sda #hospitality .gs-ch-media > img { animation: gs-settle linear backwards; animation-timeline: view(); animation-range: entry 0% cover 45%; }
+      html.gs-sda .gs-spot-quotes .gs-pq, html.gs-sda #hospitality .gs-ch-body .gs-pq, html.gs-sda #location .gs-honest { animation: gs-rise linear both; animation-timeline: view(); animation-range: entry 0% entry 55%; }
     }
   }
 
@@ -5917,8 +5918,8 @@
   @supports (animation-timeline: view()) {
     @media (prefers-reduced-motion: no-preference) {
       /* Scroll-driven zoom-out on the photo stages (scale composes with the ken-burns transform) */
-      .gs-stage-img { animation: gs-kb 30s ease-in-out infinite alternate, gs-zoomout linear both; animation-timeline: auto, view(); animation-range: normal, cover 0% cover 100%; }
-      .gs-bleed-img { animation: gs-kb 34s ease-in-out infinite alternate, gs-zoomout linear both; animation-timeline: auto, view(); animation-range: normal, cover 0% cover 100%; }
+      html.gs-sda .gs-stage-img { animation: gs-kb 30s ease-in-out infinite alternate, gs-zoomout linear both; animation-timeline: auto, view(); animation-range: normal, cover 0% cover 100%; }
+      html.gs-sda .gs-bleed-img { animation: gs-kb 34s ease-in-out infinite alternate, gs-zoomout linear both; animation-timeline: auto, view(); animation-range: normal, cover 0% cover 100%; }
     }
   }
   @media (prefers-reduced-motion: reduce) {
@@ -10830,6 +10831,11 @@
     if ('userAgentData' in navigator && window.CSS && CSS.supports('backdrop-filter', 'url(#gs-lg)') &&
         !matchMedia('(prefers-reduced-transparency: reduce)').matches) document.documentElement.classList.add('gs-refract');
   } catch (e) { /* plain blur stays */ }
+  /* 1b. Scroll-driven motion (animation-timeline: view()) only in Chromium. Fable r6 N6: untested on Safari, and WebKit stalls
+     the open booking sheet while these animations run (booking-sheet.spec on the iPhone project). The CSS rules key off html.gs-sda. */
+  try {
+    if ('userAgentData' in navigator && window.CSS && CSS.supports('animation-timeline', 'view()')) document.documentElement.classList.add('gs-sda');
+  } catch (e) { /* no scroll-driven motion */ }
 
   /* 2. Pause the ken-burns stage photo while it is off screen (reuses the page's .gs-off rule) */
   if ('IntersectionObserver' in window) {
