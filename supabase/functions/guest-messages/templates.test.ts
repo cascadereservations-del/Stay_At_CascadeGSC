@@ -229,6 +229,16 @@ Deno.test('declined: matches the shared golden fixture (Staff copy) word for wor
 // D-418 follow-up: a declined request ends the Messenger flow (index.ts has no fake-db harness, so this pins the wiring by source).
 Deno.test('index.ts: a declined message ends the flow via setFlowStep(cancelled), after the log update', async () => {
   const src = await Deno.readTextFile(new URL('./index.ts', import.meta.url));
-  const logAt = src.indexOf("update({ channel, status"), flowAt = src.indexOf("key === 'declined' && t) await setFlowStep(db, t, 'cancelled')");
+  const logAt = src.indexOf("update({ channel, status"), flowAt = src.indexOf("key === 'declined' && t) await setFlowStep(db, t, d.booking_id, 'cancelled')");
   assert(logAt > 0 && flowAt > logAt, 'decline flow step must be written after the send and log update');
+});
+
+// ML-71: every flow write in index.ts is bound to the booking being messaged, and a duplicate decline also ends the flow.
+Deno.test('index.ts: flow writes go through setFlowStep with the booking id; no raw concierge_threads update remains', async () => {
+  const src = await Deno.readTextFile(new URL('./index.ts', import.meta.url));
+  assert(src.includes("await setFlowStep(db, t, d.booking_id, 'confirmed')"), 'confirmation write must be booking-bound');
+  assert(!src.includes("from('concierge_threads').update"), 'no unguarded thread update');
+  const dupAt = src.indexOf("body.reason_code === 'duplicate'"), endAt = src.indexOf("no_message_for_duplicate");
+  const blk = src.slice(dupAt, endAt);
+  assert(dupAt > 0 && blk.includes("setFlowStep(db, dt, d.booking_id, 'cancelled')") && blk.includes('!dry'), 'duplicate decline ends the flow for that booking, not on dry runs');
 });

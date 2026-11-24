@@ -1,7 +1,7 @@
 // deno test -A --no-check messenger-concierge/spec47.test.ts
 // SPEC-47: notable topics from a Messenger turn. Fire-and-forget; a failure never reaches the reply.
 import { assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
-import { noteTopics } from './index.ts';
+import { noteTopics } from './note-topics.ts';
 
 const BID = '0b9f2c1e-7a4d-4e1b-9c3a-5d6e7f8a9b01', GID = 'e2000000-0000-4000-8000-0000000000c1';
 const flow = { booking_id: BID, ref: 'CH-1' } as any;

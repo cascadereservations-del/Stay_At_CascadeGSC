@@ -98,7 +98,11 @@ Deno.serve(withObservability({ functionName: 'guest-messages', route: 'ops' }, a
         // A decline is read on a cancelled booking, never a confirmed one (it must not tell a confirmed guest "no").
         if (bErr || !b || (lockKey === 'declined' ? b.status !== 'cancelled' : b.status !== 'confirmed')) { results.push({ ref, key: lockKey, status: lockKey === 'declined' ? 'not_cancelled' : 'not_confirmed' }); continue; }
         // 'duplicate' sends the guest nothing (the SQL never posts it; this is the second lock).
-        if (lockKey === 'declined' && body.reason_code === 'duplicate') { results.push({ ref, key: lockKey, status: 'no_message_for_duplicate' }); continue; }
+        if (lockKey === 'declined' && body.reason_code === 'duplicate') {
+          // The guest gets nothing, but a thread still pointing at the duplicate booking leaves its flow (setFlowStep only touches that booking's flow).
+          if (!dry) { const dt = await threadForBooking(db, d.booking_id); if (dt) await setFlowStep(db, dt, d.booking_id, 'cancelled'); }
+          results.push({ ref, key: lockKey, status: 'no_message_for_duplicate' }); continue;
+        }
         const fields = { ...b, ...reviews, onground_name: contact.name, onground_phone: contact.phone,
           reason_code: declineReason(body.reason_code), receipt_sent: body.receipt_sent === true };
 
@@ -140,10 +144,10 @@ Deno.serve(withObservability({ functionName: 'guest-messages', route: 'ops' }, a
         await db.from('guest_message_log').update({ channel, status, detail: hostHolds ? 'host handling' : hold ? 'open complaint' : err ?? (plan.humanAgent && channel === 'messenger' ? 'human_agent' : null) })
           .eq('booking_id', d.booking_id).eq('message_key', key);
         // The booking is confirmed whatever the channel: the Messenger flow leaves the payment steps (was notifyMessengerBookingConfirmed's job).
-        if (key === 'confirmation' && t) await db.from('concierge_threads').update({ booking_flow: { ...(t.booking_flow ?? {}), step: 'confirmed', updated_at: new Date().toISOString() }, updated_at: new Date().toISOString() }).eq('psid', t.psid);
+        if (key === 'confirmation' && t) await setFlowStep(db, t, d.booking_id, 'confirmed');
         // A declined request ends the flow whatever the channel, like a confirmation: a later "paid na po?" must not get the await_receipt line.
         // 'cancelled' is the terminal step the Telegram decline already writes (inquiry-send patchFlow) and booking.ts treats as closed.
-        if (key === 'declined' && t) await setFlowStep(db, t, 'cancelled');
+        if (key === 'declined' && t) await setFlowStep(db, t, d.booking_id, 'cancelled');
 
         const outcome = status === 'sent' ? (channel === 'messenger' ? '✅ sent on Messenger' : `✅ e-mailed to ${b.guest_email}`)
           : hostHolds ? '✋ not sent: you are handling this chat. Send it yourself if it still helps'

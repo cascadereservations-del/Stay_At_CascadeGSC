@@ -51,10 +51,17 @@ export async function threadForBooking(db: any, bookingId: string): Promise<{ ps
   return t?.psid ? t : null;
 }
 
-/** Move a thread's booking_flow to a terminal step, keeping the rest of the flow (guest-messages: declined request). */
+/** Move a thread's booking_flow to a step, keeping the rest of the flow. ML-71 state-binding: it acts only while the thread's flow
+ *  still points at THIS booking. The flow is re-read by (psid, booking_id) right before the write, and the write itself carries the
+ *  same booking_id filter, so a guest who started a new flow on the same psid while a send or relay was in flight is never overwritten
+ *  with the old booking's flow. Returns whether a row was written. */
 // deno-lint-ignore no-explicit-any
-export async function setFlowStep(db: any, t: { psid: string; booking_flow?: any }, step: string, at = new Date().toISOString()): Promise<void> {
-  await db.from('concierge_threads').update({ booking_flow: { ...(t.booking_flow ?? {}), step, updated_at: at }, updated_at: at }).eq('psid', t.psid);
+export async function setFlowStep(db: any, t: { psid: string }, bookingId: string, step: string, at = new Date().toISOString()): Promise<boolean> {
+  if (!bookingId) return false;
+  const { data: cur } = await db.from('concierge_threads').select('booking_flow').eq('psid', t.psid).eq('booking_flow->>booking_id', bookingId).maybeSingle();
+  if (!cur?.booking_flow) return false;
+  await db.from('concierge_threads').update({ booking_flow: { ...cur.booking_flow, step, updated_at: at }, updated_at: at }).eq('psid', t.psid).eq('booking_flow->>booking_id', bookingId);
+  return true;
 }
 
 /** SPEC-33 s2: a declined receipt reaches the guest (English; one "po" for a Taglish flow, D-258) and the flow waits at
@@ -70,7 +77,7 @@ export async function notifyMessengerBookingDeclined(db: any, bookingId: string)
   if (!t) return false;
   const f = t.booking_flow ?? {};
   const ok = await fbSendText(t.psid, declineLine(f.name ?? t.guest_name, f.ref ?? 'DIR-' + bookingId.slice(0, 8).toUpperCase(), f.lang), true);
-  if (ok) await db.from('concierge_threads').update({ booking_flow: { ...f, step: 'receipt_declined', updated_at: new Date().toISOString() }, updated_at: new Date().toISOString() }).eq('psid', t.psid);
+  if (ok) await setFlowStep(db, t, bookingId, 'receipt_declined');
   return ok;
 }
 // Session 56: notifyMessengerBookingConfirmed deleted (unused since session 54; guest-messages sends message 1).
