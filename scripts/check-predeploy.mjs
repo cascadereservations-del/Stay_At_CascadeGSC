@@ -19,7 +19,8 @@ if (unknown.length) { console.error(`unknown function(s): ${unknown.join(', ')}`
 
 const failed = [];
 for (const s of slugs) {
-  const r = spawnSync('deno', ['check', '--no-lock', '--node-modules-dir=auto', join(root, s, 'index.ts')], { encoding: 'utf8' });
+  // One command string with shell:true: deno is a .cmd shim on some Windows installs (spawnSync ENOENT without a shell).
+  const r = spawnSync(`deno check --no-lock --node-modules-dir=auto "${join(root, s, 'index.ts')}"`, { encoding: 'utf8', shell: true });
   const ok = r.status === 0;
   console.log(`${ok ? 'ok  ' : 'FAIL'} ${s}`);
   if (!ok) { failed.push(s); console.error((r.stderr || r.error?.message || '').split('\n').slice(0, 25).join('\n')); }
