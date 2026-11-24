@@ -7,17 +7,19 @@
     "commit": "77c60d4a32e7323ea09585bdca0d1addd4a48524"
   },
   "migrations": [
-    "20261204100000_s135_pay_extras_fix.sql"
+    "20261204100000_s135_pay_extras_fix.sql",
+    "20261204110000_s135b_notice_grants.sql"
   ],
   "migration_sha256": {
-    "20261204100000_s135_pay_extras_fix.sql": "eb179dcbdbbee512e7dbcaec675f783ad082198d3b7aa48debc53e71fc20334f"
+    "20261204100000_s135_pay_extras_fix.sql": "eb179dcbdbbee512e7dbcaec675f783ad082198d3b7aa48debc53e71fc20334f",
+    "20261204110000_s135b_notice_grants.sql": "16dc2ed73dfa774ec043f9b1eacae8e0d2e2ac96fb14f63d7b7db1d26b9c9515"
   },
   "backup": {
     "required": true,
     "scope": "production",
     "restore_point": "PENDING_FRESH_BACKUP",
     "verified_at": "2026-12-04T00:00:00.000Z",
-    "production_rule": "One line of staff_pay_request_create_v2 changes (D-420): the attach-session test reads p_extras instead of v_extras, so a pay request that carries an extra no longer fails with extra_needs_a_clean; same signature, grants and lock order, no table or row changes.",
+    "production_rule": "One line of staff_pay_request_create_v2 changes (D-420): the attach-session test reads p_extras instead of v_extras, so a pay request that carries an extra no longer fails with extra_needs_a_clean; same signature, grants and lock order, no table or row changes. Plus s135b: service_role grants on staff_payout_change_notices written down as select + update(finance_sent_at, staff_sent_at), a no-op on production (live read 2026-11-24).",
     "notes": "Apply after s134 is applied (or independently: it touches only staff_pay_request_create_v2, and the guard accepts only the s99 body). Restamp restore_point and verified_at with a fresh backup at apply time (scripts/migrations/fill-restore-point.mjs; the checker refuses one older than an hour). source.commit is the base commit the fix branched from; restamp it to the reviewed head at release time. No app push is needed: the Staff app already sends extras."
   },
   "forward_verification": [

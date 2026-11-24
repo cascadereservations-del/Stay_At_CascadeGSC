@@ -313,11 +313,11 @@ set local request.jwt.claims = '{"sub":"b2000000-0000-4000-8000-000000000002","a
 select throws_ok($$select * from public.admin_report_blocks_v1('b1000000-0000-4000-8000-000000000001', 14)$$, '42501', null, 'a cleaner is refused the list');
 select throws_ok($$select public.admin_resolve_report_block_v1('b4000000-0000-4000-8000-000000000001', 'typed_is_right', null, null, null)$$, '42501', 'inspect_cleaning denied', 'a cleaner is refused an existing id: 42501');
 select throws_ok($$select public.admin_resolve_report_block_v1('b4000000-0000-4000-8000-0000000000ff', 'typed_is_right', null, null, null)$$, '42501', 'inspect_cleaning denied', 'a missing id looks exactly the same to a cleaner (ids cannot be probed)');
--- Production gives authenticated no table privilege on meter_readings at all (live read 2026-10-31), so a cleaner cannot write it directly.
+-- authenticated DOES hold select/insert/update/delete on meter_readings: 20260828000200_operational_rls_lockdown.sql:97, and production matches (live read 2026-11-24; the 2026-10-31 note saying no privilege was wrong). The first wall is RLS on the table.
 -- The guard is defence in depth: grant the privileges for this transaction only (rolled back) so the trigger itself is exercised.
 reset role;
-select ok(not has_table_privilege('authenticated', 'public.meter_readings', 'update') and not has_table_privilege('authenticated', 'public.meter_readings', 'insert'),
-  'authenticated has no direct write on meter_readings (the first wall)');
+select ok((select relrowsecurity from pg_class where oid = 'public.meter_readings'::regclass),
+  'meter_readings has RLS on, so authenticated writes pass only through its policies (the first wall)');
 grant select, insert, update on public.meter_readings to authenticated;
 set local role authenticated;
 set local request.jwt.claims = '{"sub":"b2000000-0000-4000-8000-000000000002","aal":"aal1"}';
