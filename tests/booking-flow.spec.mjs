@@ -81,6 +81,8 @@ test.describe('booking flow baseline', () => {
       while (walker.nextNode()) {
         const n = walker.currentNode, t = n.textContent;
         if (!/[₱%]/.test(t) || n.parentElement.closest('dialog, script, style, noscript')) continue;
+        /* Rating proof (Airbnb five-star share) is not a price; D-419. */
+        if (n.parentElement.closest('[data-rating="fiveStar"]') && !/₱/.test(t) && /^\s*\d{1,3}%\s*$/.test(t)) continue;
         const el = n.parentElement;
         const cs = getComputedStyle(el), r = el.getBoundingClientRect();
         if (cs.display === 'none' || cs.visibility === 'hidden' || el.closest('[hidden], [aria-hidden="true"]') && el.closest('[hidden]')) continue;
