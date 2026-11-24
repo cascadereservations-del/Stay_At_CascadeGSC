@@ -3,6 +3,9 @@ import AxeBuilder from '@axe-core/playwright';
 
 test.describe('accessibility baseline', () => {
   test('landing page has no serious/critical axe violations', async ({ page }) => {
+    /* Reduced motion puts every .ch-reveal element in its final, fully opaque state (index.html reduced-motion block).
+       Without it axe could sample a heading mid-fade: CI b8369a1 read #gs-bd-h at 1.01:1 during its opacity transition. */
+    await page.emulateMedia({ reducedMotion: 'reduce' });
     await page.goto('/index.html');
     const results = await new AxeBuilder({ page })
       .exclude('#airbnbProofEmbed') // third-party embed content is out of our control
