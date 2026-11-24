@@ -15,8 +15,8 @@
   "backup": {
     "required": true,
     "scope": "production",
-    "restore_point": "C:/Cascade-Backups/cascade-supabase-20261123T162357Z",
-    "verified_at": "2026-11-23T16:28:16.230Z",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20261124T010333Z",
+    "verified_at": "2026-11-24T01:09:52.111Z",
     "production_rule": "Confirm flow, server side (D-418, Lloyd 2026-11-24): staff_inquiry_payments_v1 is dropped and re-created with three more columns (receipt_sent, receipt_at, contact_channel) and the new order; the 12 old columns keep their names and order, so the old Staff reads it unchanged. staff_decline_direct_booking_v1 gains a fourth argument p_reason_code (no default; the three-argument form stays as an invoker wrapper that passes null, so Staff 3.4.53 keeps working) and, on a fresh decline other than reason duplicate, queues one guest-messages post {booking_id, key declined, reason_code, receipt_sent, tapped} on commit (pg_net, wrapped so it never blocks the decline). The guest_message_log message_key CHECK gains declined. concierge_conversations_v1 is dropped and re-created with needs_reply and waiting_since (it loses service_role execute: only the signed-in dashboard calls it); concierge_waiting_v1 is new. notices_v1 gets one anchored replace (inbox_open counts guests waiting, md5 7906db74 to 06204588). Four internal helpers s_cf_* (no grants). No data is written. The Telegram decline path is NOT hooked: it already sends its own guest message (telegram-expense inquiry-flow), a hook would double-send.",
     "notes": "Apply after s134 is applied (or independently: it touches none of the s134 functions). Restamp restore_point and verified_at with a fresh backup at apply time (scripts/migrations/fill-restore-point.mjs). Order: SQL, then the guest-messages deploy (it must answer the declined key before a decline posts it), then the Staff push; roll back in the reverse order."
   },
