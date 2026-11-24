@@ -577,8 +577,8 @@ alter table public.inventory_usage_intervals drop column if exists refill_record
 
 do $v$
 begin
-  if (select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.reconcile_inventory_baseline_v1(uuid,numeric,text,text)'::regprocedure) is distinct from case when current_setting('s120.rb') = 'on' then '7cbb2ea861268b3fbe848c974e32b2f2' else (select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.reconcile_inventory_baseline_v1(uuid,numeric,text,text)'::regprocedure) end
-     or (select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.inventory_undo_v1(uuid,uuid)'::regprocedure) is distinct from case when current_setting('s120.rb') = 'on' then 'b3923b0bae57e812bb8375eea81f93e9' else (select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.inventory_undo_v1(uuid,uuid)'::regprocedure) end
+  if (select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.reconcile_inventory_baseline_v1(uuid,numeric,text,text)'::regprocedure) is distinct from (case when current_setting('s120.rb') = 'on' then '7cbb2ea861268b3fbe848c974e32b2f2' else (select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.reconcile_inventory_baseline_v1(uuid,numeric,text,text)'::regprocedure) end)
+     or (select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.inventory_undo_v1(uuid,uuid)'::regprocedure) is distinct from (case when current_setting('s120.rb') = 'on' then 'b3923b0bae57e812bb8375eea81f93e9' else (select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.inventory_undo_v1(uuid,uuid)'::regprocedure) end)
      or (select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.get_inventory_usage_kpi_v1(uuid)'::regprocedure) is distinct from 'f0a2052c3ccc56673808d000ba21d189'
      or position('s_inventory_refill_mark_sync_v1' in (select prosrc from pg_proc where oid = 'public.s_inventory_refill_mark_after_delete_v1()'::regprocedure)) > 0
      or to_regprocedure('public.s_inventory_refill_mark_sync_v1(uuid)') is not null then

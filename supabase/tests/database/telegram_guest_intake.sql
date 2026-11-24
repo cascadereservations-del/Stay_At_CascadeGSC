@@ -180,7 +180,7 @@ select is((select id_photo_path || '|' || id_type || '|' || version::text from p
 select is((select notes from public.guest_companions where id = current_setting('cascade.companion_id')::uuid), E'Seen at the gate\nPhoto added', 'companion: notes are appended');
 select is((select count(*)::int from public.guest_companion_history where companion_id = current_setting('cascade.companion_id')::uuid), 2, 'companion: create and photo left two history rows');
 select is((select h.before_state ->> 'id_photo_path' is null and h.after_state ->> 'id_photo_path' is not null
-             from public.guest_companion_history h where h.companion_id = current_setting('cascade.companion_id')::uuid order by h.changed_at desc, h.id limit 1), true,
+             from public.guest_companion_history h where h.companion_id = current_setting('cascade.companion_id')::uuid and h.before_state is not null order by h.changed_at desc, h.id limit 1), true,
   'companion: the history row records the photo path moving from null to set');
 select is((select changed_by from public.guest_companion_history where companion_id = current_setting('cascade.companion_id')::uuid and before_state is null), 'e2000000-0000-4000-8000-0000000000a1'::uuid,
   'companion: history changed_by is the staff user');
