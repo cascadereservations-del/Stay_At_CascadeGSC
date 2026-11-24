@@ -13,19 +13,42 @@
 --    (expires_at = Manila midnight of checkout + 2 days); a stay whose expires_at has already passed gets no session (reason 'expired').
 --  * A booking whose name is a placeholder (Reserved / Airbnb / Not / empty: verify_booking then matches ANY initial) never gets a
 --    session: reason 'no_name'. Minting is throttled per caller IP (8 failures / 15 min, like verify_admin_pin; the key is
---    cf-connecting-ip, else x-real-ip, else the rightmost x-forwarded-for entry, each trimmed and accepted only when it looks like an
---    address (^[0-9A-Fa-f:.]{2,45}$); never the client-controlled leftmost x-forwarded-for entry), per check-in date
+--    cf-connecting-ip, else the rightmost x-forwarded-for entry, each trimmed and accepted only when it looks like an address
+--    (^[0-9A-Fa-f:.]{2,45}$), else the client id; never x-real-ip (a client can send it through the gateway) and never the client-controlled
+--    leftmost x-forwarded-for entry), per check-in date
 --    (10 failures / 15 min) and per thread (20 sessions / day, reason 'busy'). Concurrent mints for one check-in date are serialised by a
---    transaction advisory lock so the counts below cannot be raced past.
+--    transaction advisory lock so the counts below cannot be raced past. The function carries lock_timeout = 2s (a function-level SET, restored by
+--    PostgreSQL on every exit): a caller that cannot get the lock, or any other lock, within 2 s answers reason 'busy' and nothing it did is kept,
+--    instead of queueing on a pooled connection.
 --  * Messages hold no contact capture: the guide never asks for an e-mail or phone (Airbnb policy effective 2026-11-20,
 --    "Limiting host-imposed contracts and other requirements"). It is an optional channel; Airbnb messaging stays offered.
 --  * Analytics hold no name, contact detail or message text: a random per-device id, an optional thread id (verified guests), event
---    name, section, target (max 80 chars, letters digits and _:.- only, so no spaces), a number, and a small meta object of whitelisted
---    keys with short scalar values (at most 200 bytes serialised, else meta is dropped and the event kept). The one place a guest's own
---    words can land is a search_empty event: its target keeps the guest's single-token search term (max 80 chars) and the staff usage
---    report shows those terms to staff (searches_without_result). No other free text is kept.
---    Capped per device (600 / hour) and globally (300 / minute and 20000 / rolling 24 h, then dropped silently: ok, stored 0), counted
---    by arrival time, not the client clock. The sweep keeps events 90 days.
+--    name, section, target (max 80 chars, letters digits and _:.- only, so no spaces), a number (at most 1e9 in size, rounded to 3 decimals,
+--    else dropped), and a small meta object of whitelisted keys with short scalar values (at most 200 bytes as stored, pg_column_size, else meta
+--    is dropped and the event kept). The one place a guest's own words can land is a search_empty event: its target keeps the guest's
+--    single-token search term (max 80 chars) and the staff usage report shows those terms to staff (searches_without_result). No other free text.
+--    Capped per device (600 / hour, reason 'rate') and across all devices (60 / minute and 1000 / rolling 24 h, then dropped silently: ok,
+--    stored 0), counted by arrival time (received_at), not the client clock. The caps are exact: a batch is cut to the room that is left.
+--  * STORAGE BOUND (Free plan: one 500 MB database that also holds the bookings and the ledger). guide_events is bounded WITHOUT any scheduled job.
+--    - Rows: never more than 1000 events arrive in any rolling 24 h, and retention is 30 days enforced inline: every guide_track_v1 call that gets
+--      the lock first deletes up to 200 rows older than 30 days (by received_at, index guide_events_received_idx), before it may add at most 50.
+--      So the table never holds more than 30 x 1000 = 30000 rows: rows younger than 30 days are at most 30000, and while older rows exist every
+--      call removes at least as many as it adds. If nobody calls, nothing is added either.
+--    - Width: every column is bounded: device 40, name 40, section 40, target 80, version 12 characters, value a number of at most 13 digits
+--      (CHECK), meta at most 200 bytes as stored (CHECK), thread id 16 bytes. A full-width row is about 500 bytes of heap plus four index entries.
+--    - Worst case (30000 full-width rows, all four indexes, freshly loaded): under 30 MB, i.e. under 6 % of the plan. The pgTAP suite loads exactly
+--      that and asserts it (the measured figure is in the release contract notes). Dead rows and index pages between autovacuum runs can add to
+--      that for a while; even at 1.5 times the loaded size it stays under 45 MB. Typical use (short names, small meta, mostly unverified devices):
+--      under 12 MB at the full 30000 rows (asserted too); a quiet guide (a few hundred events a day) holds under 10000 rows, about 3 MB.
+--    - ACCEPTED: anyone can use up the 1000 / day budget in about 20 minutes (device ids are client-chosen; 60 a minute), after which analytics
+--      are dropped silently for up to 24 h (ok, stored 0). The guide, the messages and the sign-in keep working; only usage numbers go missing.
+--      The orchestrator ruling asked for 2000 / day; at full width that measured 46.8 MB (rehearsal r4), which is not "well under 50 MB", so
+--      the day budget is 1000 (a stay produces a few hundred events a day).
+--    - The reports follow the retention: staff_guide_usage_v1 answers for at most 30 days; staff_guide_guests_v1 (up to 90 days) takes names
+--      and first / last sign-in from guide_sessions, and its event-based numbers (opens, checklist_done, a later last_seen) cover the last 30 days.
+--  * guide_sweep_v1 (30-day events, sessions 95 days after expiry, attempts 2 days) is housekeeping only: the storage bound does not depend on
+--    it. Sessions are kept 95 days past expiry because staff_guide_guests_v1 (p_days up to 90) lists guests from guide_sessions; the token helper
+--    refuses an expired token regardless, so a kept row grants nothing. guide_sessions is small: at most 20 new rows a thread a day.
 --  * Staff functions need an active owner/admin (current_staff_authorized('manage_guest_inbox', property)), the same gate as
 --    the shared inbox (20260905040000).
 --  * A new guest message asks notify-staff-inbox (pg_net + vault secret, guarded exactly like ops_notices_push_trg) to push
@@ -103,13 +126,15 @@ create table public.guide_events (
   name       text not null check (name ~ '^[a-z][a-z0-9_]{1,39}$'),
   section    text check (section is null or section ~ '^[a-z0-9_-]{1,40}$'),
   target     text check (target is null or target ~ '^[A-Za-z0-9_:.-]{1,80}$'),
-  value      numeric,
-  meta       jsonb not null default '{}'::jsonb check (pg_column_size(meta) <= 600),
+  value      numeric check (value is null or (abs(value) <= 1000000000 and value = round(value, 3))),
+  meta       jsonb not null default '{}'::jsonb check (pg_column_size(meta) <= 200),
   version    text check (version is null or version ~ '^[0-9.]{1,12}$')
 );
-create index guide_events_at_idx on public.guide_events(at desc);
-create index guide_events_device_idx on public.guide_events(device, received_at desc);
-create index guide_events_received_idx on public.guide_events(received_at desc);
+-- ascending keys: events arrive in time order, so new entries go to the right-hand edge of each time index (pages stay about 90 % full) and the
+-- inline retention empties whole pages at the left-hand edge.
+create index guide_events_at_idx on public.guide_events(at);
+create index guide_events_device_idx on public.guide_events(device, received_at);
+create index guide_events_received_idx on public.guide_events(received_at);
 
 alter table public.guide_threads       enable row level security;
 alter table public.guide_sessions      enable row level security;
@@ -141,11 +166,12 @@ revoke all on function public.guide_token_thread_v1(text) from public, anon, aut
 -- 3. guest: mint a session --------------------------------------------------------------------------------------------------------------
 create function public.guide_session_v1(p_checkin_date date, p_initial text, p_client text default null,
   p_property_id uuid default '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd'::uuid)
-returns jsonb language plpgsql volatile security definer set search_path = '' as $$
+returns jsonb language plpgsql volatile security definer set search_path = '' set lock_timeout = '2s' as $$
 declare
-  -- throttle key: the caller's address as the edge reports it, tried in this order: cf-connecting-ip (written by Cloudflare itself), x-real-ip,
-  -- then the RIGHTMOST x-forwarded-for entry (the one the last trusted proxy appended). Each is trimmed and used only when it looks like an
-  -- address (^[0-9A-Fa-f:.]{2,45}$); a garbage value is skipped. The LEFTMOST x-forwarded-for entry is whatever the caller sent and is never used.
+  -- throttle key: the caller's address as the edge reports it, tried in this order: cf-connecting-ip (written by Cloudflare itself), then the
+  -- RIGHTMOST x-forwarded-for entry (the one the last trusted proxy appended). Each is trimmed and used only when it looks like an address
+  -- (^[0-9A-Fa-f:.]{2,45}$); a garbage value is skipped. x-real-ip is NOT used: a client can send it and the gateway passes it through. The LEFTMOST
+  -- x-forwarded-for entry is whatever the caller sent and is never used.
   -- With no usable header (a direct call, or a malformed request.headers setting) the key falls back to the client id the caller sends:
   -- rotating it is possible there, which is why the per-check-in-date cap below exists.
   v_hdr json; v_xff text[]; v_cand text; v_ip text; v_client text;
@@ -158,7 +184,7 @@ begin
   begin
     v_hdr := nullif(current_setting('request.headers', true), '')::json;
     v_xff := string_to_array(coalesce(v_hdr->>'x-forwarded-for', ''), ',');
-    foreach v_cand in array array[btrim(v_hdr->>'cf-connecting-ip'), btrim(v_hdr->>'x-real-ip'), btrim(v_xff[cardinality(v_xff)])] loop
+    foreach v_cand in array array[btrim(v_hdr->>'cf-connecting-ip'), btrim(v_xff[cardinality(v_xff)])] loop
       if v_cand ~ '^[0-9A-Fa-f:.]{2,45}$' then v_ip := v_cand; exit; end if;
     end loop;
   exception when others then
@@ -168,6 +194,8 @@ begin
 
   -- Serialise concurrent mints for the same check-in date: the throttle counts below are read-then-insert, so without this lock several
   -- parallel calls would all read the same count and slip past the 10-per-date cap together. The lock is held to the end of the transaction.
+  -- The wait is capped by the function's own lock_timeout = 2s (see the exception clause at the end): a caller that cannot get the lock in time
+  -- answers 'busy' instead of piling up on a pooled connection.
   perform pg_advisory_xact_lock(hashtext('guide_session:' || coalesce(p_checkin_date::text, '')));
 
   select count(*) into v_fail_client from public.guide_auth_attempts
@@ -238,6 +266,10 @@ begin
 
   return jsonb_build_object('ok', true, 'token', v_token, 'thread_id', v_thread.id, 'channel', v_thread.channel,
     'guest_label', v_thread.guest_label, 'checkin_date', v_thread.checkin_date, 'checkout_date', v_thread.checkout_date);
+exception when lock_not_available then
+  -- lock_timeout (2 s, function-level SET) ran out on the per-date advisory lock or on a row lock further down. Everything this call did is
+  -- undone (the exception clause rolls the block back; no attempt row, no thread, no session) and the guest is told to try again.
+  return jsonb_build_object('ok', false, 'reason', 'busy');
 end;
 $$;
 revoke all on function public.guide_session_v1(date, text, text, uuid) from public, service_role;
@@ -285,31 +317,43 @@ revoke all on function public.guide_send_v1(text, text, text) from public, servi
 grant execute on function public.guide_send_v1(text, text, text) to anon, authenticated;
 
 -- 6. guest: analytics batch -------------------------------------------------------------------------------------------------------------
--- Anonymous and unauthenticated by design, so it is capped four ways: 50 events a batch, 600 events an hour per device, 300 events a minute
--- across all devices, and 20000 events per rolling 24 hours across all devices (the last two drop the batch silently: ok, stored 0; that
--- bounds the table at roughly 20000 rows a day, about 1.8 million at the 90-day retention of guide_sweep_v1). The caps count arrival time
--- (received_at), not the client's clock. A cap is checked once per call, so a batch of up to 50 may overshoot it by at most 49 events.
--- meta keeps only the known keys below and only short scalar values (a number, a boolean, or a token-like string up to 40 characters);
--- anything else, free text included, is dropped before it is stored, and a meta object that is still over 200 bytes serialised is
--- replaced by '{}' (the event itself is kept). target is the one free-ish field: at most 80 token characters (no spaces); for a
--- search_empty event it holds the guest's single-token search term, which the staff usage report lists.
+-- Anonymous and unauthenticated by design, so it is capped four ways: 50 events a batch, 600 events an hour per device (reason 'rate'), 60 events
+-- a minute across all devices, and 1000 events per rolling 24 hours across all devices (the last two drop the batch silently: ok, stored 0). The
+-- caps count arrival time (received_at), not the client's clock, and are exact: a batch is cut to the room left under all three (the rest of it is
+-- dropped). With the 30-day retention enforced inline below the table never holds more than 30000 rows; see the STORAGE BOUND in the header.
+-- The global lock is only TRIED: when another call holds it this one answers ok, stored 0 (silent drop) and never waits.
+-- value keeps a JSON number of at most 1e9 in size, rounded to 3 decimals (anything larger is stored as null: a client cannot store a number
+-- thousands of digits long). meta keeps only the known keys below and only short scalar values (a number, a boolean, or a token-like string up to
+-- 40 characters); anything else, free text included, is dropped before it is stored, and a meta object that is still over 200 bytes as stored
+-- (pg_column_size) is replaced by '{}' (the event itself is kept). target is the one free-ish field: at most 80 token characters (no spaces);
+-- for a search_empty event it holds the guest's single-token search term, which the staff usage report lists.
 create function public.guide_track_v1(p_device text, p_events jsonb, p_token text default null, p_version text default null)
 returns jsonb language plpgsql volatile security definer set search_path = '' as $$
-declare v_thread uuid := public.guide_token_thread_v1(p_token); v_recent int; v_minute int; v_day int; v_n int := 0; e jsonb; v_meta jsonb;
+declare v_thread uuid := public.guide_token_thread_v1(p_token); v_recent int; v_minute int; v_day int; v_room int; v_n int := 0; e jsonb; v_meta jsonb; v_val numeric;
 begin
   if p_device is null or p_device !~ '^[A-Za-z0-9_-]{8,40}$' then return jsonb_build_object('ok', false, 'reason', 'device'); end if;
   if p_events is null or jsonb_typeof(p_events) <> 'array' or jsonb_array_length(p_events) > 50 then
     return jsonb_build_object('ok', false, 'reason', 'events'); end if;
   -- One global lock for the whole function: the caps below are count-then-insert, so without it parallel batches would all read the same
-  -- count and together overshoot the global caps. Held to the end of the transaction; calls are short and capped at 300 events a minute.
-  perform pg_advisory_xact_lock(hashtext('guide_track'));
+  -- count and together overshoot the global caps. Only TRIED: a caller that finds it taken drops its batch silently (ok, stored 0) instead of
+  -- queueing on a pooled connection. Held to the end of the transaction.
+  if not pg_try_advisory_xact_lock(hashtext('guide_track')) then
+    return jsonb_build_object('ok', true, 'stored', 0);
+  end if;
+  -- Inline retention (no scheduled job needed): drop up to 200 events older than 30 days, oldest first (index guide_events_received_idx). It runs
+  -- before the caps, so a call that is then refused or dropped still trims.
+  delete from public.guide_events where id in (
+    select id from public.guide_events where received_at < now() - interval '30 days' order by received_at limit 200);
   select count(*) into v_recent from public.guide_events where device = p_device and received_at > now() - interval '1 hour';
   if v_recent >= 600 then return jsonb_build_object('ok', false, 'reason', 'rate'); end if;
   select count(*) into v_minute from public.guide_events where received_at > now() - interval '1 minute';
-  if v_minute >= 300 then return jsonb_build_object('ok', true, 'stored', 0); end if;
+  if v_minute >= 60 then return jsonb_build_object('ok', true, 'stored', 0); end if;
   select count(*) into v_day from public.guide_events where received_at > now() - interval '24 hours';
-  if v_day >= 20000 then return jsonb_build_object('ok', true, 'stored', 0); end if;
+  if v_day >= 1000 then return jsonb_build_object('ok', true, 'stored', 0); end if;
+  -- room left under all three caps (at least 1 here); the batch is cut to it, so no cap is ever overshot
+  v_room := least(600 - v_recent, 60 - v_minute, 1000 - v_day);
   for e in select * from jsonb_array_elements(p_events) loop
+    exit when v_n >= v_room;
     begin
       v_meta := '{}'::jsonb;
       if jsonb_typeof(e->'meta') = 'object' then
@@ -318,14 +362,16 @@ begin
          where m.key in ('k', 'src', 'kind', 'lang', 'tab', 'theme', 'dir', 'n', 'from', 'to', 'result', 'method', 'status', 'count', 'len', 'ok')
            and (jsonb_typeof(m.value) in ('number', 'boolean')
                 or (jsonb_typeof(m.value) = 'string' and (m.value #>> '{}') ~ '^[A-Za-z0-9_:.-]{1,40}$'));
-        if octet_length(v_meta::text) > 200 then v_meta := '{}'::jsonb; end if;
+        if pg_column_size(v_meta) > 200 then v_meta := '{}'::jsonb; end if;
       end if;
+      v_val := case when jsonb_typeof(e->'value') = 'number' then (e->>'value')::numeric end;
+      v_val := case when abs(v_val) <= 1000000000 then round(v_val, 3) end;
       insert into public.guide_events(at, device, thread_id, verified, name, section, target, value, meta, version)
       values (
         least(now(), greatest(now() - interval '2 days', coalesce((e->>'at')::timestamptz, now()))),
         p_device, v_thread, v_thread is not null,
         e->>'name', nullif(e->>'section', ''), nullif(e->>'target', ''),
-        case when jsonb_typeof(e->'value') = 'number' then (e->>'value')::numeric end,
+        v_val,
         v_meta,
         nullif(p_version, ''));
       v_n := v_n + 1;
@@ -424,9 +470,10 @@ create function public.staff_guide_usage_v1(p_days int default 30,
   p_property_id uuid default '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd'::uuid)
 returns jsonb language plpgsql stable security definer set search_path = '' as $$
 declare
-  -- exactly p_days Manila dates, today included: the window starts at Manila midnight of the first plotted day
-  v_first date := (now() at time zone 'Asia/Manila')::date - (greatest(1, least(coalesce(p_days, 30), 365)) - 1);
-  v_since timestamptz := ((now() at time zone 'Asia/Manila')::date - (greatest(1, least(coalesce(p_days, 30), 365)) - 1))::timestamp at time zone 'Asia/Manila';
+  -- exactly p_days Manila dates, today included: the window starts at Manila midnight of the first plotted day. p_days is clamped to 1..30:
+  -- events are kept 30 days, so a longer window would only show empty days ("since" tells the client the window it really got).
+  v_first date := (now() at time zone 'Asia/Manila')::date - (greatest(1, least(coalesce(p_days, 30), 30)) - 1);
+  v_since timestamptz := ((now() at time zone 'Asia/Manila')::date - (greatest(1, least(coalesce(p_days, 30), 30)) - 1))::timestamp at time zone 'Asia/Manila';
 begin
   if not coalesce(public.current_staff_authorized('manage_guest_inbox', p_property_id), false) then
     raise exception using errcode = '42501', message = 'staff access denied'; end if;
@@ -479,6 +526,9 @@ $$;
 --                 events, not new sessions, show the later visits); events only count inside the window.
 --   opens       : greatest(guide_open events of the thread in the window, sessions minted in the window), so a guest who signed in is never shown with 0.
 --   checklist_done : count of the thread's checklist_done events in the window (the guide emits one per ticked item; guide_events records it). 0 when none.
+--   Events are kept 30 days (see STORAGE BOUND): for p_days above 30 the event-based parts (opens from events, checklist_done, a last_seen later than
+--   the newest sign-in) cover the last 30 days only; guest, dates, first_seen and the sign-in based last_seen and opens cover the whole window,
+--   because guide_sweep_v1 keeps sessions 95 days past their expiry.
 --   messaged    : at least one guide_messages row with sender 'guest' on the thread (any date).
 -- Order: last_seen desc (thread id breaks ties), capped at 60 rows; total is the uncapped count of threads inside the window.
 create function public.staff_guide_guests_v1(p_days int default 30,
@@ -491,7 +541,7 @@ begin
   if not coalesce(public.current_staff_authorized('manage_guest_inbox', p_property_id), false) then
     raise exception using errcode = '42501', message = 'staff access denied'; end if;
   if p_property_id is distinct from '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd'::uuid then
-    return jsonb_build_object('guests', '[]'::jsonb, 'single_property', true); end if;
+    return jsonb_build_object('guests', '[]'::jsonb, 'total', 0, 'single_property', true); end if;
   with s as (
     select thread_id, min(created_at) as first_session, max(created_at) as last_session,
            count(*) filter (where created_at >= v_since) as sessions_in
@@ -562,13 +612,14 @@ revoke all on function public.guide_messages_push_trg() from public, anon, authe
 create trigger guide_messages_push after insert on public.guide_messages
   for each row execute function public.guide_messages_push_trg();
 
--- 10. housekeeping: events older than 90 days and expired sessions go (call from the existing weekly sweep or pg_cron) ----------------
+-- 10. housekeeping: events older than 30 days, sessions 95 days past expiry, old attempts (optional weekly sweep or pg_cron; the storage bound does not depend on it)
 create function public.guide_sweep_v1() returns jsonb
 language plpgsql volatile security definer set search_path = '' as $$
 declare a int; b int; c int;
 begin
-  delete from public.guide_events where at < now() - interval '90 days'; get diagnostics a = row_count;
-  delete from public.guide_sessions where expires_at < now(); get diagnostics b = row_count;
+  delete from public.guide_events where received_at < now() - interval '30 days'; get diagnostics a = row_count;
+  -- 95 days past expiry: staff_guide_guests_v1 (p_days max 90) reads guide_sessions; guide_token_thread_v1 refuses expired tokens anyway
+  delete from public.guide_sessions where expires_at < now() - interval '95 days'; get diagnostics b = row_count;
   delete from public.guide_auth_attempts where at < now() - interval '2 days'; get diagnostics c = row_count;
   return jsonb_build_object('events', a, 'sessions', b, 'attempts', c);
 end;

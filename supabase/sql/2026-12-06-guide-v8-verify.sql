@@ -31,13 +31,17 @@ union all
 select 'authenticated has no execute on the token helper, the sweep or the push trigger function', not bool_or(has_function_privilege('authenticated', f, 'execute')) from unnest(array[
   'public.guide_token_thread_v1(text)','public.guide_sweep_v1()','public.guide_messages_push_trg()']::regprocedure[]) f
 union all
-select 'service_role may execute the sweep and none of the other twelve guide functions', select has_function_privilege('service_role', 'public.guide_sweep_v1()', 'execute') and (select not bool_or(has_function_privilege('service_role', f, 'execute')) from unnest(array['public.guide_session_v1(date,text,text,uuid)','public.guide_thread_v1(text,timestamptz)','public.guide_send_v1(text,text,text)','public.guide_track_v1(text,jsonb,text,text)','public.guide_token_thread_v1(text)','public.guide_messages_push_trg()','public.staff_guide_threads_v1(uuid)','public.staff_guide_thread_v1(uuid)','public.staff_guide_reply_v1(uuid,text,text)','public.staff_guide_resolve_v1(uuid,boolean)','public.staff_guide_usage_v1(integer,uuid)','public.staff_guide_guests_v1(integer,uuid)']::regprocedure[]) f)
+select 'service_role may execute the sweep and none of the other twelve guide functions', has_function_privilege('service_role', 'public.guide_sweep_v1()', 'execute') and (select not bool_or(has_function_privilege('service_role', f, 'execute')) from unnest(array['public.guide_session_v1(date,text,text,uuid)','public.guide_thread_v1(text,timestamptz)','public.guide_send_v1(text,text,text)','public.guide_track_v1(text,jsonb,text,text)','public.guide_token_thread_v1(text)','public.guide_messages_push_trg()','public.staff_guide_threads_v1(uuid)','public.staff_guide_thread_v1(uuid)','public.staff_guide_reply_v1(uuid,text,text)','public.staff_guide_resolve_v1(uuid,boolean)','public.staff_guide_usage_v1(integer,uuid)','public.staff_guide_guests_v1(integer,uuid)']::regprocedure[]) f)
 union all
 select 'service_role has full access to the five tables', bool_and(has_table_privilege('service_role', 'public.' || t, p)) from
   unnest(array['guide_threads','guide_sessions','guide_messages','guide_auth_attempts','guide_events']) t, unnest(array['select','insert','update','delete']) p
 union all
 select 'identity sequences closed to anon and authenticated', not bool_or(has_sequence_privilege(r, 'public.' || q, p)) from
   unnest(array['anon','authenticated']) r, unnest(array['guide_auth_attempts_id_seq','guide_events_id_seq']) q, unnest(array['usage','select','update']) p
+union all
+select 'guide_events width checks (meta 200 stored bytes, value size and decimals)', (select count(*) = 2 from pg_constraint k where k.conrelid = 'public.guide_events'::regclass and k.contype = 'c' and (pg_get_constraintdef(k.oid) like '%pg_column_size(meta) <= 200%' or pg_get_constraintdef(k.oid) like '%round(value, 3)%'))
+union all
+select 'guide_session_v1 carries lock_timeout 2s', (select p.proconfig @> array['lock_timeout=2s'] from pg_proc p where p.oid = 'public.guide_session_v1(date,text,text,uuid)'::regprocedure)
 union all
 select 'bad token is refused', (public.guide_thread_v1(repeat('0', 64)))->>'reason' = 'session';
 rollback;

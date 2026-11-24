@@ -3,14 +3,17 @@
 -- Fixture rows and the reads run as the owner role (a --no-acl restore gives authenticated and anon no table grants); only the RPC calls run as anon / authenticated / service_role.
 -- The push trigger is disabled inside this suite (rolled back with it) so a rehearsal copy can never queue an HTTP call to the production notify-staff-inbox function.
 -- Run: CASCADE_REHEARSAL_PRE_SQL=supabase/releases/support/s136_pre_grants.sql scripts/recovery/p6/migration-rehearsal-on-host.sh <backup-set> supabase/releases/20261206_guide_v8.release.json supabase/tests/database/guide_v8_messages_analytics.sql
--- Sections 13 and 14 (s136 round 3, lane A-sqlguests): storage bound (300 / minute and 20000 / 24 h global caps, 200-byte meta, 90-day sweep), advisory locks,
--- throttle key (x-real-ip, garbage and malformed headers), token expiry guard, explicit service_role ACLs. No concurrency test: two sessions cannot run inside
--- one pgTAP transaction, so the lock tests assert that the transaction holds the advisory lock after the call.
+-- Section 15 (s136 round 5): inline 30-day retention, exact caps (a batch is cut to the room left), bounded value and meta, measured worst-case and typical size
+-- (30000 rows on a clone of guide_events), the 30-day usage window, sessions kept 95 days past expiry (guests report), lock_timeout (function-level, busy answer),
+-- the push trigger fired by a service_role insert with net.http_post stubbed.
+-- Sections 13 and 14 (s136 round 3, lane A-sqlguests): storage bound (round 5 values: 60 / minute and 1000 / 24 h global caps, 200 stored bytes of meta, 30-day sweep),
+-- advisory locks, throttle key (x-real-ip is ignored; garbage and malformed headers), token expiry guard, explicit service_role ACLs. No concurrency test: two sessions
+-- cannot run inside one pgTAP transaction, so the lock tests assert that the transaction holds the advisory lock after the call.
 -- Section 12 (s136 lane A-guests): staff_guide_guests_v1 (20 tests).
 -- Section 11 (s136 review round 2): placeholder names get no session, the throttle key ignores the client-controlled x-forwarded-for entry, per-date and per-thread caps,
 -- the analytics caps and meta whitelist, the single-property usage report, explicit ACLs.
 begin;
-select plan(140);
+select plan(163);
 
 -- baseline grants for a --no-acl rehearsal restore (idempotent, rolled back with the suite)
 grant usage on schema public, auth to anon, authenticated, service_role;
@@ -325,7 +328,8 @@ delete from public.guide_messages where client_msg_id like 'zz135-cap-%' or clie
 -- 10. Expiry and housekeeping
 -- =============================================================================================================================================
 insert into public.guide_sessions(token_hash, thread_id, expires_at) values (encode(extensions.digest('zz135-expired-token-0123456789abcdef', 'sha256'), 'hex'), pg_temp.tid()::uuid, now() - interval '1 hour');
-insert into public.guide_events(at, device, name) values (now() - interval '91 days', 'zz135dev99', 'guide_open'), (now() - interval '89 days', 'zz135dev98', 'guide_open');
+insert into public.guide_events(at, received_at, device, name) values (now() - interval '31 days', now() - interval '31 days', 'zz135dev99', 'guide_open'), (now() - interval '29 days', now() - interval '29 days', 'zz135dev98', 'guide_open');
+insert into public.guide_sessions(token_hash, thread_id, expires_at) values (encode(extensions.digest('zz135-ancient-token-0123456789abcdef', 'sha256'), 'hex'), pg_temp.tid()::uuid, now() - interval '100 days');
 insert into public.guide_auth_attempts(client, tried_date, ok, at) values ('zz135-old', pg_temp.today(), false, now() - interval '3 days');
 select pg_temp.as_anon();
 insert into _t values ('read_expired', pg_temp.try(format('select public.guide_thread_v1(%L)', 'zz135-expired-token-0123456789abcdef')));
@@ -337,8 +341,8 @@ select pg_temp.as_anon();
 insert into _t values ('read_after', pg_temp.try(format('select public.guide_thread_v1(%L)', pg_temp.tok())));
 reset role;
 select ok((select v ->> 'ok' = 'false' and v ->> 'reason' = 'session' from _t where k = 'read_expired'), 'expiry: a token past its expiry is refused with reason session');
-select ok((select (v ->> 'events')::int = 1 and (v ->> 'sessions')::int = 1 and (v ->> 'attempts')::int = 1 from _t where k = 'sweep'), 'sweep: service_role removes the 91-day event, the expired session and the 3-day-old attempt, one of each (the 89-day event is not removed)');
-select ok((select count(*) = 0 from public.guide_events where device = 'zz135dev99') and (select count(*) = 1 from public.guide_events where device = 'zz135dev98') and (select count(*) = 6 from public.guide_events) and (select count(*) = 3 from public.guide_sessions), 'sweep: the 89-day event, recent events and live sessions are left alone (retention is 90 days)');
+select ok((select (v ->> 'events')::int = 1 and (v ->> 'sessions')::int = 1 and (v ->> 'attempts')::int = 1 from _t where k = 'sweep'), 'sweep: service_role removes the 31-day event, the session expired 100 days ago and the 3-day-old attempt, one of each (the 29-day event and the session expired an hour ago are not removed)');
+select ok((select count(*) = 0 from public.guide_events where device = 'zz135dev99') and (select count(*) = 1 from public.guide_events where device = 'zz135dev98') and (select count(*) = 6 from public.guide_events) and (select count(*) = 4 from public.guide_sessions), 'sweep: the 29-day event, recent events and sessions expired less than 95 days ago are left alone (event retention is 30 days)');
 select ok((select v ->> 'ok' = 'true' and jsonb_array_length(v -> 'messages') = 3 from _t where k = 'read_after'), 'sweep: the live guest token still reads its three messages');
 
 -- =============================================================================================================================================
@@ -426,11 +430,11 @@ reset role;
 select ok((select v ->> 'ok' = 'true' and v ->> 'thread_id' = pg_temp.tid() from _t where k = 'busy_after'), 's136 cap: sessions older than a day are not counted, so the thread mints again');
 
 -- 11d. analytics: global cap, per-device cap by arrival time, meta whitelist
-insert into public.guide_events(device, name) select 'zz136glob01', 'tap' from generate_series(1, 300);
+insert into public.guide_events(device, name) select 'zz136glob01', 'tap' from generate_series(1, 60);
 select pg_temp.as_anon();
 insert into _t values ('glob_full', pg_temp.try(format('select public.guide_track_v1(%L, %L::jsonb)', 'zz136dev11', jsonb_build_array(jsonb_build_object('name', 'guide_open'))::text)));
 reset role;
-select ok((select v ->> 'ok' = 'true' and (v ->> 'stored')::int = 0 from _t where k = 'glob_full') and (select count(*) = 0 from public.guide_events where device = 'zz136dev11'), 's136 track: at 300 events in the last minute across all devices a batch is dropped silently (ok, stored 0)');
+select ok((select v ->> 'ok' = 'true' and (v ->> 'stored')::int = 0 from _t where k = 'glob_full') and (select count(*) = 0 from public.guide_events where device = 'zz136dev11'), 's136 track: at 60 events in the last minute across all devices a batch is dropped silently (ok, stored 0)');
 delete from public.guide_events where device = 'zz136glob01';
 select pg_temp.as_anon();
 insert into _t values ('glob_open', pg_temp.try(format('select public.guide_track_v1(%L, %L::jsonb)', 'zz136dev11', jsonb_build_array(jsonb_build_object('name', 'guide_open'))::text)));
@@ -531,8 +535,8 @@ select ok((select v ->> 'err' = '42501' from _t where k = 'g_anon'), 'guests: an
 select ok((select v ->> 'err' = '42501' and v ->> 'msg' = 'staff access denied' from _t where k = 'g_cleaner')
       and (select v ->> 'err' = '42501' and v ->> 'msg' = 'staff access denied' from _t where k = 'g_outsider'),
   'guests: a cleaner without manage_guest_inbox and a staff user with no profile are refused first with 42501 staff access denied (the usage report error shape)');
-select ok((select v = '{"guests": [], "single_property": true}'::jsonb from _t where k = 'g_other'),
-  'guests: any property but the default one answers exactly {"guests": [], "single_property": true} although sessions exist');
+select ok((select v = '{"guests": [], "total": 0, "single_property": true}'::jsonb from _t where k = 'g_other'),
+  'guests: any property but the default one answers exactly {"guests": [], "total": 0, "single_property": true} although sessions exist');
 select ok((select (select array_agg(k order by k) from jsonb_object_keys(v) k) = array['guests', 'total'] and jsonb_typeof(v -> 'guests') = 'array' and jsonb_typeof(v -> 'total') = 'number' from _t where k = 'g30')
       and (select bool_and((select array_agg(k order by k) from jsonb_object_keys(g) k) = array['checkin_date', 'checklist_done', 'checkout_date', 'first_seen', 'guest_label', 'last_seen', 'messaged', 'opens', 'thread_id'])
              from _t, jsonb_array_elements(v -> 'guests') g where k = 'g30'),
@@ -599,7 +603,7 @@ select ok(has_function_privilege('authenticated', 'public.staff_guide_guests_v1(
 delete from public.guide_auth_attempts;
 delete from public.guide_events;
 
--- 13a. throttle key: x-real-ip is used when there is no cf-connecting-ip (and beats x-forwarded-for); cf-connecting-ip still beats x-real-ip
+-- 13a. throttle key: x-real-ip is NEVER used (a client can send it): the rightmost x-forwarded-for entry or cf-connecting-ip wins, else the client id
 select set_config('request.headers', '{"x-real-ip": "4.4.4.4", "x-forwarded-for": "1.1.1.1, 9.9.9.9"}', true);
 select pg_temp.as_anon();
 insert into _t values ('rip1', pg_temp.try(format('select public.guide_session_v1(%L::date, %L, %L, %L::uuid)', pg_temp.today() + 1, 'Q', 'zz136-rip1', pg_temp.id('b2'))));
@@ -608,10 +612,15 @@ select set_config('request.headers', '{"cf-connecting-ip": "7.7.7.7", "x-real-ip
 select pg_temp.as_anon();
 insert into _t values ('rip2', pg_temp.try(format('select public.guide_session_v1(%L::date, %L, %L, %L::uuid)', pg_temp.today() + 1, 'Q', 'zz136-rip2', pg_temp.id('b2'))));
 reset role;
-select ok((select count(*) = 1 from public.guide_auth_attempts where client = 'ip:4.4.4.4' and not ok) and (select count(*) = 1 from public.guide_auth_attempts where client = 'ip:7.7.7.7' and not ok)
-      and (select count(*) = 0 from public.guide_auth_attempts where client in ('ip:9.9.9.9', 'ip:1.1.1.1', 'zz136-rip1', 'zz136-rip2'))
-      and (select bool_and(v ->> 'reason' = 'no_match') from _t where k in ('rip1', 'rip2')),
-  's136 key: x-real-ip is the key when cf-connecting-ip is absent (ahead of x-forwarded-for); cf-connecting-ip beats x-real-ip; neither the client id nor the forwarded chain is used');
+select set_config('request.headers', '{"x-real-ip": "4.4.4.4"}', true);
+select pg_temp.as_anon();
+insert into _t values ('rip3', pg_temp.try(format('select public.guide_session_v1(%L::date, %L, %L, %L::uuid)', pg_temp.today() + 1, 'Q', 'zz136-rip3', pg_temp.id('b2'))));
+reset role;
+select ok((select count(*) = 1 from public.guide_auth_attempts where client = 'ip:9.9.9.9' and not ok) and (select count(*) = 1 from public.guide_auth_attempts where client = 'ip:7.7.7.7' and not ok)
+      and (select count(*) = 1 from public.guide_auth_attempts where client = 'zz136-rip3' and not ok)
+      and (select count(*) = 0 from public.guide_auth_attempts where client in ('ip:4.4.4.4', 'ip:1.1.1.1', 'zz136-rip1', 'zz136-rip2'))
+      and (select bool_and(v ->> 'reason' = 'no_match') from _t where k in ('rip1', 'rip2', 'rip3')),
+  's136 key: a spoofed x-real-ip is never the key (rightmost x-forwarded-for, cf-connecting-ip, else the client id win)');
 
 -- 13b. garbage header values are ignored: a value that is not address-shaped is skipped (next header tried, else the client id)
 select set_config('request.headers', '{"cf-connecting-ip": "evil;drop table", "x-real-ip": "not an ip!", "x-forwarded-for": "1.1.1.1, <b>x</b>"}', true);
@@ -622,7 +631,7 @@ select set_config('request.headers', format('{"cf-connecting-ip": "%s", "x-real-
 select pg_temp.as_anon();
 insert into _t values ('gar2', pg_temp.try(format('select public.guide_session_v1(%L::date, %L, %L, %L::uuid)', pg_temp.today() + 1, 'Q', 'zz136-gar2', pg_temp.id('b2'))));
 reset role;
-select set_config('request.headers', '{"cf-connecting-ip": "evil;drop table", "x-real-ip": "  5.5.5.5  "}', true);
+select set_config('request.headers', '{"cf-connecting-ip": "evil;drop table", "x-forwarded-for": "1.1.1.1,  5.5.5.5  "}', true);
 select pg_temp.as_anon();
 insert into _t values ('gar3', pg_temp.try(format('select public.guide_session_v1(%L::date, %L, %L, %L::uuid)', pg_temp.today() + 1, 'Q', 'zz136-gar3', pg_temp.id('b2'))));
 reset role;
@@ -631,7 +640,7 @@ select ok((select count(*) = 1 from public.guide_auth_attempts where client = 'z
   's136 key: garbage address headers (punctuation, spaces, a 46-character value, a one-character value, markup) are ignored and the client id is the key');
 select ok((select count(*) = 1 from public.guide_auth_attempts where client = 'ip:5.5.5.5' and not ok) and (select count(*) = 0 from public.guide_auth_attempts where client = 'zz136-gar3')
       and (select bool_and(v ->> 'reason' = 'no_match') from _t where k in ('gar1', 'gar2', 'gar3')),
-  's136 key: a garbage cf-connecting-ip is skipped and the next valid header (x-real-ip, trimmed) is used; every call answers no_match');
+  's136 key: a garbage cf-connecting-ip is skipped and the next valid header (rightmost x-forwarded-for, trimmed) is used; every call answers no_match');
 
 -- 13c. malformed request.headers (bad JSON, a JSON string, a JSON array) never raises: the call answers as usual and keys on the client id
 select set_config('request.headers', '{not json', true);
@@ -656,8 +665,8 @@ select ok(exists (select 1 from pg_locks l where l.locktype = 'advisory' and l.p
                     and ((l.classid::bigint << 32) | l.objid::bigint) = hashtext('guide_session:' || (pg_temp.today() + 1)::text)::bigint),
   's136 race: guide_session_v1 holds the transaction advisory lock for its check-in date (concurrent mints for one date are serialised; a real two-session race is not testable inside one pgTAP transaction)');
 
--- 13e. analytics caps: 300 / minute across all devices (299 stores, 300 and 301 drop), 20000 / rolling 24 h (19999 stores, 20000 and 20001 drop)
-insert into public.guide_events(device, name) select 'zz136c300a', 'tap' from generate_series(1, 299);
+-- 13e. analytics caps: 60 / minute across all devices (59 stores, 60 and 61 drop), 1000 / rolling 24 h (999 stores, 1000 and 1001 drop)
+insert into public.guide_events(device, name) select 'zz136c300a', 'tap' from generate_series(1, 59);
 select pg_temp.as_anon();
 insert into _t values ('m299', pg_temp.try(format('select public.guide_track_v1(%L, %L::jsonb)', 'zz136c300b', jsonb_build_array(jsonb_build_object('name', 'tap'))::text)));
 insert into _t values ('m300', pg_temp.try(format('select public.guide_track_v1(%L, %L::jsonb)', 'zz136c300c', jsonb_build_array(jsonb_build_object('name', 'tap'))::text)));
@@ -667,51 +676,52 @@ select pg_temp.as_anon();
 insert into _t values ('m301', pg_temp.try(format('select public.guide_track_v1(%L, %L::jsonb)', 'zz136c300d', jsonb_build_array(jsonb_build_object('name', 'tap'))::text)));
 reset role;
 select ok((select v ->> 'ok' = 'true' and (v ->> 'stored')::int = 1 from _t where k = 'm299') and (select count(*) = 1 from public.guide_events where device = 'zz136c300b'),
-  's136 track: with 299 events in the last minute a batch is still stored (the 300th event)');
+  's136 track: with 59 events in the last minute a batch is still stored (the 60th event)');
 select ok((select v ->> 'ok' = 'true' and (v ->> 'stored')::int = 0 from _t where k = 'm300') and (select count(*) = 0 from public.guide_events where device = 'zz136c300c'),
-  's136 track: with exactly 300 events in the last minute the next batch is dropped silently (ok, stored 0)');
-select ok((select v ->> 'ok' = 'true' and (v ->> 'stored')::int = 0 from _t where k = 'm301') and (select count(*) = 0 from public.guide_events where device = 'zz136c300d') and (select count(*) = 301 from public.guide_events where received_at > now() - interval '1 minute'),
-  's136 track: with 301 events in the last minute (the overshoot a batch may cause) the next batch is dropped too');
+  's136 track: with exactly 60 events in the last minute the next batch is dropped silently (ok, stored 0)');
+select ok((select v ->> 'ok' = 'true' and (v ->> 'stored')::int = 0 from _t where k = 'm301') and (select count(*) = 0 from public.guide_events where device = 'zz136c300d') and (select count(*) = 61 from public.guide_events where received_at > now() - interval '1 minute'),
+  's136 track: with 61 events in the last minute (a row written past the function) the next batch is dropped too');
 select ok(exists (select 1 from pg_locks l where l.locktype = 'advisory' and l.pid = pg_backend_pid() and l.granted and ((l.classid::bigint << 32) | l.objid::bigint) = hashtext('guide_track')::bigint),
-  's136 race: guide_track_v1 holds the global transaction advisory lock before it counts (parallel batches cannot read the same count and overshoot the caps together)');
+  's136 race: guide_track_v1 holds the global transaction advisory lock (pg_try_advisory_xact_lock) before it counts (parallel batches cannot read the same count and overshoot the caps together)');
 
 delete from public.guide_events;
--- 24 h cap: five rows from 25 hours ago do not count (rolling window); 19999 rows from two hours ago (old enough to stay clear of the per-minute cap) do
+-- 24 h cap: five rows from 25 hours ago do not count (rolling window); 999 rows from two hours ago (old enough to stay clear of the per-minute cap) do
 insert into public.guide_events(at, received_at, device, name) select now() - interval '25 hours', now() - interval '25 hours', 'zz136c24old', 'tap' from generate_series(1, 5);
-insert into public.guide_events(at, received_at, device, name) select now() - interval '2 hours', now() - interval '2 hours', 'zz136c24fill', 'tap' from generate_series(1, 19999);
+insert into public.guide_events(at, received_at, device, name) select now() - interval '2 hours', now() - interval '2 hours', 'zz136c24fill', 'tap' from generate_series(1, 999);
 select pg_temp.as_anon();
-insert into _t values ('d19999', pg_temp.try(format('select public.guide_track_v1(%L, %L::jsonb)', 'zz136c24a', jsonb_build_array(jsonb_build_object('name', 'tap'))::text)));
-insert into _t values ('d20000', pg_temp.try(format('select public.guide_track_v1(%L, %L::jsonb)', 'zz136c24b', jsonb_build_array(jsonb_build_object('name', 'tap'))::text)));
+insert into _t values ('d999', pg_temp.try(format('select public.guide_track_v1(%L, %L::jsonb)', 'zz136c24a', jsonb_build_array(jsonb_build_object('name', 'tap'))::text)));
+insert into _t values ('d1000', pg_temp.try(format('select public.guide_track_v1(%L, %L::jsonb)', 'zz136c24b', jsonb_build_array(jsonb_build_object('name', 'tap'))::text)));
 reset role;
-insert into _t values ('d20000_cnt', to_jsonb((select count(*) from public.guide_events where received_at > now() - interval '24 hours')));
+insert into _t values ('d1000_cnt', to_jsonb((select count(*) from public.guide_events where received_at > now() - interval '24 hours')));
 insert into public.guide_events(at, received_at, device, name) values (now() - interval '2 hours', now() - interval '2 hours', 'zz136c24fill', 'tap');
 select pg_temp.as_anon();
-insert into _t values ('d20001', pg_temp.try(format('select public.guide_track_v1(%L, %L::jsonb)', 'zz136c24c', jsonb_build_array(jsonb_build_object('name', 'tap'))::text)));
+insert into _t values ('d1001', pg_temp.try(format('select public.guide_track_v1(%L, %L::jsonb)', 'zz136c24c', jsonb_build_array(jsonb_build_object('name', 'tap'))::text)));
 reset role;
-select ok((select v ->> 'ok' = 'true' and (v ->> 'stored')::int = 1 from _t where k = 'd19999') and (select count(*) = 1 from public.guide_events where device = 'zz136c24a'),
-  's136 track: 19999 events in the last 24 hours (five older ones not counted) still leave room for one more');
-select ok((select v ->> 'ok' = 'true' and (v ->> 'stored')::int = 0 from _t where k = 'd20000') and (select count(*) = 0 from public.guide_events where device = 'zz136c24b') and (select (v #>> '{}')::int = 20000 from _t where k = 'd20000_cnt'),
-  's136 track: with exactly 20000 events in the last 24 hours the next batch is dropped silently (ok, stored 0)');
-select ok((select v ->> 'ok' = 'true' and (v ->> 'stored')::int = 0 from _t where k = 'd20001') and (select count(*) = 0 from public.guide_events where device = 'zz136c24c') and (select count(*) = 20001 from public.guide_events where received_at > now() - interval '24 hours'),
-  's136 track: with 20001 events in the last 24 hours the next batch is dropped too');
+select ok((select v ->> 'ok' = 'true' and (v ->> 'stored')::int = 1 from _t where k = 'd999') and (select count(*) = 1 from public.guide_events where device = 'zz136c24a'),
+  's136 track: 999 events in the last 24 hours (five older ones not counted) still leave room for one more');
+select ok((select v ->> 'ok' = 'true' and (v ->> 'stored')::int = 0 from _t where k = 'd1000') and (select count(*) = 0 from public.guide_events where device = 'zz136c24b') and (select (v #>> '{}')::int = 1000 from _t where k = 'd1000_cnt'),
+  's136 track: with exactly 1000 events in the last 24 hours the next batch is dropped silently (ok, stored 0)');
+select ok((select v ->> 'ok' = 'true' and (v ->> 'stored')::int = 0 from _t where k = 'd1001') and (select count(*) = 0 from public.guide_events where device = 'zz136c24c') and (select count(*) = 1001 from public.guide_events where received_at > now() - interval '24 hours'),
+  's136 track: with 1001 events in the last 24 hours the next batch is dropped too');
 delete from public.guide_events;
 
--- 13f. meta over 200 serialised bytes is replaced by an empty object, the event is kept. Hand-computed size of
---      {"k": "<40>", "src": "<40>", "kind": "<40>", "lang": "<L>"}: a pair is length(key) + 6 + length(value), so k 47, src 49, kind 50, lang 10 + L;
---      plus two braces and three ", " separators (8): 164 + L, i.e. 200 bytes for L = 36 and 201 bytes for L = 37
+-- 13f. meta over 200 bytes AS STORED (pg_column_size) is replaced by an empty object, the event is kept. Hand-computed stored size of an object of four
+--      string pairs k, src, kind, lang: 4 (varlena header) + 4 (container header) + 8 entries x 4 + 12 key bytes + the value bytes = 52 + values.
+--      Values of 40 + 40 + 40 + 28 = 148 bytes give 200; 40 + 40 + 40 + 29 give 201.
 select pg_temp.as_anon();
 insert into _t values ('meta200', pg_temp.try(format('select public.guide_track_v1(%L, %L::jsonb)', 'zz136m200a', jsonb_build_array(jsonb_build_object('name', 'tap', 'meta',
-  jsonb_build_object('k', repeat('a', 40), 'src', repeat('b', 40), 'kind', repeat('c', 40), 'lang', repeat('d', 36))))::text)));
+  jsonb_build_object('k', repeat('a', 40), 'src', repeat('b', 40), 'kind', repeat('c', 40), 'lang', repeat('d', 28))))::text)));
 insert into _t values ('meta201', pg_temp.try(format('select public.guide_track_v1(%L, %L::jsonb)', 'zz136m201a', jsonb_build_array(jsonb_build_object('name', 'tap', 'meta',
-  jsonb_build_object('k', repeat('a', 40), 'src', repeat('b', 40), 'kind', repeat('c', 40), 'lang', repeat('d', 37))))::text)));
+  jsonb_build_object('k', repeat('a', 40), 'src', repeat('b', 40), 'kind', repeat('c', 40), 'lang', repeat('d', 29))))::text)));
 insert into _t values ('metabig', pg_temp.try(format('select public.guide_track_v1(%L, %L::jsonb)', 'zz136m999a', jsonb_build_array(jsonb_build_object('name', 'tap', 'section', 'home', 'meta',
   jsonb_build_object('k', repeat('a', 40), 'src', repeat('b', 40), 'kind', repeat('c', 40), 'lang', repeat('d', 40), 'tab', repeat('e', 40), 'theme', repeat('f', 40), 'dir', repeat('g', 40), 'from', repeat('h', 40))))::text)));
 reset role;
-select ok((select (v ->> 'stored')::int = 1 from _t where k = 'meta200') and (select e.meta = jsonb_build_object('k', repeat('a', 40), 'src', repeat('b', 40), 'kind', repeat('c', 40), 'lang', repeat('d', 36)) and octet_length(e.meta::text) = 200 from public.guide_events e where e.device = 'zz136m200a'),
-  's136 track: a meta object of exactly 200 serialised bytes is kept whole');
-select ok((select (v ->> 'stored')::int = 1 from _t where k = 'meta201') and (select e.meta = '{}'::jsonb and e.name = 'tap' from public.guide_events e where e.device = 'zz136m201a')
+select ok((select (v ->> 'stored')::int = 1 from _t where k = 'meta200') and (select e.meta = jsonb_build_object('k', repeat('a', 40), 'src', repeat('b', 40), 'kind', repeat('c', 40), 'lang', repeat('d', 28)) and pg_column_size(e.meta) = 200 from public.guide_events e where e.device = 'zz136m200a'),
+  's136 track: a meta object of exactly 200 stored bytes is kept whole');
+select ok(pg_column_size(jsonb_build_object('k', repeat('a', 40), 'src', repeat('b', 40), 'kind', repeat('c', 40), 'lang', repeat('d', 29))) = 201
+      and (select (v ->> 'stored')::int = 1 from _t where k = 'meta201') and (select e.meta = '{}'::jsonb and e.name = 'tap' from public.guide_events e where e.device = 'zz136m201a')
       and (select (v ->> 'stored')::int = 1 from _t where k = 'metabig') and (select e.meta = '{}'::jsonb and e.section = 'home' from public.guide_events e where e.device = 'zz136m999a'),
-  's136 track: a meta object of 201 bytes, or eight 40-character values, is replaced by an empty object and the event is stored with its other columns');
+  's136 track: a meta object of 201 stored bytes, or eight 40-character values, is replaced by an empty object and the event is stored with its other columns');
 delete from public.guide_events;
 
 -- 13g. explicit service_role ACLs: only the sweep is executable by service_role (no edge function calls any guide function)
@@ -739,6 +749,196 @@ select ok((select v ->> 'ok' = 'false' and v ->> 'reason' = 'expired' and not v 
   's136 expiry: when verify_booking says not expired but the token would already be past its Manila expiry (checkout = today - 2), the answer is expired and no thread or session is created');
 select ok((select v ->> 'reason' = 'no_match' from _t where k = 'exp_live'),
   's136 expiry: one day later (checkout = today - 1, expiry is still ahead) the guard lets the call through: it reaches the calendar lookup (no such stay: no_match), not expired');
+
+-- =============================================================================================================================================
+-- 15. s136 round 5: inline retention, exact caps, bounded value, measured size, 30-day usage window, sessions kept for the guests report, lock_timeout, trigger fire
+-- =============================================================================================================================================
+-- 15a. inline retention: every guide_track_v1 call that gets the lock deletes at most 200 events older than 30 days (oldest first); newer rows are untouched
+delete from public.guide_events;
+insert into public.guide_events(at, received_at, device, name) select now() - interval '31 days', now() - interval '31 days' - make_interval(secs => i), 'zz136old001', 'tap' from generate_series(1, 250) i;
+insert into public.guide_events(at, received_at, device, name) values (now() - interval '29 days', now() - interval '29 days', 'zz136new001', 'tap');
+select pg_temp.as_anon();
+insert into _t values ('ret1', pg_temp.try(format('select public.guide_track_v1(%L, %L::jsonb)', 'zz136ret001', jsonb_build_array(jsonb_build_object('name', 'tap'))::text)));
+reset role;
+select ok((select (v ->> 'stored')::int = 1 from _t where k = 'ret1') and (select count(*) = 50 from public.guide_events where device = 'zz136old001')
+      and (select count(*) = 1 from public.guide_events where device = 'zz136new001'),
+  's136 retention: one accepted call deletes exactly 200 of 250 events older than 30 days and leaves the 29-day-old event alone');
+select ok((select min(received_at) > now() - interval '31 days' - interval '51 seconds' from public.guide_events where device = 'zz136old001') and (select count(*) = 1 from public.guide_events where device = 'zz136ret001'),
+  's136 retention: the oldest rows go first (the 50 survivors are the newest of the stale ones)');
+select pg_temp.as_anon();
+insert into _t values ('ret2', pg_temp.try(format('select public.guide_track_v1(%L, %L::jsonb)', 'zz136ret002', jsonb_build_array(jsonb_build_object('name', 'tap'))::text)));
+reset role;
+select ok((select count(*) = 0 from public.guide_events where device = 'zz136old001') and (select count(*) = 3 from public.guide_events),
+  's136 retention: the next call removes the remaining 50 stale events; only the fresh ones remain');
+delete from public.guide_events;
+
+-- a call that the minute cap then drops still trims (the delete runs before the caps)
+insert into public.guide_events(device, name) select 'zz136trim01', 'tap' from generate_series(1, 60);
+insert into public.guide_events(at, received_at, device, name) select now() - interval '31 days', now() - interval '31 days', 'zz136old002', 'tap' from generate_series(1, 10);
+select pg_temp.as_anon();
+insert into _t values ('ret3', pg_temp.try(format('select public.guide_track_v1(%L, %L::jsonb)', 'zz136ret003', jsonb_build_array(jsonb_build_object('name', 'tap'))::text)));
+reset role;
+select ok((select v ->> 'ok' = 'true' and (v ->> 'stored')::int = 0 from _t where k = 'ret3') and (select count(*) = 0 from public.guide_events where device = 'zz136old002') and (select count(*) = 60 from public.guide_events),
+  's136 retention: a call dropped by the minute cap (stored 0) still removes the stale events');
+delete from public.guide_events;
+
+-- 15b. the caps are exact: a batch is cut to the room left under the minute, the day and the device cap (never an overshoot)
+insert into public.guide_events(device, name) select 'zz136room01', 'tap' from generate_series(1, 57);
+select pg_temp.as_anon();
+insert into _t values ('room_min', pg_temp.try(format('select public.guide_track_v1(%L, %L::jsonb)', 'zz136room02', (select jsonb_agg(jsonb_build_object('name', 'tap'))::text from generate_series(1, 5)))));
+reset role;
+select ok((select v ->> 'ok' = 'true' and (v ->> 'stored')::int = 3 from _t where k = 'room_min') and (select count(*) = 3 from public.guide_events where device = 'zz136room02')
+      and (select count(*) = 60 from public.guide_events where received_at > now() - interval '1 minute'),
+  's136 room: with 57 events in the last minute a batch of five stores three (60 - 57) and the minute holds exactly 60');
+delete from public.guide_events;
+insert into public.guide_events(at, received_at, device, name) select now() - interval '2 hours', now() - interval '2 hours', 'zz136room03', 'tap' from generate_series(1, 998);
+select pg_temp.as_anon();
+insert into _t values ('room_day', pg_temp.try(format('select public.guide_track_v1(%L, %L::jsonb)', 'zz136room04', (select jsonb_agg(jsonb_build_object('name', 'tap'))::text from generate_series(1, 5)))));
+reset role;
+select ok((select (v ->> 'stored')::int = 2 from _t where k = 'room_day') and (select count(*) = 2 from public.guide_events where device = 'zz136room04')
+      and (select count(*) = 1000 from public.guide_events where received_at > now() - interval '24 hours'),
+  's136 room: with 998 events in the last 24 hours a batch of five stores two (1000 - 998) and the day holds exactly 1000');
+delete from public.guide_events;
+insert into public.guide_events(at, received_at, device, name) select now() - interval '30 minutes', now() - interval '30 minutes', 'zz136room05', 'tap' from generate_series(1, 598);
+select pg_temp.as_anon();
+insert into _t values ('room_dev', pg_temp.try(format('select public.guide_track_v1(%L, %L::jsonb)', 'zz136room05', (select jsonb_agg(jsonb_build_object('name', 'tap'))::text from generate_series(1, 5)))));
+reset role;
+select ok((select (v ->> 'stored')::int = 2 from _t where k = 'room_dev') and (select count(*) = 600 from public.guide_events where device = 'zz136room05'),
+  's136 room: with 598 events in the last hour from one device a batch of five stores two (600 - 598)');
+delete from public.guide_events;
+
+-- 15c. value is bounded: at most 1e9 in size, rounded to 3 decimals; anything larger is stored as null and the event is kept
+select pg_temp.as_anon();
+insert into _t values ('val', pg_temp.try(format('select public.guide_track_v1(%L, %L::jsonb)', 'zz136val001',
+  '[{"name":"tap","target":"v1","value":12.34567},{"name":"tap","target":"v2","value":1000000000},{"name":"tap","target":"v3","value":1000000000.5},{"name":"tap","target":"v4","value":1e400},{"name":"tap","target":"v5","value":-1000000000.0004},{"name":"tap","target":"v6","value":"12"}]')));
+reset role;
+select ok((select (v ->> 'stored')::int = 6 from _t where k = 'val')
+      and (select array_agg(e.value::text order by e.target) from public.guide_events e where e.device = 'zz136val001') is not distinct from array['12.346', '1000000000.000', null, null, null, null]::text[],
+  's136 value: 12.34567 is stored as 12.346 and 1e9 is kept; 1000000000.5, 1e400, -1000000000.0004 and a string store null; all six events are kept');
+delete from public.guide_events;
+
+-- 15d. size, measured on clones of guide_events (like ... including all: same columns, CHECKs and all four indexes; a clone, so the dead rows this suite left in the
+--      real table do not count). 30000 rows = 30 days x 1000 a day, loaded in arrival order. Worst case: every field at its maximum width, random device ids.
+create temp table _sz_worst (like public.guide_events including all);
+insert into _sz_worst(at, received_at, device, thread_id, verified, name, section, target, value, meta, version)
+select now() - interval '30 days' + make_interval(secs => i * 86), now() - interval '30 days' + make_interval(secs => i * 86),
+       md5(i::text) || 'abcdefgh', pg_temp.id('c9'), true, 'n' || repeat('z', 39), 's' || repeat('y', 39), 't' || repeat('w', 79), 999999999.999,
+       jsonb_build_object('k', repeat('a', 40), 'src', repeat('b', 40), 'kind', repeat('c', 40), 'lang', repeat('d', 28)), '12345678.123'
+  from generate_series(1, 30000) i;
+create temp table _sz_typ (like public.guide_events including all);
+insert into _sz_typ(at, received_at, device, verified, name, section, target, value, meta, version)
+select now() - interval '30 days' + make_interval(secs => i * 86), now() - interval '30 days' + make_interval(secs => i * 86),
+       md5((i % 400)::text) || 'abcd', false, 'section_view', 'house_rules', 'card:wifi-password', 12, '{"k": "abc", "src": "home"}'::jsonb, '8.0.0'
+  from generate_series(1, 30000) i;
+select ok((select count(*) = 30000 and bool_and(char_length(device) = 40 and char_length(name) = 40 and char_length(section) = 40 and char_length(target) = 80 and char_length(version) = 12
+             and pg_column_size(meta) = 200 and thread_id is not null and value = 999999999.999) from _sz_worst)
+      and (select count(*) = 4 from pg_indexes where tablename = '_sz_worst') and (select count(*) = 4 from pg_indexes where schemaname = 'public' and tablename = 'guide_events'),
+  's136 size: the worst-case clone holds 30000 rows with every field at its maximum width and the same four indexes as guide_events');
+insert into _t values ('wider', (select jsonb_agg(pg_temp.try('insert into public.guide_events(device, name, section, target, value, meta, version) values (' || x || ') returning to_jsonb(1)') ->> 'err') from unnest(array[
+  format('%L, %L, null, null, null, %L, null', repeat('d', 41), 'tap', '{}'),
+  format('%L, %L, null, null, null, %L, null', 'zz136wide01', 'n' || repeat('z', 40), '{}'),
+  format('%L, %L, %L, null, null, %L, null', 'zz136wide01', 'tap', repeat('s', 41), '{}'),
+  format('%L, %L, null, %L, null, %L, null', 'zz136wide01', 'tap', repeat('t', 81), '{}'),
+  format('%L, %L, null, null, 1000000000.001, %L, null', 'zz136wide01', 'tap', '{}'),
+  format('%L, %L, null, null, 1.0001, %L, null', 'zz136wide01', 'tap', '{}'),
+  format('%L, %L, null, null, null, %L, null', 'zz136wide01', 'tap', jsonb_build_object('k', repeat('a', 40), 'src', repeat('b', 40), 'kind', repeat('c', 40), 'lang', repeat('d', 29))::text),
+  format('%L, %L, null, null, null, %L, %L', 'zz136wide01', 'tap', '{}', '1234567890.12')]) x));
+select ok((select v = '["23514", "23514", "23514", "23514", "23514", "23514", "23514", "23514"]'::jsonb from _t where k = 'wider') and (select count(*) = 0 from public.guide_events where device = 'zz136wide01'),
+  's136 size: one character or byte more in device, name, section, target, value (size and decimals), meta or version is refused by the table itself (23514, eight probes)');
+select ok(pg_total_relation_size('_sz_worst') < 30 * 1024 * 1024, 's136 size: 30000 maximum-width events with all four indexes stay under 30 MB');
+select ok(pg_total_relation_size('_sz_typ') < 12 * 1024 * 1024, 's136 size: 30000 typical events with all four indexes stay under 12 MB');
+select diag('SIZE worst total=' || pg_total_relation_size('_sz_worst') || ' heap=' || pg_relation_size('_sz_worst') || ' indexes=' || pg_indexes_size('_sz_worst') || ' per_row=' || pg_total_relation_size('_sz_worst') / 30000
+  || ' [' || (select string_agg(indexname || '=' || pg_relation_size(quote_ident(indexname)::regclass), ' ' order by indexname) from pg_indexes where tablename = '_sz_worst') || ']');
+select diag('SIZE typical total=' || pg_total_relation_size('_sz_typ') || ' heap=' || pg_relation_size('_sz_typ') || ' indexes=' || pg_indexes_size('_sz_typ') || ' per_row=' || pg_total_relation_size('_sz_typ') / 30000);
+drop table _sz_worst, _sz_typ;
+
+-- 15e. the usage report answers for at most 30 days (the retention): p_days 365 is clamped to 30
+select pg_temp.as_user(pg_temp.id('01'));
+insert into _t values ('us365', pg_temp.try(format('select public.staff_guide_usage_v1(365, %L::uuid)', pg_temp.dp())));
+reset role;
+select ok((select (v ->> 'since')::date = pg_temp.today() - 29 from _t where k = 'us365'), 's136 usage: p_days 365 is clamped to 30 (since = today minus 29, Manila)');
+
+-- 15f. sessions are swept 95 days after expiry, so the guests report keeps a guest who checked out 12 days ago (session expired 10 days ago, 30-day window); one expired 100 days ago goes.
+--      The 65 cap-test guests of section 12 are removed first (they would fill the report's 60 rows ahead of a 12-day-old sign-in).
+delete from public.guide_threads where guest_label = 'Zzcap';
+insert into public.guide_threads(id, property_id, calendar_event_id, checkin_date, checkout_date, guest_label) values
+  (pg_temp.id('c1'), pg_temp.dp(), pg_temp.id('c2'), pg_temp.today() - 14, pg_temp.today() - 12, 'Zzkept'),
+  (pg_temp.id('c3'), pg_temp.dp(), pg_temp.id('c4'), pg_temp.today() - 104, pg_temp.today() - 102, 'Zzgone');
+insert into public.guide_sessions(token_hash, thread_id, expires_at, created_at) values
+  (lpad(to_hex(2001), 64, '0'), pg_temp.id('c1'), now() - interval '10 days', now() - interval '12 days'),
+  (lpad(to_hex(2002), 64, '0'), pg_temp.id('c3'), now() - interval '100 days', now() - interval '102 days');
+select pg_temp.as_service();
+insert into _t values ('sweep2', pg_temp.try('select public.guide_sweep_v1()'));
+reset role;
+select pg_temp.as_user(pg_temp.id('01'));
+insert into _t values ('g_after_sweep', pg_temp.try('select public.staff_guide_guests_v1(30)'));
+reset role;
+select ok((select (v ->> 'sessions')::int = 1 from _t where k = 'sweep2') and (select count(*) = 1 from public.guide_sessions where token_hash = lpad(to_hex(2001), 64, '0'))
+      and (select count(*) = 0 from public.guide_sessions where token_hash = lpad(to_hex(2002), 64, '0')),
+  's136 sweep: a session expired 10 days ago survives the sweep; one expired 100 days ago is swept');
+select ok((select (select g ->> 'guest_label' = 'Zzkept' and (g ->> 'first_seen')::timestamptz = now() - interval '12 days' and (g ->> 'checkout_date')::date = pg_temp.today() - 12
+                     from jsonb_array_elements(v -> 'guests') g where g ->> 'thread_id' = pg_temp.id('c1')::text)
+        and not exists (select 1 from jsonb_array_elements(v -> 'guests') g where g ->> 'thread_id' = pg_temp.id('c3')::text) from _t where k = 'g_after_sweep'),
+  's136 sweep: after the sweep staff_guide_guests_v1(30) still lists the guest who checked out 12 days ago, with the first sign-in time');
+select ok(public.guide_token_thread_v1(null) is null and (select public.guide_token_thread_v1('zz-not-a-real-token-0123456789abcdef0123')) is null, 's136 token: the helper refuses a null and an unknown token');
+insert into public.guide_sessions(token_hash, thread_id, expires_at) values (encode(extensions.digest('zz136-kept-expired-token-0123456789abc', 'sha256'), 'hex'), pg_temp.id('c1'), now() - interval '10 days');
+select ok(public.guide_token_thread_v1('zz136-kept-expired-token-0123456789abc') is null, 's136 token: a session row expired 10 days ago (kept by the sweep) still resolves to no thread');
+
+-- 15g. lock_timeout: a function-level setting of 2 s (PostgreSQL restores the caller's value on every exit); lock_not_available anywhere in the call answers busy
+--      and keeps nothing. verify_booking is still the section 14 stub (any initial matches); the stay of house b2 on today + 3 exists in calendar_events.
+select ok((select p.proconfig @> array['lock_timeout=2s'] from pg_proc p where p.oid = 'public.guide_session_v1(date,text,text,uuid)'::regprocedure),
+  's136 lock: guide_session_v1 carries lock_timeout = 2s as a function setting');
+select set_config('lock_timeout', '7s', true);
+select set_config('request.headers', '{}', true);
+select pg_temp.as_anon();
+insert into _t values ('lto', pg_temp.try(format('select public.guide_session_v1(%L::date, %L, %L, %L::uuid)', pg_temp.today() + 3, 'Z', 'zz136-lto', pg_temp.id('b2'))));
+reset role;
+select ok(current_setting('lock_timeout') = '7s' and (select v ->> 'ok' = 'true' and v ->> 'token' ~ '^[a-f0-9]{64}$' from _t where k = 'lto'),
+  's136 lock: after a successful guide_session_v1 call the caller''s own lock_timeout (7s) is unchanged');
+create or replace function public.verify_booking(p_checkin_date date, p_initial text default null::text, p_property_id uuid default '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd'::uuid)
+returns jsonb language plpgsql as $$ begin raise exception using errcode = '55P03', message = 'zz136 synthetic lock timeout'; end $$;
+create temp table _cnt2 as select (select count(*) from public.guide_auth_attempts) attempts, (select count(*) from public.guide_sessions) sessions, (select count(*) from public.guide_threads) threads;
+select pg_temp.as_anon();
+insert into _t values ('lbusy', pg_temp.try(format('select public.guide_session_v1(%L::date, %L, %L, %L::uuid)', pg_temp.today() + 3, 'Z', 'zz136-lbusy', pg_temp.id('b2'))));
+reset role;
+select ok((select v = '{"ok": false, "reason": "busy"}'::jsonb from _t where k = 'lbusy') and current_setting('lock_timeout') = '7s'
+      and (select (select count(*) from public.guide_auth_attempts) = c.attempts and (select count(*) from public.guide_sessions) = c.sessions and (select count(*) from public.guide_threads) = c.threads from _cnt2 c),
+  's136 lock: a lock timeout (55P03) inside guide_session_v1 answers exactly {ok false, reason busy}, keeps no attempt, thread or session, and leaves the caller''s lock_timeout alone');
+select set_config('lock_timeout', '0', true);
+
+-- 15h. the push trigger ENABLED and fired by a service_role insert, with net.http_post and the vault secret stubbed (a rehearsal copy has neither; a stub also means no
+--      real request can be queued; everything is rolled back with the suite). Production service_role has BYPASSRLS; the rehearsal role is created without it.
+do $$
+begin
+  if to_regnamespace('net') is null then create schema net; end if;
+  if to_regnamespace('vault') is null then create schema vault; end if;
+  if to_regclass('vault.decrypted_secrets') is null then
+    create table vault.decrypted_secrets(name text, decrypted_secret text);
+    insert into vault.decrypted_secrets values ('cascade_cron_shared_secret', 'ZZ136-SYNTHETIC-ONLY');
+  end if;
+  if not (select rolbypassrls from pg_roles where rolname = 'service_role') then alter role service_role bypassrls; end if;
+end $$;
+create table net._zz136_calls(url text, body jsonb, has_secret boolean);
+create or replace function net.http_post(url text, body jsonb default '{}'::jsonb, params jsonb default '{}'::jsonb, headers jsonb default '{}'::jsonb, timeout_milliseconds integer default 5000)
+returns bigint language plpgsql as $f$ begin insert into net._zz136_calls values (url, body, headers ? 'x-cascade-cron-secret'); return 1; end $f$;
+alter table public.guide_messages enable trigger guide_messages_push;
+select pg_temp.as_service();
+insert into _t values ('trg_guest', pg_temp.try(format($q$insert into public.guide_messages(thread_id, sender, body, client_msg_id) values (%L, 'guest', 'trigger test', 'zz136-trg-0001') returning to_jsonb(1)$q$, pg_temp.id('c1'))));
+insert into _t values ('trg_staff', pg_temp.try(format($q$insert into public.guide_messages(thread_id, sender, body, client_msg_id) values (%L, 'staff', 'trigger test', 'zz136-trg-0002') returning to_jsonb(1)$q$, pg_temp.id('c1'))));
+reset role;
+select ok((select v = '1'::jsonb from _t where k = 'trg_guest') and (select v = '1'::jsonb from _t where k = 'trg_staff') and (select count(*) = 2 from public.guide_messages where client_msg_id like 'zz136-trg-%')
+      and (select tgenabled = 'O' from pg_trigger where tgname = 'guide_messages_push' and not tgisinternal)
+      and not has_function_privilege('service_role', 'public.guide_messages_push_trg()', 'execute'),
+  's136 trigger: with the push trigger enabled and service_role holding no execute on its function, service_role inserts into guide_messages (guest and staff) succeed');
+select ok((select count(*) = 1 and bool_and(c.body = jsonb_build_object('kind', 'guest_wrote', 'psid', 'guide:' || pg_temp.id('c1')::text) and c.url like '%/functions/v1/notify-staff-inbox' and c.has_secret) from net._zz136_calls c),
+  's136 trigger: the guest message queued exactly one net.http_post (kind guest_wrote, psid guide:<thread id>, the cron secret header); the staff message queued none');
+create or replace function net.http_post(url text, body jsonb default '{}'::jsonb, params jsonb default '{}'::jsonb, headers jsonb default '{}'::jsonb, timeout_milliseconds integer default 5000)
+returns bigint language plpgsql as $f$ begin raise exception 'zz136 synthetic pg_net failure'; end $f$;
+select pg_temp.as_service();
+insert into _t values ('trg_fail', pg_temp.try(format($q$insert into public.guide_messages(thread_id, sender, body, client_msg_id) values (%L, 'guest', 'trigger test', 'zz136-trg-0003') returning to_jsonb(1)$q$, pg_temp.id('c1'))));
+reset role;
+select ok((select v = '1'::jsonb from _t where k = 'trg_fail') and (select count(*) = 1 from public.guide_messages where client_msg_id = 'zz136-trg-0003'),
+  's136 trigger: when net.http_post raises, the guest message is still stored (the trigger only warns)');
 
 select * from finish();
 rollback;
