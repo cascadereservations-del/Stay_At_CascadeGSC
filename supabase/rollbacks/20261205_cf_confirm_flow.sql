@@ -70,8 +70,9 @@ begin
    limit greatest(1, least(coalesce(p_limit, 30), 100));
 end;
 $$;
-revoke all on function public.concierge_conversations_v1(int) from public, anon, authenticated, service_role;
-grant execute on function public.concierge_conversations_v1(int) to authenticated;
+-- ACL exactly as before cf (20261006130000: revoke from public, anon; authenticated granted; service_role kept its default-privilege execute). cf had revoked service_role.
+revoke all on function public.concierge_conversations_v1(int) from public, anon;
+grant execute on function public.concierge_conversations_v1(int) to authenticated, service_role;
 comment on function public.concierge_conversations_v1(int) is
   'SPEC-42 s7: Conversations panel list. Owner/admin only (42501 otherwise). One row per Cassy thread, open handoffs first then newest; last_guest_at drives the 7-day HUMAN_AGENT reply window.';
 
