@@ -98,7 +98,8 @@ insert into public.inventory_item_options(id, property_id, item_id, supplier_id,
 -- =============================================================================================================================================
 select has_table('public', 'inventory_item_options', 'the options table exists');
 select columns_are('public', 'inventory_item_options', array['id', 'property_id', 'item_id', 'supplier_id', 'title', 'brand', 'pack_label', 'pack_size', 'price', 'image_url',
-  'source_url', 'is_usual', 'available', 'captured_at', 'created_by', 'updated_at'], 'the options table has exactly the agreed columns');
+  'source_url', 'is_usual', 'available', 'captured_at', 'created_by', 'updated_at',
+  'is_preferred', 'qty_on_hand'], 'the options table has exactly the agreed columns (s106 plus is_preferred from s107 and qty_on_hand from s133)');
 select ok((select relrowsecurity from pg_class where oid = 'public.inventory_item_options'::regclass), 'row level security is on');
 select ok(not exists (select 1 from unnest(array['anon', 'authenticated', 'service_role', 'public']) r, unnest(array['select', 'insert', 'update', 'delete']) p
                        where r <> 'public' and has_table_privilege(r, 'public.inventory_item_options', p)), 'no client or service role has any direct table privilege');

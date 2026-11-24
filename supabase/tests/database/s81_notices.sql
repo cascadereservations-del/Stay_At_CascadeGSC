@@ -242,8 +242,9 @@ select throws_ok($$select public.ops_notice_add_v1('note', 'Fine title', current
   '22023', 'contact_or_amount_not_allowed', 'an e-mail in the detail is refused');
 select throws_ok($$select public.ops_notice_add_v1('note', 'Repairs cost P500', current_date + 1, null, null, null, 'e8100000-0000-4000-8000-0000000000a1')$$,
   '22023', 'contact_or_amount_not_allowed', 'an amount in the title is refused');
-select throws_ok($$select public.ops_notice_add_v1('brownout', 'Zz', current_date + 1, null, null, null, 'e8100000-0000-4000-8000-0000000000a1')$$,
-  '22023', 'type_not_allowed', 'a brownout cannot be added by hand');
+-- s82 (20261016000000_s82_inbox_push.sql) added 'brownout' to the types a manager may add by hand, so the refusal is now exercised with a type that is still not allowed.
+select throws_ok($$select public.ops_notice_add_v1('socoteco', 'Zz', current_date + 1, null, null, null, 'e8100000-0000-4000-8000-0000000000a1')$$,
+  '22023', 'type_not_allowed', 'a type outside water, maintenance, deep_clean, note and brownout cannot be added by hand');
 select throws_ok($$select public.ops_notice_add_v1('note', repeat('x', 81), current_date + 1, null, null, null, 'e8100000-0000-4000-8000-0000000000a1')$$,
   '22023', 'title_length', 'an 81-character title is refused');
 select throws_ok($$select public.ops_notice_add_v1('note', 'Zz', current_date + 900, null, null, null, 'e8100000-0000-4000-8000-0000000000a1')$$,

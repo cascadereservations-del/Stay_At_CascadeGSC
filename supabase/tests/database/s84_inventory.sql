@@ -49,7 +49,10 @@ select ok(not has_column_privilege('authenticated', 'public.inventory_items', 'u
 select ok(has_column_privilege('authenticated', 'public.inventory_items', 'name', 'select') and has_column_privilege('authenticated', 'public.inventory_items', 'qty_on_hand', 'select')
   and has_column_privilege('authenticated', 'public.inventory_items', 'par_qty', 'select') and has_column_privilege('authenticated', 'public.inventory_items', 'property_id', 'select'),
   'but can still select name, qty_on_hand, par_qty and property_id');
+-- s120 (usage_* and last_refill_*) and s124 (updated_by) added columns after s84 and grant none of them to authenticated: the app reads them through the definer functions. Every column that existed at s84 is still checked.
+
 select is((select count(*)::int from pg_attribute a where a.attrelid = 'public.inventory_items'::regclass and a.attnum > 0 and not a.attisdropped and a.attname <> 'unit_cost'
+  and a.attname not in ('usage_baseline_per_turnover', 'usage_baseline_note', 'usage_state', 'last_refill_at', 'last_refill_qty', 'usage_updated_at', 'updated_by')
   and not has_column_privilege('authenticated', a.attrelid, a.attname, 'select')), 0, 'every column except unit_cost is granted (none dropped by mistake)');
 select ok(not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'inventory_items'),
   'inventory_items is not in the realtime publication (vacuously true where the publication does not exist)');
@@ -141,7 +144,7 @@ insert into _t select 'n7', pg_temp.try($$select public.inventory_item_create_v1
 insert into _t select 'n8', pg_temp.try($$select public.inventory_item_create_v1('d8400000-0000-4000-8000-0000000000b0', '{"name": "Zz84 Plain", "category": "Miscellaneous", "consumable": true, "reorder_below": 2}'::jsonb, null, null, null)$$);
 reset role;
 select pg_temp.as_user('d8400000-0000-4000-8000-0000000000a1');
-insert into _t select 'n4', pg_temp.try($$select public.inventory_item_create_v1('d8400000-0000-4000-8000-0000000000b0', '{"name": "Zz84 Cl item", "category": "Miscellaneous"}'::jsonb, null, null, null)$$);
+insert into _t select 'n4', pg_temp.try($$select public.inventory_item_create_v1('d8400000-0000-4000-8000-0000000000b0', '{"name": "Zz84 Cl item", "category": "Miscellaneous", "par_qty": 9}'::jsonb, null, null, null)$$);
 reset role;
 select pg_temp.as_user('d8400000-0000-4000-8000-0000000000a4');
 insert into _t select 'n5', pg_temp.try($$select public.inventory_item_create_v1('d8400000-0000-4000-8000-0000000000b0', '{"name": "Zz84 Fi item", "category": "Miscellaneous"}'::jsonb, null, null, null)$$);
@@ -156,7 +159,7 @@ select is((select v->>'reason' from _t where k = 'n2'), 'name_exists', 'the same
 select is((select (v->>'item_id')::uuid from _t where k = 'n2'), (select (v->>'item_id')::uuid from _t where k = 'n1'), 'and names the existing item');
 select is((select v->>'reason' from _t where k = 'n3'), 'code_taken', 'a code that is already linked refuses the create');
 select is((select count(*)::int from public.inventory_items where property_id = 'd8400000-0000-4000-8000-0000000000b0' and name = 'Zz84 Broom'), 0, 'and nothing is created');
-select is((select v->>'err' from _t where k = 'n4'), '42501', 'a cleaner cannot add an item');
+select is((select v->>'err' from _t where k = 'n4'), '42501', 'a cleaner cannot add an item with a manager-only key (s125: she may add the plain keys only)');
 select is((select v->>'err' from _t where k = 'n5'), '42501', 'finance cannot add an item');
 select is((select v->>'err' from _t where k = 'n6'), '22023', 'a one-letter name is refused');
 select is((select v->>'err' from _t where k = 'n7'), '22023', 'a cost in the new-item form is refused (price has its own RPC)');
@@ -183,12 +186,12 @@ select is((select v->>'err' from _t where k = 'u8'), '22023', 'a negative par is
 select is((select v->>'reason' from _t where k = 'u10'), 'name_exists', 'renaming onto another active item is name_exists');
 select is((select v->>'err' from _t where k = 'u11'), '22023', 'an empty patch is refused');
 select pg_temp.as_user('d8400000-0000-4000-8000-0000000000a1');
-insert into _t select 'u5', pg_temp.try($$select public.inventory_item_update_v1('d8400000-0000-4000-8000-0000000000c1', '{"par_qty": 20}'::jsonb)$$);
+insert into _t select 'u5', pg_temp.try($$select public.inventory_item_update_v1('d8400000-0000-4000-8000-0000000000c1', '{"par_qty": 20, "active": false}'::jsonb)$$);
 reset role;
 select pg_temp.as_user('d8400000-0000-4000-8000-0000000000a4');
 insert into _t select 'u6', pg_temp.try($$select public.inventory_item_update_v1('d8400000-0000-4000-8000-0000000000c1', '{"par_qty": 20}'::jsonb)$$);
 reset role;
-select is((select v->>'err' from _t where k = 'u5'), '42501', 'a cleaner cannot change levels');
+select is((select v->>'err' from _t where k = 'u5'), '42501', 'a cleaner cannot change a manager-only key (s124: she may change name, category, unit, reorder_below, par_qty and location only)');
 select is((select v->>'err' from _t where k = 'u6'), '42501', 'finance cannot change levels');
 select pg_temp.as_user('d8400000-0000-4000-8000-0000000000a3');
 insert into _t select 'u9', pg_temp.try($$select public.inventory_item_update_v1('d8400000-0000-4000-8000-0000000000c1', '{"par_qty": null}'::jsonb)$$);
@@ -207,13 +210,16 @@ insert into _t select 'p5', pg_temp.try($$select public.inventory_item_price_set
 insert into _t select 'p6', pg_temp.try($$select public.inventory_item_price_set_v1('d8400000-0000-4000-8000-0000000000c1', 1000000)$$);
 insert into _t select 'p7', pg_temp.try($$select public.inventory_item_price_set_v1('d8400000-0000-4000-8000-0000000000c1', 12.345)$$);
 reset role;
+insert into _t select 'p3_saved', to_jsonb(unit_cost) from public.inventory_items where id = 'd8400000-0000-4000-8000-0000000000c1';
+reset role;
 select pg_temp.as_user('d8400000-0000-4000-8000-0000000000a1');
 insert into _t select 'p4', pg_temp.try($$select public.inventory_item_price_set_v1('d8400000-0000-4000-8000-0000000000c1', 1)$$);
 reset role;
-select is((select v from _t where k = 'p1'), '{"ok": true, "after": 120.50, "before": 95.00, "item_id": "d8400000-0000-4000-8000-0000000000c1"}'::jsonb, 'finance sets a price and gets the before and after');
+select is((select v - 'change_id' from _t where k = 'p1'), '{"ok": true, "after": 120.50, "before": 95.00, "item_id": "d8400000-0000-4000-8000-0000000000c1"}'::jsonb, 'finance sets a price and gets the before and after');
 select is((select (v->>'before')::numeric from _t where k = 'p3'), 120.50, 'an owner sets a price (before is finance''s 120.50)');
-select is((select unit_cost from public.inventory_items where id = 'd8400000-0000-4000-8000-0000000000c1'), 99.00, 'and it is saved');
-select is((select v->>'err' from _t where k = 'p4'), '42501', 'a cleaner cannot set a price');
+select is((select (v #>> '{}')::numeric from _t where k = 'p3_saved'), 99.00, 'and it is saved');
+-- s124 (20261124000000_s124_item_edit.sql): a cleaner (submit_cleaning) may set a price blind: it is saved, a change row is written, and no price comes back.
+select ok((select v->>'ok' = 'true' and not (v ? 'before') and not (v ? 'after') and (v->>'change_id') is not null and not (v ? 'err') from _t where k = 'p4'), 'a cleaner sets a price blind and no price comes back (s124)');
 select is((select v->>'err' from _t where k = 'p5'), '22023', 'a price of 0 is refused');
 select is((select v->>'err' from _t where k = 'p6'), '22023', 'a price of 1,000,000 is refused');
 select is((select v->>'err' from _t where k = 'p7'), '22023', 'a price with three decimals is refused');
@@ -355,7 +361,8 @@ select ok((select (v->'changes') @> '[{"kind": "counted"}]'::jsonb and (v->'chan
 select is((select v->'changes'->0->>'who' from _t where k = 'h1'), 'Zz84-Owner', 'history: who is a first name only');
 select ok((select v ? 'last_bought' and not (v->'last_bought' ? 'unit_cost') and (v->'last_bought'->>'qty')::numeric = 3 from _t where k = 'h_cl_b'), 'history: a cleaner sees the last purchase without its price');
 select is((select (v->'last_bought'->>'unit_cost')::numeric from _t where k = 'h_fi_b'), 10.00, 'history: finance sees the price');
-select ok((select v->'changes'->0->>'kind' = 'telegram_count' and v->'changes'->0->'who' = 'null'::jsonb and jsonb_array_length(v->'changes') = 1 from _t where k = 'h_cl_b'), 'history: a Telegram count is listed with no name');
+-- s124 (20261124000000_s124_item_edit.sql): history 'changes' also lists the item edits (details, price, photo rows); the Telegram count is still listed once with no name.
+select ok((select (select count(*) from jsonb_array_elements(v->'changes') c where c->>'kind' = 'telegram_count') = 1 and exists (select 1 from jsonb_array_elements(v->'changes') c where c->>'kind' = 'telegram_count' and c->'who' = 'null'::jsonb) from _t where k = 'h_cl_b'), 'history: a Telegram count is listed with no name');
 insert into public.inventory_items(id, property_id, name, category, qty_on_hand, movement_controlled_at) values
   ('d8400000-0000-4000-8000-0000000000c9', 'd8400000-0000-4000-8000-0000000000b0', 'Zz84 Filler', 'Bedroom', 1, now());
 insert into public.inventory_stock_movements(item_id, property_id, kind, quantity_before, quantity_after, reason, actor_user_id, idempotency_key, created_at)

@@ -33,14 +33,14 @@ end $f$;
 -- =============================================================================================================================================
 -- Part 1: the migration's own data work on the restored production copy (read before any fixture is added)
 -- =============================================================================================================================================
-select is((select array_agg(name order by name) from public.inventory_suppliers where created_by is null), array['KCC', 'Robinsons', 'SM']::text[], 'backfill: exactly the three shops SM, KCC and Robinsons were created from purchases');
+select ok(not exists (select 1 from public.properties where id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd') or (select array_agg(name order by name) from public.inventory_suppliers where created_by is null) = array['KCC', 'Robinsons', 'SM']::text[], 'backfill: exactly the three shops SM, KCC and Robinsons were created from purchases (production property only)');
 select ok(not exists (select 1 from public.inventory_purchases where supplier is not null and btrim(supplier) <> '' and supplier_id is null), 'backfill: every purchase with a supplier name is linked');
 select ok(not exists (select 1 from public.inventory_purchases where lower(btrim(supplier)) = 'test'), 'the test purchase is deleted');
-select ok(exists (select 1 from public.inventory_items where id = '0bdd783a-77f8-4211-bf53-e1cbebcc284b' and qty_on_hand = 0 and unit_cost is null), 'the test purchase''s effect on Liquid Hand Soap is reset (stock 0, no unit cost)');
-select is((select count(*)::int from public.inventory_audit_log where entity_id = '0bdd783a-77f8-4211-bf53-e1cbebcc284b' and action = 'test_purchase_removed_s86' and actor = 'migration' and before = '{"qty_on_hand": 1, "unit_cost": 1.00}'::jsonb and after = '{"qty_on_hand": 0, "unit_cost": null}'::jsonb), 1, 'and the reset has one audit row with before and after');
+select ok(not exists (select 1 from public.properties where id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd') or exists (select 1 from public.inventory_items where id = '0bdd783a-77f8-4211-bf53-e1cbebcc284b' and qty_on_hand = 0 and unit_cost is null), 'the test purchase''s effect on Liquid Hand Soap is reset (stock 0, no unit cost) (production property only)');
+select ok(not exists (select 1 from public.properties where id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd') or (select count(*)::int from public.inventory_audit_log where entity_id = '0bdd783a-77f8-4211-bf53-e1cbebcc284b' and action = 'test_purchase_removed_s86' and actor = 'migration' and before = '{"qty_on_hand": 1, "unit_cost": 1.00}'::jsonb and after = '{"qty_on_hand": 0, "unit_cost": null}'::jsonb) = 1, 'and the reset has one audit row with before and after (production property only)');
 select ok(not exists (select 1 from public.inventory_items where category in ('Cleaning', 'Utility / Cleaning / Bathroom', 'Guest Supplies')), 'category tidy: none of the three old names remain');
-select is((select count(distinct category)::int from public.inventory_items), 7, 'category tidy: seven categories');
-select ok((select count(*) from public.inventory_audit_log where action = 'category_tidy_s86' and actor = 'migration') > 0, 'category tidy: every moved item has an audit row');
+select ok(not exists (select 1 from public.properties where id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd') or (select count(distinct category)::int from public.inventory_items) = 7, 'category tidy: seven categories (production property only)');
+select ok(not exists (select 1 from public.properties where id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd') or (select count(*) from public.inventory_audit_log where action = 'category_tidy_s86' and actor = 'migration') > 0, 'category tidy: every moved item has an audit row (production property only)');
 
 -- =============================================================================================================================================
 -- Part 2: grants, shapes and the storage limits (static)
@@ -90,8 +90,8 @@ select ok(has_column_privilege('authenticated', 'public.inventory_items', 'locat
 select ok(not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'inventory_purchases'), 'inventory_purchases is not in the realtime publication (vacuously true where the publication does not exist)');
 select ok(not exists (select 1 from pg_policies where schemaname = 'storage' and tablename = 'objects' and policyname like 'inv photos anon%'), 'no inv photos anon policy remains (vacuously true where storage does not exist)');
 insert into _t select 'bucket', pg_temp.try($$select to_jsonb(b) from storage.buckets b where b.id = 'inventory-photos'$$);
-select ok((select v ->> 'err' = '42P01' from _t where k = 'bucket') or (select coalesce((v ->> 'file_size_limit')::bigint = 1048576 and v -> 'allowed_mime_types' = '["image/jpeg", "image/webp"]'::jsonb and (v ->> 'public')::boolean is not true, false) from _t where k = 'bucket'),
-  'the photos bucket: 1 MB limit, jpeg and webp only, not public (skipped where the storage schema does not exist)');
+select ok((select v ->> 'err' = '42P01' from _t where k = 'bucket') or (select v = 'null'::jsonb from _t where k = 'bucket') or (select coalesce((v ->> 'file_size_limit')::bigint = 1048576 and v -> 'allowed_mime_types' = '["image/jpeg", "image/webp"]'::jsonb and (v ->> 'public')::boolean is not true, false) from _t where k = 'bucket'),
+  'the photos bucket: 1 MB limit, jpeg and webp only, not public (skipped where the storage schema or the bucket does not exist: a fresh CI stack has no inventory-photos bucket when the migration runs, so its update finds nothing)');
 
 -- storage stand-in for a rehearsal copy (rolled back with the suite)
 do $$
@@ -436,8 +436,9 @@ select pg_temp.as_user('d8600000-0000-4000-8000-0000000000a1');
 insert into _t select 'lo_cl', pg_temp.try($$select public.inventory_item_update_v1('d8600000-0000-4000-8000-0000000000c1', '{"location": "Nope"}'::jsonb)$$);
 insert into _t select 'cat2', pg_temp.try($$select public.get_inventory_catalogue_v1('d8600000-0000-4000-8000-0000000000b0')$$);
 reset role;
-select is((select v ->> 'err' from _t where k = 'lo_cl'), '42501', 'update: a cleaner still cannot edit an item');
-select is((select e ->> 'location' from _t, jsonb_array_elements(v -> 'items') e where k = 'cat2' and e ->> 'id' = 'd8600000-0000-4000-8000-0000000000c1'), 'Closet 2', 'the catalogue shows the location to the cleaner');
+-- s124 (20261124000000_s124_item_edit.sql): a cleaner (submit_cleaning) may now edit an item's plain details, the location included, so the call succeeds.
+select ok((select v ->> 'ok' = 'true' and not (v ? 'err') from _t where k = 'lo_cl'), 'update: a cleaner may edit the location (s124); unit_cost stays refused above');
+select is((select e ->> 'location' from _t, jsonb_array_elements(v -> 'items') e where k = 'cat2' and e ->> 'id' = 'd8600000-0000-4000-8000-0000000000c1'), 'Nope', 'the catalogue shows the location to the cleaner (the one she just set, s124)');
 select is((select e ->> 'photo' from _t, jsonb_array_elements(v -> 'items') e where k = 'cat2' and e ->> 'id' = 'd8600000-0000-4000-8000-0000000000c1'), 'items/d8600000-0000-4000-8000-0000000000c1/d8600000-0000-4000-8000-000000000a01.webp', 'and the photo path (already in the catalogue since phase 1)');
 
 -- the shop of the newest purchase is shown only while the shop is active

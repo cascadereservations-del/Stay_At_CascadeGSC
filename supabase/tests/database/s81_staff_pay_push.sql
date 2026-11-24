@@ -205,7 +205,8 @@ select is((select v->>'reason' from _t where k = 'x_b_sent'), 'not_yours', 'a no
 select is((select v->>'ok' from _t where k = 'x_a_sent'), 'true', 'the payer can');
 select ok((select sent_said_at is not null and sent_said_at = (select (v #>> '{}')::timestamptz from _t where k = 'x_first_sent') from public.staff_pay_requests where id = (select (v->>'request_id')::uuid from _t where k = 'r1')), 'and saying it again is idempotent (the first time stays)');
 select is((select v->>'reason' from _t where k = 'x_b_take'), 'money_may_be_sent', 'after sent, the other admin cannot take over');
-select is((select v->>'reason' from _t where k = 'x_b_cancel'), 'money_may_be_sent', 'and a cancel is refused too');
+-- s84 (20261017010000_s84_calendar.sql): a cancel by anyone but the payer is refused as not_yours (it is checked before the sent-state check), still a refusal.
+select is((select v->>'reason' from _t where k = 'x_b_cancel'), 'not_yours', 'and a cancel by the other admin is refused too');
 select ok((select r->'sent_said_at' <> 'null'::jsonb and r->>'paying_by_user_id' = 'c5100000-0000-4000-8000-0000000000a3' from _t, jsonb_array_elements(v->'requests') r where k = 'x_b_list' and r->>'payee_name' = 'Zzhoney Reyes'), 'the list tells the other admin that she may already have sent it');
 select pg_temp.as_user('c5100000-0000-4000-8000-0000000000a3');
 insert into _t select 'x_a_unsent', public.staff_pay_admin_step_v1((select (v->>'request_id')::uuid from _t where k = 'r1'), 'not_sent');

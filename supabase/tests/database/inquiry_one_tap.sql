@@ -14,14 +14,17 @@
 begin;
 select plan(95);
 
+-- Always a (possibly empty) session-local call log: the stub writes to it, and where the real pg_net exists (CI) it stays empty and the guarded assertion never reads it.
+create temp table s76_calls(url text, headers jsonb, body jsonb);
+
 do $$
 begin
   if to_regprocedure('net.http_post(text,jsonb,jsonb,jsonb,integer)') is null and to_regclass('vault.decrypted_secrets') is null then
     create schema if not exists net;
-    create table net.s76_calls(url text, headers jsonb, body jsonb);
+
     create function net.http_post(url text, body jsonb default '{}'::jsonb, params jsonb default '{}'::jsonb,
                                   headers jsonb default '{}'::jsonb, timeout_milliseconds integer default 5000)
-      returns bigint language sql as $f$ insert into net.s76_calls values (url, headers, body); select 1::bigint $f$;
+      returns bigint language sql as $f$ insert into pg_temp.s76_calls values (url, headers, body); select 1::bigint $f$;
     create schema if not exists vault;
     create table vault.decrypted_secrets(name text, decrypted_secret text);
     insert into vault.decrypted_secrets values ('cascade_cron_shared_secret', 'S76-SYNTHETIC-ONLY');
@@ -153,7 +156,7 @@ select ok(exists (select 1 from public.booking_decisions d join public.payment_f
                      and r.reviewer_user_id = 'e4400000-0000-4000-8000-0000000000a1'),
   'receipt: one approved review by F, linked to the confirmed decision');
 select ok(case when current_setting('s76.stub') = 'on' then
-            (select count(*) = 1 from net.s76_calls where url like '%/functions/v1/guest-messages' and body = '{"booking_id": "c0de7644-0000-4000-8000-000000000001", "tapped": true}'::jsonb
+            (select count(*) = 1 from pg_temp.s76_calls where url like '%/functions/v1/guest-messages' and body = '{"booking_id": "c0de7644-0000-4000-8000-000000000001", "tapped": true}'::jsonb
                 and headers ->> 'x-cascade-cron-secret' = 'S76-SYNTHETIC-ONLY')
           else true end,
   'receipt: guest-messages is queued once with {booking_id, tapped: true} and the Vault secret header');
@@ -212,8 +215,8 @@ select ok((select count(*) = 1 from public.payment_evidence_candidates where boo
   'retry: no second candidate, review or decision, and the same review is reported');
 select is(current_setting('s76.r01b')::jsonb ->> 'already_processed', 'true', 'retry: the receipt path is idempotent too');
 select ok(case when current_setting('s76.stub') = 'on' then
-            (select count(*) = 1 from net.s76_calls where body ->> 'booking_id' = 'c0de7644-0000-4000-8000-000000000001')
-            and (select count(*) = 1 from net.s76_calls where body ->> 'booking_id' = 'c0de7644-0000-4000-8000-000000000002')
+            (select count(*) = 1 from pg_temp.s76_calls where body ->> 'booking_id' = 'c0de7644-0000-4000-8000-000000000001')
+            and (select count(*) = 1 from pg_temp.s76_calls where body ->> 'booking_id' = 'c0de7644-0000-4000-8000-000000000002')
           else true end,
   'retry: a replay with the same key does not queue guest-messages a second time');
 select is(current_setting('s76.r08')::jsonb - 'booking_id' - 'guest_name' - 'checkin' - 'checkout',

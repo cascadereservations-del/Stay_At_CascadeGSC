@@ -17,8 +17,8 @@ select ok((select p.prosrc !~ 'cleaned_at::date' and p.prosrc like '%cleaned_at 
              from pg_proc p where p.oid = 'public.staff_pay_candidates_v1()'::regprocedure),
   'staff_pay_candidates_v1 groups a clean by its Manila date');
 select ok((select p.prosrc !~ 'cleaned_at::date' and p.prosrc like '%cleaned_at at time zone ''Asia/Manila''%'
-             from pg_proc p where p.oid = 'public.staff_pay_request_create_v1(jsonb,uuid[],jsonb,text)'::regprocedure),
-  'staff_pay_request_create_v1 books a clean on its Manila date');
+             from pg_proc p where p.oid = 'public.staff_pay_request_create_v2(jsonb,uuid[],jsonb,jsonb,text)'::regprocedure),
+  'staff_pay_request_create_v2 books a clean on its Manila date (s99 moved the body there; create_v1 is a one-line wrapper over it)');
 select ok((select bool_and(p.prosecdef and p.proconfig = array['search_path=""']) from pg_proc p
             where p.oid in ('public.staff_pay_candidates_v1()'::regprocedure, 'public.staff_pay_request_create_v1(jsonb,uuid[],jsonb,text)'::regprocedure)),
   'both stay security definer with an empty search_path');

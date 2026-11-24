@@ -51,9 +51,12 @@ reset role;
 -- cleaner, aal1 (no finance)
 select set_config('request.jwt.claims', json_build_object('sub','e7600000-0000-4000-8000-000000000002','role','authenticated','aal','aal1','iat',extract(epoch from now())::bigint)::text, true);
 select set_config('role', 'authenticated', true);
-select ok(public.get_admin_overview_v1('e7600000-0000-4000-8000-0000000000a1') ? 'finance', 'the finance key is still returned to a cleaner');
-select is(public.get_admin_overview_v1('e7600000-0000-4000-8000-0000000000a1')->'finance', 'null'::jsonb,
-  'a cleaner gets finance = null, never a zero count');
+-- s84 (20261017010000_s84_calendar.sql) put admin_stays_gate_v1 in front of admin_stays_v1: a cleaner (read_operations only) is now
+-- refused outright (42501 not_authorized) instead of getting a finance = null overview. Either way she never gets a finance count.
+select throws_ok($$select public.get_admin_overview_v1('e7600000-0000-4000-8000-0000000000a1')$$, '42501', 'not_authorized',
+  'a cleaner is refused the overview (s84 gate), so no finance key is returned to her');
+select throws_ok($$select public.get_admin_overview_v1('e7600000-0000-4000-8000-0000000000a1')->'finance'$$, '42501', 'not_authorized',
+  'a cleaner never gets a finance count, not even a zero (refused, s84 gate)');
 reset role;
 
 select * from finish();
