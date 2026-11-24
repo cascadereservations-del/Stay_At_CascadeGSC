@@ -143,6 +143,7 @@ async function main() {
         migrationFile,
         source,
         validatedBaseline.recovery_assertion_only_migrations,
+        validatedBaseline.recovery_statement_omissions,
       );
       writeFileSync(path.join(tempMigrationDirectory, migrationFile), prepared, 'utf8');
     }

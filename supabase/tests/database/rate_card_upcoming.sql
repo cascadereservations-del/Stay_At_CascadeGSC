@@ -20,7 +20,8 @@ select is(public.get_rate_card_v1('e1000000-0000-4000-8000-000000000056') -> 'up
   jsonb_build_object('effective_from', (now() at time zone 'Asia/Manila')::date + 10, 'base', 1900, 'deposit_pct', 40,
     'tiers', '[{"min_nights":4,"pct":12}]'::jsonb, 'version_id', (select id from t56 where k = 'v2')),
   'upcoming carries its start, base, fee and tiers');
-select is(jsonb_array_length(public.get_rate_card_v1() -> 'upcoming'), 0, 'the production card has nothing scheduled');
+select ok(not exists (select 1 from public.properties where id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd')
+          or jsonb_array_length(public.get_rate_card_v1() -> 'upcoming') is not distinct from 0, 'the production card has nothing scheduled (production property only)');
 select ok(has_function_privilege('anon', 'public.get_rate_card_v1(uuid)', 'execute'), 'anyone may still read the card');
 
 reset role;

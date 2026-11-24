@@ -6,7 +6,7 @@
     "serve": "serve . -l 4173 --no-clipboard",
     "test:content": "node --test tests/content.test.mjs tests/design-contract.test.mjs tests/link-integrity.test.mjs tests/css-integrity.test.mjs tests/handoff-status.test.mjs tests/stay-status-content.test.mjs",
     "test:release-safety": "node --test tests/migrations/release-safety.test.mjs",
-    "test:recovery": "node --test tests/recovery/recovery-contract.test.mjs tests/recovery/function-refs.test.mjs",
+    "test:recovery": "node --test tests/recovery/recovery-contract.test.mjs tests/recovery/function-refs.test.mjs tests/recovery/statement-omissions.test.mjs tests/recovery/prod-seed-guards.test.mjs && node scripts/ci/check-function-refs.mjs && node scripts/ci/check-prod-seed-guards.mjs",
     "test:platform-safety": "node --test tests/observability/edge-observability-adoption.test.mjs tests/resilience/degraded-modes.test.mjs tests/security/endpoint-boundaries.test.mjs tests/migrations/release-safety.test.mjs tests/recovery/recovery-contract.test.mjs tests/recovery/function-refs.test.mjs",
     "preflight:local": "node scripts/migrations/preflight.mjs --local",
     "recovery:n8n": "node scripts/recovery/verify-n8n-restore.mjs",

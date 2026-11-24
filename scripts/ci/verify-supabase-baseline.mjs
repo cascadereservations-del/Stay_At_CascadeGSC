@@ -69,7 +69,7 @@ function writePreparedMigrations({ sourceSupabase, destinationSupabase, baseline
       continue;
     }
     const source = readFileSync(path.join(sourceDirectory, file), 'utf8');
-    const prepared = prepareRecoveryMigrationContent(file, source, baseline.manifest.recovery_assertion_only_migrations);
+    const prepared = prepareRecoveryMigrationContent(file, source, baseline.manifest.recovery_assertion_only_migrations, baseline.manifest.recovery_statement_omissions);
     writeFileSync(path.join(destinationDirectory, file), prepared, 'utf8');
   }
   return plan;
