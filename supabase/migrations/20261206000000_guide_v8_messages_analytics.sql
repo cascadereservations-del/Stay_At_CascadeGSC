@@ -269,6 +269,7 @@ begin
                  from public.guide_messages m where m.thread_id = t.id order by m.created_at desc limit 1))
     order by greatest(coalesce(t.last_guest_at, 'epoch'), coalesce(t.last_staff_at, 'epoch'), t.created_at) desc)
     from public.guide_threads t where t.property_id = p_property_id
+      and exists (select 1 from public.guide_messages m where m.thread_id = t.id)
       and t.checkout_date >= (now() at time zone 'Asia/Manila')::date - 30), '[]'::jsonb);
 end;
 $$;
@@ -290,7 +291,7 @@ $$;
 
 create function public.staff_guide_reply_v1(p_thread_id uuid, p_body text, p_client_msg_id text)
 returns jsonb language plpgsql volatile security definer set search_path = '' as $$
-declare v_t public.guide_threads%rowtype; v_body text := btrim(coalesce(p_body, '')); v_id uuid; v_at timestamptz;
+declare v_t public.guide_threads%rowtype; v_body text := btrim(coalesce(p_body, '')); v_id uuid; v_at timestamptz; v_recent int;
 begin
   select * into v_t from public.guide_threads where id = p_thread_id;
   if not found then raise exception using errcode = 'P0002', message = 'guide thread not found'; end if;
@@ -299,6 +300,12 @@ begin
   if char_length(v_body) not between 1 and 2000 then raise exception using errcode = '22023', message = 'reply length'; end if;
   if p_client_msg_id is null or char_length(p_client_msg_id) not between 8 and 80 then
     raise exception using errcode = '22023', message = 'client_msg_id'; end if;
+  -- a replay of an existing client_msg_id is answered first: never counted, never refused
+  select id, created_at into v_id, v_at from public.guide_messages where thread_id = p_thread_id and client_msg_id = p_client_msg_id;
+  if found then return jsonb_build_object('ok', true, 'id', v_id, 'at', v_at, 'already', true); end if;
+  select count(*) into v_recent from public.guide_messages
+   where thread_id = p_thread_id and sender = 'staff' and created_at > now() - interval '1 hour';
+  if v_recent >= 60 then return jsonb_build_object('ok', false, 'reason', 'rate'); end if;
   insert into public.guide_messages(thread_id, sender, body, staff_user_id, client_msg_id)
   values (p_thread_id, 'staff', v_body, auth.uid(), p_client_msg_id)
   on conflict (thread_id, client_msg_id) do nothing
@@ -329,12 +336,15 @@ $$;
 create function public.staff_guide_usage_v1(p_days int default 30,
   p_property_id uuid default '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd'::uuid)
 returns jsonb language plpgsql stable security definer set search_path = '' as $$
-declare v_since timestamptz := now() - make_interval(days => greatest(1, least(coalesce(p_days, 30), 365)));
+declare
+  -- exactly p_days Manila dates, today included: the window starts at Manila midnight of the first plotted day
+  v_first date := (now() at time zone 'Asia/Manila')::date - (greatest(1, least(coalesce(p_days, 30), 365)) - 1);
+  v_since timestamptz := ((now() at time zone 'Asia/Manila')::date - (greatest(1, least(coalesce(p_days, 30), 365)) - 1))::timestamp at time zone 'Asia/Manila';
 begin
   if not coalesce(public.current_staff_authorized('manage_guest_inbox', p_property_id), false) then
     raise exception using errcode = '42501', message = 'staff access denied'; end if;
   return jsonb_build_object(
-    'since', v_since,
+    'since', v_first,
     'devices', (select count(distinct device) from public.guide_events where at >= v_since),
     'verified_stays', (select count(distinct thread_id) from public.guide_events where at >= v_since and thread_id is not null),
     'opens', (select count(*) from public.guide_events where at >= v_since and name = 'guide_open'),

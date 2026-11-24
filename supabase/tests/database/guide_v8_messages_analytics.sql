@@ -4,7 +4,7 @@
 -- The push trigger is disabled inside this suite (rolled back with it) so a rehearsal copy can never queue an HTTP call to the production notify-staff-inbox function.
 -- Run: scripts/recovery/p6/migration-rehearsal-on-host.sh <backup-set> supabase/releases/20261206_guide_v8.release.json supabase/tests/database/guide_v8_messages_analytics.sql
 begin;
-select plan(73);
+select plan(82);
 
 -- baseline grants for a --no-acl rehearsal restore (idempotent, rolled back with the suite)
 grant usage on schema public, auth to anon, authenticated, service_role;
@@ -256,6 +256,55 @@ select ok((select (v ->> 'devices')::int = 3 and (v ->> 'verified_stays')::int =
 select ok((select (v -> 'funnel' ->> 'verify_ok')::int = 1 and (v -> 'funnel' ->> 'message_sent')::int = 2 and (v -> 'funnel' ->> 'verify_start')::int = 0 from _t where k = 'ow_usage'), 'usage: the funnel counts one verify_ok device and the two guest messages');
 select ok((select jsonb_array_length(v -> 'sections') = 2 and exists (select 1 from jsonb_array_elements(v -> 'sections') s where s ->> 'section' = 'wifi' and (s ->> 'views')::int = 1 and (s ->> 'devices')::int = 1) from _t where k = 'ow_usage'), 'usage: sections lists wifi with one view from one device');
 select ok((select jsonb_array_length(v -> 'top_taps') = 1 and v -> 'top_taps' -> 0 ->> 'target' = 'card:wifi' and (v -> 'top_taps' -> 0 ->> 'taps')::int = 1 and v -> 'searches_without_result' = '[]'::jsonb and jsonb_array_length(v -> 'by_day') >= 1 from _t where k = 'ow_usage'), 'usage: the single tap is listed, no empty searches, and the by_day series is present');
+
+-- =============================================================================================================================================
+-- 9b. Review round 1: usage window is exactly p_days Manila dates; the list hides message-less threads; staff replies are capped
+-- =============================================================================================================================================
+-- two probe events straddling Manila midnight of the first plotted day of a 3-day window (today - 2): one minute after it, one minute before it
+insert into public.guide_events(at, device, name) values
+  (((pg_temp.today() - 2)::timestamp at time zone 'Asia/Manila') + interval '1 minute', 'zz135dev71', 'guide_open'),
+  (((pg_temp.today() - 2)::timestamp at time zone 'Asia/Manila') - interval '1 minute', 'zz135dev72', 'guide_open');
+select pg_temp.as_user(pg_temp.id('01'));
+insert into _t values ('us3', pg_temp.try(format('select public.staff_guide_usage_v1(3, %L::uuid)', pg_temp.id('b1'))));
+insert into _t values ('us1', pg_temp.try(format('select public.staff_guide_usage_v1(1, %L::uuid)', pg_temp.id('b1'))));
+insert into _t values ('us30', pg_temp.try(format('select public.staff_guide_usage_v1(30, %L::uuid)', pg_temp.id('b1'))));
+reset role;
+select ok((select (v ->> 'since')::date = pg_temp.today() - 2 from _t where k = 'us3') and (select (v ->> 'since')::date = pg_temp.today() from _t where k = 'us1'), 'usage window: since is the Manila date of the first plotted day (today minus p_days plus 1), today for one day');
+select ok((select (v ->> 'devices')::int = 4 from _t where k = 'us3') and (select (v ->> 'devices')::int = 4 from _t where k = 'us30'), 'usage window: an event one minute after Manila midnight of the first day is counted, one minute before it is not in a 3-day window (3 original devices + dev71)');
+select ok((select (select min((d ->> 'day')::date) from jsonb_array_elements(v -> 'by_day') d) = pg_temp.today() - 2 and (select max((d ->> 'day')::date) from jsonb_array_elements(v -> 'by_day') d) <= pg_temp.today() from _t where k = 'us3'), 'usage window: by_day starts on the first plotted Manila date and never runs past today');
+select ok((select jsonb_array_length(v -> 'by_day') <= 3 from _t where k = 'us3'), 'usage window: a 3-day window holds at most three Manila dates');
+delete from public.guide_events where device in ('zz135dev71', 'zz135dev72');
+
+-- a guest who only verified (thread, no message) is not an open conversation
+insert into public.guide_threads(id, property_id, calendar_event_id, checkin_date, checkout_date, guest_label, channel)
+values (pg_temp.id('d1'), pg_temp.id('b1'), pg_temp.id('d2'), pg_temp.today(), pg_temp.today() + 1, 'Zz Mute', 'airbnb');
+select pg_temp.as_user(pg_temp.id('01'));
+insert into _t values ('th_mute', pg_temp.try(format('select public.staff_guide_threads_v1(%L::uuid)', pg_temp.id('b1'))));
+reset role;
+insert into public.guide_messages(thread_id, sender, body, client_msg_id) values (pg_temp.id('d1'), 'guest', 'First words', 'zz135-mute-0001');
+select pg_temp.as_user(pg_temp.id('01'));
+insert into _t values ('th_spoke', pg_temp.try(format('select public.staff_guide_threads_v1(%L::uuid)', pg_temp.id('b1'))));
+reset role;
+select ok((select jsonb_array_length(v) = 1 and not exists (select 1 from jsonb_array_elements(v) t where t ->> 'guest_label' = 'Zz Mute') from _t where k = 'th_mute'), 'staff list: a thread with no message at all is not listed');
+select ok((select jsonb_array_length(v) = 2 and exists (select 1 from jsonb_array_elements(v) t where t ->> 'guest_label' = 'Zz Mute' and t -> 'last' ->> 'body' = 'First words') from _t where k = 'th_spoke'), 'staff list: the same thread is listed as soon as it has one message');
+delete from public.guide_messages where thread_id = pg_temp.id('d1');
+delete from public.guide_threads where id = pg_temp.id('d1');
+
+-- staff reply cap: 60 per thread per hour; a replay of a stored client_msg_id is never counted or refused
+insert into public.guide_messages(thread_id, sender, body, staff_user_id, client_msg_id)
+select pg_temp.tid()::uuid, 'staff', 'Cap filler ' || g, pg_temp.id('01'), 'zz135-cap-' || lpad(g::text, 4, '0') from generate_series(1, 59) g;
+select pg_temp.as_user(pg_temp.id('01'));
+insert into _t values ('cap_over', pg_temp.try(format('select public.staff_guide_reply_v1(%L::uuid, %L, %L)', pg_temp.tid(), 'Sixty-first', 'zz135-rep-cap01')));
+insert into _t values ('cap_replay', pg_temp.try(format('select public.staff_guide_reply_v1(%L::uuid, %L, %L)', pg_temp.tid(), 'Other words', 'zz135-rep-0001')));
+reset role;
+select ok((select v ->> 'ok' = 'false' and v ->> 'reason' = 'rate' and not v ? 'err' from _t where k = 'cap_over') and (select count(*) = 60 from public.guide_messages where thread_id = pg_temp.tid()::uuid and sender = 'staff'), 'staff reply cap: the 61st reply in an hour is refused with reason rate (a JSON refusal, not an exception) and stores nothing');
+select ok((select v ->> 'ok' = 'true' and v ->> 'already' = 'true' from _t where k = 'cap_replay') and (select count(*) = 60 from public.guide_messages where thread_id = pg_temp.tid()::uuid and sender = 'staff'), 'staff reply cap: replaying an existing client_msg_id at the cap still answers already, and is not counted');
+update public.guide_messages set created_at = now() - interval '2 hours' where client_msg_id = 'zz135-cap-0001';
+select pg_temp.as_user(pg_temp.id('01'));
+insert into _t values ('cap_after', pg_temp.try(format('select public.staff_guide_reply_v1(%L::uuid, %L, %L)', pg_temp.tid(), 'Fits again', 'zz135-rep-cap02')));
+reset role;
+select ok((select v ->> 'ok' = 'true' and not v ? 'already' from _t where k = 'cap_after'), 'staff reply cap: messages older than an hour are not counted, so one more reply fits');
+delete from public.guide_messages where client_msg_id like 'zz135-cap-%' or client_msg_id in ('zz135-rep-cap01', 'zz135-rep-cap02');
 
 -- =============================================================================================================================================
 -- 10. Expiry and housekeeping

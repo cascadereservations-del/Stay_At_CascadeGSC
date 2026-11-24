@@ -10,7 +10,7 @@
     "20261206000000_guide_v8_messages_analytics.sql"
   ],
   "migration_sha256": {
-    "20261206000000_guide_v8_messages_analytics.sql": "5602950d120a12a65296fa2462de93c74bd09be20e94eb62563e0aab7bb430ad"
+    "20261206000000_guide_v8_messages_analytics.sql": "f01d60e13af7559c3a81a3f85ac2346ddbdc109437774c185285018c0cf97e62"
   },
   "backup": {
     "required": true,
