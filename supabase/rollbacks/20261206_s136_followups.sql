@@ -1,6 +1,8 @@
 -- Rollback of release s136_followups_20261206. Restores the cf_confirm_flow four-argument decline body (md5 42905864d5b773d0503a2e518ec26a50) and the CURRENT_DATE default of inventory_purchases.purchased_at.
 -- Guard: the live decline must be this release (md5 7cf6e1a294db9ede851253de7c93f4f9) or already the cf body; the default must be manila_today() or current_date; 55000 on anything else. Grants restated (same signature).
--- No begin/commit: the runner owns the transaction.
+-- run-sql-on-host.sh does NOT wrap a file: this script carries its own begin/commit, so a failed guard or statement leaves nothing half-rolled-back.
+
+begin;
 
 do $g$
 declare v text; d text;
@@ -113,3 +115,5 @@ comment on function public.staff_decline_direct_booking_v1(uuid, text, text, tex
   'Decline a pending direct request (cancel, release the dates, void the income row) and tell the guest through guest-messages (key declined). p_reason_code: dates, payment, guest_cancel, duplicate (nothing is sent) or other; null or unknown reads as other. The staff note is never sent to the guest.';
 
 alter table public.inventory_purchases alter column purchased_at set default current_date;
+
+commit;

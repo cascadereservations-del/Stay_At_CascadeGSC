@@ -1,19 +1,25 @@
 -- 20261206000000_guide_v8_messages_analytics.sql
 -- Guest guide v8.0.0: (1) two-way guest <-> host messages inside the guide, read and answered from the Cascade Staff app,
 -- (2) privacy-safe usage analytics (which sections, cards and buttons guests open), read from the Staff app.
--- NOT APPLIED. Ships through the stay-site release flow (copy into stay-site/supabase/migrations, add a release contract,
--- rehearse with pgTAP, Lloyd runs the release block). Rollback: backend/rollback_20261206_guide_v8.sql. Checks: backend/verify_20261206_guide_v8.sql.
+-- NOT APPLIED. Ships through the stay-site release flow (release contract supabase/releases/20261206_guide_v8.release.json,
+-- rehearsal with pgTAP on a restored copy, Lloyd runs the release block). Rollback: supabase/rollbacks/20261206_guide_v8.sql.
+-- Checks: supabase/sql/2026-12-06-guide-v8-verify.sql. Single-property by design: the staff usage report answers only for the default property.
 --
 -- Design rules
 --  * Additive only. No existing table or function body is changed. verify_booking is CALLED, not replaced.
 --  * The guide never sees a table. Everything goes through SECURITY DEFINER functions with search_path ''.
 --  * Guest auth = the guide's own check (check-in date + booking-name initial, verify_booking), minted into a random
---    session token. Only the sha256 of the token is stored. A token lives until checkout + 1 day.
---  * Minting is throttled per caller IP (8 failures / 15 min, like verify_admin_pin) and per check-in date (20 / 15 min).
+--    session token. Only the sha256 of the token is stored. A token lives until the end of checkout + 1 day, Manila time
+--    (expires_at = Manila midnight of checkout + 2 days).
+--  * A booking whose name is a placeholder (Reserved / Airbnb / Not / empty: verify_booking then matches ANY initial) never gets a
+--    session: reason 'no_name'. Minting is throttled per caller IP (8 failures / 15 min, like verify_admin_pin; the key is
+--    cf-connecting-ip, else the rightmost x-forwarded-for entry, never the client-controlled leftmost one), per check-in date
+--    (10 failures / 15 min) and per thread (20 sessions / day, reason 'busy').
 --  * Messages hold no contact capture: the guide never asks for an e-mail or phone (Airbnb policy effective 2026-11-20,
 --    "Limiting host-imposed contracts and other requirements"). It is an optional channel; Airbnb messaging stays offered.
 --  * Analytics hold no personal data: a random per-device id, an optional thread id (verified guests), event name, section,
---    target id, a number, and a small meta object. No free text from the guest is ever logged as an event.
+--    target id, a number, and a small meta object of whitelisted keys with short scalar values (free text is dropped).
+--    Capped per device (600 / hour) and globally (3000 / minute, then dropped silently), counted by arrival time, not the client clock.
 --  * Staff functions need an active owner/admin (current_staff_authorized('manage_guest_inbox', property)), the same gate as
 --    the shared inbox (20260905040000).
 --  * A new guest message asks notify-staff-inbox (pg_net + vault secret, guarded exactly like ops_notices_push_trg) to push
@@ -83,7 +89,8 @@ create index guide_auth_attempts_date_idx on public.guide_auth_attempts(tried_da
 
 create table public.guide_events (
   id         bigint generated always as identity primary key,
-  at         timestamptz not null default now(),
+  at         timestamptz not null default now(),   -- client clock, clamped to [now - 2 days, now]; used for reports
+  received_at timestamptz not null default now(),  -- arrival time; used by the rate caps (a backdated 'at' cannot dodge them)
   device     text not null check (device ~ '^[A-Za-z0-9_-]{8,40}$'),
   thread_id  uuid references public.guide_threads(id) on delete set null,
   verified   boolean not null default false,
@@ -95,7 +102,8 @@ create table public.guide_events (
   version    text check (version is null or version ~ '^[0-9.]{1,12}$')
 );
 create index guide_events_at_idx on public.guide_events(at desc);
-create index guide_events_device_idx on public.guide_events(device, at desc);
+create index guide_events_device_idx on public.guide_events(device, received_at desc);
+create index guide_events_received_idx on public.guide_events(received_at desc);
 
 alter table public.guide_threads       enable row level security;
 alter table public.guide_sessions      enable row level security;
@@ -105,6 +113,10 @@ alter table public.guide_events        enable row level security;
 revoke all on public.guide_threads, public.guide_sessions, public.guide_messages, public.guide_auth_attempts, public.guide_events
   from public, anon, authenticated;
 -- no policies: only the SECURITY DEFINER functions below (and service_role) touch these tables.
+-- explicit ACLs: service_role (sweeps, exports) keeps full access; the identity sequences are closed to the client roles.
+grant all on public.guide_threads, public.guide_sessions, public.guide_messages, public.guide_auth_attempts, public.guide_events to service_role;
+revoke all on sequence public.guide_auth_attempts_id_seq, public.guide_events_id_seq from public, anon, authenticated;
+grant usage, select on sequence public.guide_auth_attempts_id_seq, public.guide_events_id_seq to service_role;
 
 -- 2. helpers ------------------------------------------------------------------------------------------------------------------------------
 create function public.guide_token_thread_v1(p_token text) returns uuid
@@ -122,11 +134,17 @@ create function public.guide_session_v1(p_checkin_date date, p_initial text, p_c
   p_property_id uuid default '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd'::uuid)
 returns jsonb language plpgsql volatile security definer set search_path = '' as $$
 declare
-  -- throttle key: the caller's IP as PostgREST passes it (not chosen by the caller), else the client id they send
-  v_ip text := nullif(split_part(coalesce(current_setting('request.headers', true)::json->>'x-forwarded-for', ''), ',', 1), '');
-  v_client text := left(coalesce('ip:' || btrim(v_ip), nullif(btrim(p_client), ''), 'anon'), 80);
-  v_fail_client int; v_fail_date int;
+  -- throttle key: the caller's address as the edge reports it. cf-connecting-ip is written by Cloudflare itself; failing that the RIGHTMOST
+  -- x-forwarded-for entry (the one the last trusted proxy appended). The LEFTMOST entry is whatever the caller sent and is never used.
+  -- With neither header (a direct call) the key falls back to the client id the caller sends: rotating it is possible there, which is why the
+  -- per-check-in-date cap below exists.
+  v_hdr json := nullif(current_setting('request.headers', true), '')::json;
+  v_xff text[] := string_to_array(coalesce(v_hdr->>'x-forwarded-for', ''), ',');
+  v_ip text := coalesce(nullif(btrim(v_hdr->>'cf-connecting-ip'), ''), nullif(btrim(v_xff[cardinality(v_xff)]), ''));
+  v_client text := left(coalesce('ip:' || v_ip, nullif(btrim(p_client), ''), 'anon'), 80);
+  v_fail_client int; v_fail_date int; v_minted int;
   v_vb jsonb; v_cal record; v_thread public.guide_threads%rowtype;
+  -- Manila calendar date throughout (the property's clock); verify_booking itself judges expiry with the database date
   v_token text; v_channel text; v_today date := (now() at time zone 'Asia/Manila')::date;
 begin
   select count(*) into v_fail_client from public.guide_auth_attempts
@@ -134,7 +152,7 @@ begin
   -- per check-in date: stops initial guessing for one stay even when the guesser rotates addresses
   select count(*) into v_fail_date from public.guide_auth_attempts
    where not ok and at > now() - interval '15 minutes' and tried_date = p_checkin_date;
-  if v_fail_client >= 8 or v_fail_date >= 20 then
+  if v_fail_client >= 8 or v_fail_date >= 10 then
     return jsonb_build_object('ok', false, 'reason', 'throttled', 'throttled', true);
   end if;
 
@@ -150,6 +168,12 @@ begin
   if (v_vb->>'expired') = 'true' then
     return jsonb_build_object('ok', false, 'reason', 'expired');
   end if;
+  -- verify_booking maps a placeholder name (Reserved / Airbnb / Not / empty) to first_name 'Guest' and then matches ANY initial: that is no
+  -- proof of identity, so no thread and no token. It counts as a failed attempt so probing dates for such bookings is throttled.
+  if lower(coalesce(nullif(btrim(v_vb->>'first_name'), ''), 'guest')) = 'guest' then
+    insert into public.guide_auth_attempts(client, tried_date, ok) values (v_client, p_checkin_date, false);
+    return jsonb_build_object('ok', false, 'reason', 'no_name');
+  end if;
   -- messaging opens three days before arrival and closes the day after checkout (the guide's own expiry)
   if p_checkin_date > v_today + 3 then
     return jsonb_build_object('ok', false, 'reason', 'too_early', 'opens_on', p_checkin_date - 3);
@@ -159,6 +183,13 @@ begin
    where property_id = p_property_id and status = 'confirmed' and checkin_date = p_checkin_date
    order by updated_at desc limit 1;
   if not found then return jsonb_build_object('ok', false, 'reason', 'no_match'); end if;
+
+  -- per thread: at most 20 sessions a day (a guest has a handful of devices; more is a loop or an attack)
+  select count(*) into v_minted from public.guide_sessions s join public.guide_threads t on t.id = s.thread_id
+   where t.calendar_event_id = v_cal.id and s.created_at > now() - interval '1 day';
+  if v_minted >= 20 then
+    return jsonb_build_object('ok', false, 'reason', 'busy');
+  end if;
 
   v_channel := case when coalesce(v_cal.raw_summary, '') ilike 'direct%' then 'direct' else 'airbnb' end;
 
@@ -170,6 +201,7 @@ begin
   returning * into v_thread;
 
   v_token := encode(extensions.gen_random_bytes(32), 'hex');
+  -- expires_at: Manila midnight at the start of checkout + 2 days, i.e. the end of the day after checkout, Manila time
   insert into public.guide_sessions(token_hash, thread_id, expires_at)
   values (encode(extensions.digest(v_token, 'sha256'), 'hex'), v_thread.id,
           ((v_thread.checkout_date + 2)::timestamp at time zone 'Asia/Manila'));
@@ -224,24 +256,38 @@ revoke all on function public.guide_send_v1(text, text, text) from public;
 grant execute on function public.guide_send_v1(text, text, text) to anon, authenticated;
 
 -- 6. guest: analytics batch -------------------------------------------------------------------------------------------------------------
+-- Anonymous and unauthenticated by design, so it is capped three ways: 50 events a batch, 600 events an hour per device, 3000 events a minute
+-- across all devices (then the batch is dropped silently: ok, stored 0). The caps count arrival time (received_at), not the client's clock.
+-- meta keeps only the known keys below and only short scalar values (a number, a boolean, or a token-like string up to 40 characters);
+-- anything else, free text included, is dropped before it is stored.
 create function public.guide_track_v1(p_device text, p_events jsonb, p_token text default null, p_version text default null)
 returns jsonb language plpgsql volatile security definer set search_path = '' as $$
-declare v_thread uuid := public.guide_token_thread_v1(p_token); v_recent int; v_n int := 0; e jsonb;
+declare v_thread uuid := public.guide_token_thread_v1(p_token); v_recent int; v_global int; v_n int := 0; e jsonb; v_meta jsonb;
 begin
   if p_device is null or p_device !~ '^[A-Za-z0-9_-]{8,40}$' then return jsonb_build_object('ok', false, 'reason', 'device'); end if;
   if p_events is null or jsonb_typeof(p_events) <> 'array' or jsonb_array_length(p_events) > 50 then
     return jsonb_build_object('ok', false, 'reason', 'events'); end if;
-  select count(*) into v_recent from public.guide_events where device = p_device and at > now() - interval '1 hour';
+  select count(*) into v_recent from public.guide_events where device = p_device and received_at > now() - interval '1 hour';
   if v_recent >= 600 then return jsonb_build_object('ok', false, 'reason', 'rate'); end if;
+  select count(*) into v_global from public.guide_events where received_at > now() - interval '1 minute';
+  if v_global >= 3000 then return jsonb_build_object('ok', true, 'stored', 0); end if;
   for e in select * from jsonb_array_elements(p_events) loop
     begin
+      v_meta := '{}'::jsonb;
+      if jsonb_typeof(e->'meta') = 'object' then
+        select coalesce(jsonb_object_agg(m.key, m.value), '{}'::jsonb) into v_meta
+          from jsonb_each(e->'meta') m
+         where m.key in ('k', 'src', 'kind', 'lang', 'tab', 'theme', 'dir', 'n', 'from', 'to', 'result', 'method', 'status', 'count', 'len', 'ok')
+           and (jsonb_typeof(m.value) in ('number', 'boolean')
+                or (jsonb_typeof(m.value) = 'string' and (m.value #>> '{}') ~ '^[A-Za-z0-9_:.-]{1,40}$'));
+      end if;
       insert into public.guide_events(at, device, thread_id, verified, name, section, target, value, meta, version)
       values (
         least(now(), greatest(now() - interval '2 days', coalesce((e->>'at')::timestamptz, now()))),
         p_device, v_thread, v_thread is not null,
         e->>'name', nullif(e->>'section', ''), nullif(e->>'target', ''),
         case when jsonb_typeof(e->'value') = 'number' then (e->>'value')::numeric end,
-        case when jsonb_typeof(e->'meta') = 'object' then e->'meta' else '{}'::jsonb end,
+        v_meta,
         nullif(p_version, ''));
       v_n := v_n + 1;
     exception when others then null; -- one bad event never drops the batch
@@ -333,6 +379,8 @@ end;
 $$;
 
 -- 8. staff: usage report ------------------------------------------------------------------------------------------------------------------
+-- SINGLE-PROPERTY: guide_events has no property column (an event is a device tapping a section of the one guest guide), so the report
+-- belongs to the default property only (the id every s13x function defaults to). For any other property id it answers an empty, flagged object.
 create function public.staff_guide_usage_v1(p_days int default 30,
   p_property_id uuid default '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd'::uuid)
 returns jsonb language plpgsql stable security definer set search_path = '' as $$
@@ -343,6 +391,10 @@ declare
 begin
   if not coalesce(public.current_staff_authorized('manage_guest_inbox', p_property_id), false) then
     raise exception using errcode = '42501', message = 'staff access denied'; end if;
+  if p_property_id is distinct from '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd'::uuid then
+    return jsonb_build_object('single_property', true, 'since', v_first, 'devices', 0, 'verified_stays', 0, 'opens', 0,
+      'by_day', '[]'::jsonb, 'sections', '[]'::jsonb, 'top_taps', '[]'::jsonb, 'funnel', '{}'::jsonb, 'searches_without_result', '[]'::jsonb);
+  end if;
   return jsonb_build_object(
     'since', v_first,
     'devices', (select count(distinct device) from public.guide_events where at >= v_since),

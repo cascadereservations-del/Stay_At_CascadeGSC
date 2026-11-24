@@ -24,5 +24,16 @@ select 'all definer functions pin search_path', bool_and(p.proconfig @> array['s
 union all
 select 'push trigger present', exists (select 1 from pg_trigger where tgname = 'guide_messages_push' and not tgisinternal)
 union all
+select 'authenticated has no execute on the token helper, the sweep or the push trigger function', not bool_or(has_function_privilege('authenticated', f, 'execute')) from unnest(array[
+  'public.guide_token_thread_v1(text)','public.guide_sweep_v1()','public.guide_messages_push_trg()']::regprocedure[]) f
+union all
+select 'service_role may execute the sweep', has_function_privilege('service_role', 'public.guide_sweep_v1()', 'execute')
+union all
+select 'service_role has full access to the five tables', bool_and(has_table_privilege('service_role', 'public.' || t, p)) from
+  unnest(array['guide_threads','guide_sessions','guide_messages','guide_auth_attempts','guide_events']) t, unnest(array['select','insert','update','delete']) p
+union all
+select 'identity sequences closed to anon and authenticated', not bool_or(has_sequence_privilege(r, 'public.' || q, p)) from
+  unnest(array['anon','authenticated']) r, unnest(array['guide_auth_attempts_id_seq','guide_events_id_seq']) q, unnest(array['usage','select','update']) p
+union all
 select 'bad token is refused', (public.guide_thread_v1(repeat('0', 64)))->>'reason' = 'session';
 rollback;

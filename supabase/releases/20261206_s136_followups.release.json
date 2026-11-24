@@ -53,58 +53,73 @@
     }
   ],
   "accepted_failing_tests": {
-    "note": "Baseline of a --no-acl restore of the production backup (DATA: the copy lacks the rows the suite expects; ACL: the copy lacks the grants). Each fails identically on a scratch DB without this release. Any failure outside these numbers stops the release. Copied from the s134 contract; re-measure on the rehearsal copy.",
+    "note": "Measured on the s136 round-2 rehearsals (restored production backup cascade-supabase-20261124T145205Z, --no-acl copy) with CASCADE_REHEARSAL_PRE_SQL=supabase/releases/support/s136_pre_grants.sql (the baseline grants a --no-acl restore lacks). Test NUMBERS, not counts, are the gate: any not-ok outside these lists stops the release. kind acl = the copy's grants differ from production (test 39 of s110 is data: the copy holds 13 rate rows, the test wants 2). s110_kpi_supply_laundry: 41 psql errors abort the suite after line 396 (tests 133-150 never run), a consequence of the acl failure at 131/132 (permission denied for table inventory_receipt_drafts). The new suites guide_v8_messages_analytics and s136_followups fail nothing.",
+    "pre_sql": "supabase/releases/support/s136_pre_grants.sql",
     "guide_v8_messages_analytics": {
       "kind": "none",
       "tests": []
     },
-    "s89_admin_hub": {
+    "s136_followups": {
+      "kind": "none",
+      "tests": []
+    },
+    "admin_access_simplification": {
       "kind": "acl",
       "tests": [
-        2,
-        62
+        7,
+        9
       ]
     },
-    "s111_kpi_stay_avg": {
+    "confirm_flow": {
       "kind": "acl",
       "tests": [
-        56,
-        57
+        7,
+        9
       ]
     },
-    "s115_integrity": {
+    "inquiry_one_tap": {
       "kind": "acl",
       "tests": [
-        85,
-        86,
-        87,
-        88,
-        89
-      ]
-    },
-    "s131_meter_cycle": {
-      "kind": "acl",
-      "tests": [
-        64,
-        65
-      ]
-    },
-    "s132_inventory_update": {
-      "kind": "acl",
-      "tests": [
-        1,
-        2,
         4,
-        64,
-        102
+        5
       ]
     },
-    "s133_option_stock": {
+    "s104_close_gaps": {
       "kind": "acl",
       "tests": [
-        3,
-        4,
-        81
+        11,
+        12,
+        13,
+        15,
+        16
+      ]
+    },
+    "s110_kpi_supply_laundry": {
+      "kind": "acl",
+      "tests": [
+        39,
+        131,
+        132
+      ],
+      "data_tests": [
+        39
+      ],
+      "note": "41 errors abort the suite after line 396; tests 133-150 never run"
+    },
+    "s134_expenses": {
+      "kind": "acl",
+      "tests": [
+        5,
+        6,
+        7,
+        64,
+        143
+      ]
+    },
+    "s135_pay_extras_fix": {
+      "kind": "acl",
+      "tests": [
+        6
       ]
     }
   },
@@ -128,8 +143,8 @@
     "mode": "widening",
     "old_reader": true,
     "old_writer": true,
-    "verified": false,
-    "evidence": "Not rehearsed on a restored production copy at the time of writing; see docs/s136 for the rehearsal log. Replace this text with the rehearsal result."
+    "verified": true,
+    "evidence": "Rehearsed 2026-11-25 on a restored copy of production backup cascade-supabase-20261124T145205Z on host alfred, log .rehearsal-logs/rehearsal-s136_followups-r2.log, exit 8 only because of the accepted_failing_tests baseline. Sequence in one container: ACL snapshot, apply 20261206100000, 6 forward checks (in SQL), rollback supabase/rollbacks/20261206_s136_followups.sql with checks (decline md5 back to 42905864d5b773d0503a2e518ec26a50, purchased_at default back to current_date, decline grants authenticated only, table count and all other ACLs identical), apply again, the 6 forward checks again, state fingerprint identical to the first apply. The runner then ran the 6 forward checks a third time: 6 passed, 0 failed. pgTAP s136_followups 41 of 41; the seven baseline suites (admin_access_simplification, confirm_flow, inquiry_one_tap, s104_close_gaps, s110_kpi_supply_laundry, s134_expenses, s135_pay_extras_fix) fail exactly the numbers in accepted_failing_tests and none else (compared by number). Rehearsal-copy note: the pre-SQL gives service_role execute on the decline function before the migration; the migration and its rollback both restate authenticated only (as production already is after cf_confirm_flow), so that one function's ACL is checked explicitly rather than against the snapshot. Temporary rollback and re-apply files were untracked and deleted afterwards."
   },
   "approvals": {
     "production_required": true,

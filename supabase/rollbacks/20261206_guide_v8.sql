@@ -1,4 +1,5 @@
--- rollback_20261206_guide_v8.sql: removes everything 20261206000000_guide_v8_messages_analytics.sql created.
+-- rollback_20261206_guide_v8.sql: removes everything 20261206000000_guide_v8_messages_analytics.sql created (five tables with their indexes, identity sequences and
+-- grants, twelve functions, the trigger). run-sql-on-host.sh does NOT wrap a file: this script carries its own begin/commit.
 -- Guest messages and usage events are deleted with their tables. Export them first if they matter:
 --   copy (select * from public.guide_messages) to stdout with csv header;  (run through the read-only runner)
 begin;
