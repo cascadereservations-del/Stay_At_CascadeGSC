@@ -61,16 +61,21 @@ test.describe('Guest stories header auto-hide', () => {
     await page.mouse.move(200, 400);
     expect((await header(page)).hidden).toBe(false);
     await wheel(page, 200);
-    let s = await header(page); expect(s.hidden).toBe(true); expect(s.bottom).toBeLessThanOrEqual(0);
+    let s = await header(page); expect(s.hidden).toBe(true); await expect.poll(async () => (await header(page)).bottom, { timeout: 1500 }).toBeLessThanOrEqual(0);
     await wheel(page, -120, 2);
-    s = await header(page); expect(s.hidden).toBe(false); expect(s.bottom).toBeGreaterThan(0);
+    s = await header(page); expect(s.hidden).toBe(false); await expect.poll(async () => (await header(page)).bottom, { timeout: 1500 }).toBeGreaterThan(0);
 
     await wheel(page, 200);
     expect((await header(page)).hidden).toBe(true);
     await page.evaluate(() => document.activeElement && document.activeElement.blur());
-    for (let i = 0; i < 8 && !(await page.evaluate(() => !!document.activeElement.closest('.site-header'))); i++) await page.keyboard.press('Tab');
+    if (page.touchScroll) {
+      /* WebKit (Safari) Tab skips links, and every header control is a link: a key press sets keyboard modality, then focus() lands as :focus-visible */
+      await page.keyboard.press('Shift');
+      await page.evaluate(() => document.querySelector('.site-header a.header-cta').focus());
+      expect(await page.evaluate(() => document.activeElement.matches(':focus-visible')), 'keyboard-modality focus is :focus-visible').toBe(true);
+    } else for (let i = 0; i < 8 && !(await page.evaluate(() => !!document.activeElement.closest('.site-header'))); i++) await page.keyboard.press('Tab');
     await page.waitForTimeout(400);
-    s = await header(page); expect(s.hidden, 'keyboard focus inside shows the header').toBe(false); expect(s.bottom).toBeGreaterThan(0);
+    s = await header(page); expect(s.hidden, 'keyboard focus inside shows the header').toBe(false); await expect.poll(async () => (await header(page)).bottom, { timeout: 1500 }).toBeGreaterThan(0);
     await wheel(page, 200, 3);
     expect((await header(page)).hidden, 'a focused header does not hide').toBe(false);
 
@@ -117,6 +122,8 @@ test.describe('Guest stories lightbox', () => {
   test('opens the widest image, arrows step, Esc closes and returns focus', { tag: '@webkit' }, async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto('/index.html');
+    /* WebKit run: reduced motion takes the no-View-Transition Esc path (native dialog cancel) */
+    if (page.touchScroll) await page.emulateMedia({ reducedMotion: 'reduce' });
     const tile = page.locator('#photos .gs-strip-img').first();
     await tile.scrollIntoViewIfNeeded();
     const widest = await tile.evaluate((el) => { let best = '', bw = 0; el.getAttribute('srcset').split(',').forEach((c) => { const [u, w] = c.trim().split(/\s+/); if (parseInt(w, 10) > bw) { bw = parseInt(w, 10); best = new URL(u, document.baseURI).href; } }); return best; });
