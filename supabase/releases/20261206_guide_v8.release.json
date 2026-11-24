@@ -4,7 +4,7 @@
   "phase": "backfill",
   "source": {
     "branch": "s136/sql",
-    "commit": "08c8522ee393e745c3efc1349c3977166ea79dd9"
+    "commit": "a4c11ba247322e92e2f9be03f24cf7361a8a5014"
   },
   "migrations": [
     "20261206000000_guide_v8_messages_analytics.sql"
