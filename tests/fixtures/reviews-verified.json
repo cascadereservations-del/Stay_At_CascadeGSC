@@ -1,0 +1,220 @@
+{
+  "source": "Airbnb listing 1523827999359515793, read logged out 2026-11-24 (docs/guest-stories/refresh/reviews-source-2026-11-24.md)",
+  "rating": {
+    "score": 4.97,
+    "count": 64,
+    "fiveStarPct": 97,
+    "verifiedOn": "2026-11-24"
+  },
+  "note": "Relative dates are counted from 2026-11-24 (= 2026-11). Text is copied as shown; '...' marks text left out of the source note. name = how the page attributes the guest (Airbnb shows only a place for two reviewers).",
+  "reviews": [
+    {
+      "name": "Bianca",
+      "airbnb_name": "Bianca",
+      "stars": 5,
+      "month": "2026-11",
+      "shown": "1 week ago",
+      "text": "Our home away from home in Gensan. Great stay as always. Thank you to the wonderful hosts as usual."
+    },
+    {
+      "name": "Bianca",
+      "airbnb_name": "Bianca",
+      "stars": 5,
+      "month": "2026-11",
+      "shown": "3 weeks ago",
+      "text": "3rd stay at this airbnb and they never disappoint. Always easy to communicate with, spotless, and there's free coffee and chocolate. Til next time again! Kudos to the Cascades team!"
+    },
+    {
+      "name": "Bianca",
+      "airbnb_name": "Bianca",
+      "stars": 5,
+      "month": "2026-08",
+      "shown": "August 2026",
+      "text": "We really enjoyed our stay here! The place was exceptionally clean, well-maintained, and very comfortable. The bathroom was spotlessly clean. Complete amenities. The best airbnb in GenSan, hands down. Looking forward to staying here again next time! Thank you Marifel and Lloyd! Wonderful hosts!"
+    },
+    {
+      "name": "Shasha",
+      "airbnb_name": "Shasha",
+      "stars": 5,
+      "month": "2026-11",
+      "shown": "6 days ago",
+      "text": "This is our 2nd time on this unit since its the tidiest place we've stayed. Sulit pera niyo dito."
+    },
+    {
+      "name": "Shasha",
+      "airbnb_name": "Shasha",
+      "stars": 5,
+      "month": "2026-10",
+      "shown": "October 2026",
+      "text": "Place was cozy and super clean. The Ambience was relaxing and would definitely enjoy the privacy. All appliances are working and the generator helped alot nung nag blackout saglit."
+    },
+    {
+      "name": "Sandra Nicole",
+      "airbnb_name": "Sandra Nicole",
+      "stars": 5,
+      "month": "2026-11",
+      "shown": "2 weeks ago",
+      "text": "... It was so cozy, comfortable, and relaxing that we didn't even bother going out to explore! ..."
+    },
+    {
+      "name": "Dale Anwen",
+      "airbnb_name": "Dale Anwen",
+      "stars": 5,
+      "month": "2026-10",
+      "shown": "October 2026",
+      "text": "This is our 3rd time, the consistency of their service is still the same, the place is very comfortable, very clean, the host is responding to your concerns immediately. They are accommodating they even give treats on their tables and a note for you to stay in another time."
+    },
+    {
+      "name": "Abe",
+      "airbnb_name": "Abe",
+      "stars": 5,
+      "month": "2026-10",
+      "shown": "October 2026",
+      "text": "We had a great stay at Cascade Hideaway! Malinis, comfortable, and perfect for relaxing. Very accommodating din ang host, and smooth lang ang buong stay namin. Thank you so much for making us feel welcome! Highly recommended."
+    },
+    {
+      "name": "Ermann",
+      "airbnb_name": "Ermann",
+      "stars": 5,
+      "month": "2026-10",
+      "shown": "October 2026",
+      "text": "Everything was perfect. It's very clean inside, a lot of accessories. Instructions are clear and very charming neighborhood. If you are looking for a quiet place this is the place to be. ..."
+    },
+    {
+      "name": "Joseph",
+      "airbnb_name": "Joseph",
+      "stars": 5,
+      "month": "2026-09",
+      "shown": "September 2026",
+      "text": "This place is a must stay probably the best I've stayed in personally I'm all of General Santos City. Felt right at home and the host was top 3 host I've ever had."
+    },
+    {
+      "name": "Queenie",
+      "airbnb_name": "Queenie",
+      "stars": 5,
+      "month": "2026-09",
+      "shown": "September 2026",
+      "text": "Had a great stay and felt right at home, especially we have an infant with us."
+    },
+    {
+      "name": "Christopher",
+      "airbnb_name": "Christopher",
+      "stars": 5,
+      "month": "2026-08",
+      "shown": "August 2026",
+      "text": "This is our second stay and We had a wonderful stay! The host was very accommodating, responsive, and genuinely concerned about the comfort and needs of their guests. ..."
+    },
+    {
+      "name": "Carissa",
+      "airbnb_name": "Carissa",
+      "stars": 5,
+      "month": "2026-07",
+      "shown": "July 2026",
+      "text": "... Honestly, the quality was even better than I expected and, for me, it was beyond hotel quality. ..."
+    },
+    {
+      "name": "Tel",
+      "airbnb_name": "Tel",
+      "stars": 5,
+      "month": "2026-08",
+      "shown": "August 2026",
+      "text": "Had another really nice stay here! It was our 3rd time booking, and the place was just as clean, cozy, and comfortable as always. ... they even left us a small treat since it was our 3rd stay, which was such a sweet gesture! ..."
+    },
+    {
+      "name": "Von",
+      "airbnb_name": "Von",
+      "stars": 5,
+      "month": "2026-07",
+      "shown": "July 2026",
+      "text": "By far the best Airbnb you'll ever stay at in Gensan. ... The hosts took great care of me ..."
+    },
+    {
+      "name": "A guest from Illinois",
+      "airbnb_name": "Illinois, United States",
+      "stars": 5,
+      "month": "2025-10",
+      "shown": "October 2025",
+      "text": "The unit is nice, clean and very comfortable. Check-in was a breeze ..."
+    },
+    {
+      "name": "Lorjie Kiss",
+      "airbnb_name": "Lorjie Kiss",
+      "stars": 5,
+      "month": "2025-10",
+      "shown": "October 2025",
+      "text": "... They even had a first aid kit. ..."
+    },
+    {
+      "name": "Angelica",
+      "airbnb_name": "Angelica",
+      "stars": 5,
+      "month": "2026-01",
+      "shown": "January 2026",
+      "text": "... I appreciate the guide made by the host. Even the remote had a guide. Highly recommended!"
+    },
+    {
+      "name": "Hirofumi",
+      "airbnb_name": "Hirofumi",
+      "stars": 5,
+      "month": "2026-05",
+      "shown": "May 2026",
+      "text": "Stayed for 2 weeks, and they even offered general cleaning every couple of days to keep the airbnb clean. ..."
+    },
+    {
+      "name": "Hirofumi",
+      "airbnb_name": "Hirofumi",
+      "stars": 5,
+      "month": "2026-02",
+      "shown": "February 2026",
+      "text": "Service and the place is beyond what its worth. My 3rd time staying and its always great"
+    },
+    {
+      "name": "A guest from San Diego",
+      "airbnb_name": "San Diego, California",
+      "stars": 5,
+      "month": "2026-01",
+      "shown": "January 2026",
+      "text": "I cannot emphasize enough how above and beyond these hosts went for me. ..."
+    },
+    {
+      "name": "Sean",
+      "airbnb_name": "Sean",
+      "stars": 5,
+      "month": "2026-01",
+      "shown": "January 2026",
+      "text": "Very well renovated little house, far from the centre but nothing Grab can't handle. ..."
+    },
+    {
+      "name": "Abi",
+      "airbnb_name": "Abi",
+      "stars": 5,
+      "month": "2025-12",
+      "shown": "December 2025",
+      "text": "... it's a bit far from the city so commuting can take some effort. ..."
+    },
+    {
+      "name": "Janine",
+      "airbnb_name": "Janine",
+      "stars": 5,
+      "month": "2026-08",
+      "shown": "August 2026",
+      "text": "Had an amazing stay! The place was super easy to locate, spotlessly clean, and had all the complete amenities we needed. Felt right at home. Highly recommend!"
+    },
+    {
+      "name": "Kristine Erfe",
+      "airbnb_name": "Kristine Erfe",
+      "stars": 4,
+      "month": "2026-11",
+      "shown": "3 weeks ago",
+      "text": "Cozy and clean. ..."
+    },
+    {
+      "name": "Tweetie",
+      "airbnb_name": "Tweetie",
+      "stars": 4,
+      "month": "2025-11",
+      "shown": "November 2025",
+      "text": "Got lost at first ..."
+    }
+  ]
+}

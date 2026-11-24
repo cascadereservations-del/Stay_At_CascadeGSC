@@ -38,3 +38,11 @@ test('communication links are complete and avoid the failing short Messenger dom
     assert.notEqual(url.hostname, 'm.me', `use full Messenger domain: ${href}`);
   }
 });
+
+test('Guest stories: the nav reaches the merged Spotless section; the retired #stories anchor is gone', () => {
+  const count = (re) => (html.match(re) || []).length;
+  assert.equal(count(/\bid="spotless"/g), 1, 'exactly one #spotless target');
+  assert.match(html, /<a href="#spotless">Guest stories<\/a>/, 'nav link to #spotless');
+  assert.equal(count(/\bid="stories"/g), 0, 'old #stories section removed');
+  assert.ok(!hrefs.includes('#stories'), 'no link to the removed #stories anchor');
+});

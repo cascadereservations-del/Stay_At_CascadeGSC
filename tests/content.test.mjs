@@ -135,3 +135,68 @@ test('marketing copy shows no peso price or percentage while SHOW_PRICE is false
   const text = marketing.replace(/<[^>]+>/g, ' ').replace(/&#x20B1;|&#8369;|&peso;/gi, '₱');
   assert.doesNotMatch(text, /₱\s?\d|\b\d{1,3}\s?%|\b1,?780\b/);
 });
+
+/* Guest stories refresh (PLAN-refresh section 3 step 2, N5, N13, N14; Fable r6 "tests to add").
+   Every guest quote on the page must be a contiguous excerpt of a dated review in tests/fixtures/reviews-verified.json
+   (read from Airbnb 2026-11-24). Only curly/straight quotes, the ellipsis and whitespace are normalised; guest spelling stays exact.
+   Two allowances: a heading quote may capitalise the first letter of a mid-sentence excerpt ("Super easy to locate"), and may end with
+   a full stop where the source note cut the review right after the excerpt ("Check-in was a breeze ..."). */
+const reviews = JSON.parse(await readFile(new URL('./fixtures/reviews-verified.json', import.meta.url), 'utf8'));
+/* Quotes on the page before this release that are NOT in the 2026-11-24 read. Each one is an open item for Lloyd; the list must only shrink. */
+const PENDING_VERIFICATION = ['I would definitely recommend this Airbnb to anyone looking for a comfortable, beautiful place to stay.'];
+const ENT = { mdash: '—', ndash: '–', rsquo: '’', lsquo: '‘', ldquo: '“', rdquo: '”', hellip: '…', amp: '&', middot: '·', nbsp: ' ', rarr: '→' };
+const decode = (x) => x.replace(/&#x([0-9a-f]+);/gi, (m, h) => String.fromCodePoint(parseInt(h, 16))).replace(/&#(\d+);/g, (m, d) => String.fromCodePoint(+d)).replace(/&([a-z]+);/gi, (m, n) => ENT[n] ?? m);
+const norm = (x) => x.replace(/[‘’]/g, "'").replace(/[“”]/g, '"').replace(/…|\.\.\./g, '…').replace(/\s+/g, ' ').trim();
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+/* Visible body markup only: no scripts, styles, comments or the booking-sheet dialog. Segments = text between tags. */
+const bodyMarkup = html.slice(html.indexOf('<body')).replace(/<script[\s\S]*?<\/script>/g, '').replace(/<style[\s\S]*?<\/style>/g, '').replace(/<!--[\s\S]*?-->/g, '');
+function guestQuotes() {
+  const out = [];
+  const flat = decode(bodyMarkup.replace(/<q\b[^>]*>/g, '“').replace(/<\/q>/g, '”').replace(/<(br|img)\b[^>]*>/g, ' ').replace(/<\/?(em|strong|i|b|span)\b[^>]*>/g, (t) => /^<\/?(em|i|b)\b/.test(t) ? '' : '\u0001').replace(/<[^>]+>/g, '\u0001'));
+  for (const m of flat.matchAll(/“([^”\u0001]{3,300}(?:\u0001[^”\u0001]*)*)”/g)) {
+    const quote = m[1].replace(/\u0001/g, ' ');
+    const after = flat.slice(m.index + m[0].length).split('\u0001').map((s) => s.replace(/\s+/g, ' ').trim()).find((s) => s);
+    out.push({ quote: quote.replace(/\s+/g, ' ').trim(), attribution: after || '' });
+  }
+  return out;
+}
+
+test('Guest stories: every on-page guest quote is an excerpt of a dated review in the 2026-11-24 fixture, attributed with its month', () => {
+  const quotes = guestQuotes();
+  assert.ok(quotes.length >= 15, `found ${quotes.length} quotes; the extractor lost some`);
+  const pendingSeen = [];
+  for (const { quote, attribution } of quotes) {
+    if (PENDING_VERIFICATION.includes(quote)) { pendingSeen.push(quote); continue; }
+    const core = norm(quote).replace(/^…\s*/, '').replace(/\s*…$/, '');
+    const forms = [core, core[0].toLowerCase() + core.slice(1)];
+    /* the source note cut the review right after the excerpt ("breeze ..."), so a closing full stop on the page cannot be checked */
+    if (core.endsWith('.')) forms.push(...forms.map((f) => f.slice(0, -1) + ' …'));
+    const hits = reviews.reviews.filter((r) => { const t = norm(r.text); return forms.some((f) => t.includes(f)); });
+    assert.ok(hits.length, `quote not found in any dated fixture review: "${quote}"`);
+    const a = attribution.match(/^(.+?), (January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sept|Sep|Oct|Nov|Dec) (\d{4})\b/);
+    assert.ok(a, `attribution without a month and year: "${attribution}" for "${quote}"`);
+    const month = `${a[3]}-${String(MONTHS.findIndex((x) => x.startsWith(a[2].slice(0, 3))) + 1).padStart(2, '0')}`;
+    assert.ok(hits.some((r) => r.name === a[1] && r.month === month), `"${quote}" is attributed to ${a[1]}, ${month}; the fixture has ${hits.map((r) => `${r.name} ${r.month}`).join(' / ')}`);
+  }
+  assert.deepEqual(pendingSeen, PENDING_VERIFICATION, 'a pending quote left the page: drop it from PENDING_VERIFICATION');
+});
+
+test('Guest stories: no star glyph run claims a rating the fixture does not support (N14)', () => {
+  const visible = bodyMarkup.replace(/<dialog\b[\s\S]*?<\/dialog>/g, '');
+  const text = decode(visible.replace(/<[^>]+>/g, ''));
+  assert.doesNotMatch(text, /[★☆]\s*[★☆]/, 'multi-star runs read as a per-review rating; the page must not show one');
+  const fiveStarOnly = reviews.reviews.filter((r) => r.stars < 5).map((r) => norm(r.text.split(/[.!]/)[0]));
+  for (const { quote } of guestQuotes()) assert.ok(!fiveStarOnly.some((t) => t && norm(quote).includes(t)), `a sub-5-star review is quoted: "${quote}"`);
+});
+
+test('Guest stories: rating facts and refresh copy (fiveStar from RATING, deposit step, CTA verbs)', () => {
+  assert.equal(reviews.rating.score, 4.97); assert.equal(reviews.rating.count, 64);
+  assert.match(html, new RegExp(`fiveStar: ${reviews.rating.fiveStarPct}, verifiedOn: '${reviews.rating.verifiedOn}'`));
+  const noScript = html.replace(/<script[\s\S]*?<\/script>/g, '');
+  assert.equal((noScript.match(/data-rating="fiveStar"/g) || []).length, 2, 'hero proof line and rating band render the five-star share from RATING');
+  assert.doesNotMatch(noScript, /\b97\s?%/, 'the five-star share is never hard-coded in markup');
+  assert.match(html, /<span>Settle your reservation fee by GCash or bank transfer\. We confirm every booking personally\.<\/span>/);
+  assert.doesNotMatch(html, /Check today(’|&rsquo;|')s price|>Check price<|>Check my price</);
+  assert.match(html, /id="stickyBookCtaBtn" data-gs-book>Reserve<\/a>/);
+  assert.match(html, /<span class="hero-bk-cta-label">Reserve your stay<\/span>|>Reserve your stay</);
+});
