@@ -143,7 +143,7 @@ test('marketing copy shows no peso price or percentage while SHOW_PRICE is false
    a full stop where the source note cut the review right after the excerpt ("Check-in was a breeze ..."). */
 const reviews = JSON.parse(await readFile(new URL('./fixtures/reviews-verified.json', import.meta.url), 'utf8'));
 /* Quotes on the page before this release that are NOT in the 2026-11-24 read. Each one is an open item for Lloyd; the list must only shrink. */
-const PENDING_VERIFICATION = ['I would definitely recommend this Airbnb to anyone looking for a comfortable, beautiful place to stay.'];
+const PENDING_VERIFICATION = [];
 const ENT = { mdash: '—', ndash: '–', rsquo: '’', lsquo: '‘', ldquo: '“', rdquo: '”', hellip: '…', amp: '&', middot: '·', nbsp: ' ', rarr: '→' };
 const decode = (x) => x.replace(/&#x([0-9a-f]+);/gi, (m, h) => String.fromCodePoint(parseInt(h, 16))).replace(/&#(\d+);/g, (m, d) => String.fromCodePoint(+d)).replace(/&([a-z]+);/gi, (m, n) => ENT[n] ?? m);
 const norm = (x) => x.replace(/[‘’]/g, "'").replace(/[“”]/g, '"').replace(/…|\.\.\./g, '…').replace(/\s+/g, ' ').trim();
