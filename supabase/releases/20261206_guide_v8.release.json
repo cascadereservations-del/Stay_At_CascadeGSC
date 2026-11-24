@@ -3,8 +3,8 @@
   "release_id": "guide_v8_messages_analytics_20261206",
   "phase": "backfill",
   "source": {
-    "branch": "s136/sql",
-    "commit": "b7dd9cb46d417389f628ade49cd945695120b36a"
+    "branch": "s136/sql-guests",
+    "commit": "f388d77b245b211502cf37fd5c8eb583d5a19b97"
   },
   "migrations": [
     "20261206000000_guide_v8_messages_analytics.sql"
