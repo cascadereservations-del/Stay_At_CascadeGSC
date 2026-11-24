@@ -16,11 +16,15 @@ select 'anon may call the four guest functions', bool_and(has_function_privilege
 union all
 select 'anon may not call staff functions', not bool_or(has_function_privilege('anon', f, 'execute')) from unnest(array[
   'public.staff_guide_threads_v1(uuid)','public.staff_guide_thread_v1(uuid)','public.staff_guide_reply_v1(uuid,text,text)',
-  'public.staff_guide_resolve_v1(uuid,boolean)','public.staff_guide_usage_v1(integer,uuid)',
+  'public.staff_guide_resolve_v1(uuid,boolean)','public.staff_guide_usage_v1(integer,uuid)','public.staff_guide_guests_v1(integer,uuid)',
   'public.guide_token_thread_v1(text)','public.guide_sweep_v1()']::regprocedure[]) f
 union all
 select 'all definer functions pin search_path', bool_and(p.proconfig @> array['search_path=""']) from pg_proc p
  join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and (p.proname like 'guide\_%' or p.proname like 'staff\_guide\_%')
+union all
+select 'authenticated may call the guests report, service_role and anon may not', has_function_privilege('authenticated', 'public.staff_guide_guests_v1(integer,uuid)', 'execute')
+  and not has_function_privilege('anon', 'public.staff_guide_guests_v1(integer,uuid)', 'execute')
+  and not has_function_privilege('service_role', 'public.staff_guide_guests_v1(integer,uuid)', 'execute')
 union all
 select 'push trigger present', exists (select 1 from pg_trigger where tgname = 'guide_messages_push' and not tgisinternal)
 union all

@@ -425,12 +425,77 @@ begin
 end;
 $$;
 
+-- 8b. staff: guests who signed in to the guide ---------------------------------------------------------------------------------------------
+-- One row per guide thread that has at least one guide_sessions row (a successful sign-in: guide_session_v1 mints a session only after verify_booking
+-- matched a real name) and whose last_seen falls inside the window. Window = the last p_days Manila dates, today included (same rule as the usage report),
+-- p_days clamped to 1..90. Same gate, same single-property rule and same error shape as staff_guide_usage_v1; the second argument has a default so
+-- the one-argument call staff_guide_guests_v1(p_days) works.
+-- Derivations (each from tables this migration creates):
+--   thread_id, checkin_date, checkout_date : guide_threads.
+--   guest_label : guide_threads.guest_label is the booking's first name only (guide_session_v1 stores verify_booking's first_name). Defence in depth: a
+--                 label of several words is cut to "first-word L." (last word's initial, never a surname); an empty label, the placeholder 'Guest', or any
+--                 label holding '@' or a digit (an e-mail, a phone, an id) becomes 'Guest'. The schema holds no surname, phone, e-mail or ID for a thread.
+--   first_seen  : earliest guide_sessions.created_at of the thread (the first sign-in, any date).
+--   last_seen   : latest of the thread's newest guide_sessions.created_at and newest verified guide_events.at (a returning guest reuses the token, so
+--                 events, not new sessions, show the later visits); events only count inside the window.
+--   opens       : greatest(guide_open events of the thread in the window, sessions minted in the window), so a guest who signed in is never shown with 0.
+--   checklist_done : count of the thread's checklist_done events in the window (the guide emits one per ticked item; guide_events records it). 0 when none.
+--   messaged    : at least one guide_messages row with sender 'guest' on the thread (any date).
+-- Order: last_seen desc (thread id breaks ties), capped at 60 rows; total is the uncapped count of threads inside the window.
+create function public.staff_guide_guests_v1(p_days int default 30,
+  p_property_id uuid default '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd'::uuid)
+returns jsonb language plpgsql stable security definer set search_path = '' as $$
+declare
+  v_since timestamptz := ((now() at time zone 'Asia/Manila')::date - (greatest(1, least(coalesce(p_days, 30), 90)) - 1))::timestamp at time zone 'Asia/Manila';
+  v_out jsonb;
+begin
+  if not coalesce(public.current_staff_authorized('manage_guest_inbox', p_property_id), false) then
+    raise exception using errcode = '42501', message = 'staff access denied'; end if;
+  if p_property_id is distinct from '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd'::uuid then
+    return jsonb_build_object('guests', '[]'::jsonb, 'single_property', true); end if;
+  with s as (
+    select thread_id, min(created_at) as first_session, max(created_at) as last_session,
+           count(*) filter (where created_at >= v_since) as sessions_in
+      from public.guide_sessions group by thread_id),
+  e as (
+    select thread_id, max(at) as last_event,
+           count(*) filter (where name = 'guide_open') as opens_in,
+           count(*) filter (where name = 'checklist_done') as done_in
+      from public.guide_events where thread_id is not null and at >= v_since group by thread_id),
+  r as (
+    select t.id, t.checkin_date, t.checkout_date, t.guest_label as raw_label,
+           s.first_session as first_seen, greatest(s.last_session, e.last_event) as last_seen,
+           greatest(coalesce(e.opens_in, 0), s.sessions_in)::int as opens, coalesce(e.done_in, 0)::int as checklist_done,
+           exists (select 1 from public.guide_messages m where m.thread_id = t.id and m.sender = 'guest') as messaged
+      from public.guide_threads t join s on s.thread_id = t.id left join e on e.thread_id = t.id
+     where t.property_id = p_property_id),
+  f as (
+    select r.*, string_to_array(regexp_replace(btrim(r.raw_label), '\s+', ' ', 'g'), ' ') as w
+      from r where r.last_seen >= v_since),
+  l as (
+    select f.*, case
+        when nullif(btrim(f.raw_label), '') is null or f.raw_label ~ '[@0-9]' or lower(btrim(f.raw_label)) = 'guest' then 'Guest'
+        when cardinality(f.w) = 1 then f.w[1]
+        else f.w[1] || ' ' || upper(left(f.w[cardinality(f.w)], 1)) || '.' end as guest_label
+      from f)
+  select jsonb_build_object(
+    'guests', coalesce((select jsonb_agg(jsonb_build_object('thread_id', x.id, 'guest_label', x.guest_label, 'checkin_date', x.checkin_date,
+        'checkout_date', x.checkout_date, 'first_seen', x.first_seen, 'last_seen', x.last_seen, 'opens', x.opens,
+        'checklist_done', x.checklist_done, 'messaged', x.messaged) order by x.last_seen desc, x.id)
+      from (select * from l order by last_seen desc, id limit 60) x), '[]'::jsonb),
+    'total', (select count(*) from f)) into v_out;
+  return v_out;
+end;
+$$;
+
 revoke all on function public.staff_guide_threads_v1(uuid), public.staff_guide_thread_v1(uuid),
   public.staff_guide_reply_v1(uuid, text, text), public.staff_guide_resolve_v1(uuid, boolean),
-  public.staff_guide_usage_v1(int, uuid) from public, anon;
+  public.staff_guide_usage_v1(int, uuid), public.staff_guide_guests_v1(int, uuid) from public, anon;
 grant execute on function public.staff_guide_threads_v1(uuid), public.staff_guide_thread_v1(uuid),
   public.staff_guide_reply_v1(uuid, text, text), public.staff_guide_resolve_v1(uuid, boolean),
-  public.staff_guide_usage_v1(int, uuid) to authenticated;
+  public.staff_guide_usage_v1(int, uuid), public.staff_guide_guests_v1(int, uuid) to authenticated;
+-- ML-21: the guests report is for signed-in staff only; restate service_role (a production default privilege would grant it) instead of leaving the ACL implicit
+revoke execute on function public.staff_guide_guests_v1(int, uuid) from service_role;
 
 -- 9. push owner/admin phones on a new guest message ---------------------------------------------------------------------------------------
 create function public.guide_messages_push_trg() returns trigger

@@ -10,14 +10,14 @@
     "20261206000000_guide_v8_messages_analytics.sql"
   ],
   "migration_sha256": {
-    "20261206000000_guide_v8_messages_analytics.sql": "fc3cb26f39831f553453b2cfac8358c920e8457bd744a98b67fc577f6f21d4c1"
+    "20261206000000_guide_v8_messages_analytics.sql": "d5ade78341d37c673a974b698b07d96d84ce5c566b91a7016f5f1c52fc28f35d"
   },
   "backup": {
     "required": true,
     "scope": "production",
     "restore_point": "PENDING_FRESH_BACKUP: stamp with scripts/migrations/fill-restore-point.mjs right before the apply",
     "verified_at": "1970-01-01T00:00:00.000Z",
-    "production_rule": "Guest guide v8.0.0 backend (s135), additive only: five tables guide_threads, guide_sessions, guide_messages, guide_auth_attempts, guide_events (RLS on, no policies, no grants to anon or authenticated); four guest RPCs (guide_session_v1, guide_thread_v1, guide_send_v1, guide_track_v1; anon and authenticated, SECURITY DEFINER, search_path empty); five staff RPCs (staff_guide_threads_v1, staff_guide_thread_v1, staff_guide_reply_v1, staff_guide_resolve_v1, staff_guide_usage_v1; authenticated only, gated by current_staff_authorized('manage_guest_inbox'); a missing thread id raises P0002 before the 42501 access check); the token helper, the push trigger function and guide_sweep_v1 (service_role only) have no client grants; trigger guide_messages_push on guide_messages calls notify-staff-inbox through pg_net and the vault secret and never fails the insert. guide_session_v1 refuses a booking whose name is a placeholder (reason no_name, no thread), keys its per-address throttle on cf-connecting-ip or the rightmost x-forwarded-for entry, allows 10 failures per check-in date per 15 minutes and 20 sessions per thread per day (reason busy); guide_track_v1 caps events per device (600/hour) and globally (3000/minute, then drops silently) by arrival time and keeps only whitelisted short scalar meta values; staff_guide_usage_v1 answers only for the default property (single-property, other ids get an empty flagged object); service_role has explicit full access to the five tables and the two identity sequences are closed to anon and authenticated. No existing table, function or setting is touched; verify_booking is called, not replaced. Phase is backfill, not expand, only because the body of guide_sweep_v1 contains DELETE FROM (housekeeping of the new tables), which release-safety refuses in an expand migration; the migration itself deletes no existing row and writes no data.",
+    "production_rule": "Guest guide v8.0.0 backend (s135), additive only: five tables guide_threads, guide_sessions, guide_messages, guide_auth_attempts, guide_events (RLS on, no policies, no grants to anon or authenticated); four guest RPCs (guide_session_v1, guide_thread_v1, guide_send_v1, guide_track_v1; anon and authenticated, SECURITY DEFINER, search_path empty); six staff RPCs (staff_guide_threads_v1, staff_guide_thread_v1, staff_guide_reply_v1, staff_guide_resolve_v1, staff_guide_usage_v1, staff_guide_guests_v1; authenticated only, gated by current_staff_authorized('manage_guest_inbox'); a missing thread id raises P0002 before the 42501 access check); the token helper, the push trigger function and guide_sweep_v1 (service_role only) have no client grants; trigger guide_messages_push on guide_messages calls notify-staff-inbox through pg_net and the vault secret and never fails the insert. guide_session_v1 refuses a booking whose name is a placeholder (reason no_name, no thread), keys its per-address throttle on cf-connecting-ip or the rightmost x-forwarded-for entry, allows 10 failures per check-in date per 15 minutes and 20 sessions per thread per day (reason busy); guide_track_v1 caps events per device (600/hour) and globally (3000/minute, then drops silently) by arrival time and keeps only whitelisted short scalar meta values; staff_guide_usage_v1 answers only for the default property (single-property, other ids get an empty flagged object); staff_guide_guests_v1(p_days, property) lists the guests who signed in to the guide (first name plus last initial only, last_seen within p_days clamped 1..90, newest first, 60 rows, total uncapped; default property only, other ids get {guests: [], single_property: true}; execute for authenticated only, service_role revoked); service_role has explicit full access to the five tables and the two identity sequences are closed to anon and authenticated. No existing table, function or setting is touched; verify_booking is called, not replaced. Phase is backfill, not expand, only because the body of guide_sweep_v1 contains DELETE FROM (housekeeping of the new tables), which release-safety refuses in an expand migration; the migration itself deletes no existing row and writes no data.",
     "notes": "Apply after s134 and cf_confirm_flow (20261205000000) are applied; re-timed from 20261205000000 to 20261206000000 in s136 because cf_confirm_flow holds 20261205000000 live. The migration carries no begin/commit of its own (the runner wraps it). Restamp restore_point and verified_at with a fresh backup at apply time (scripts/migrations/fill-restore-point.mjs; the checker refuses one older than an hour). After the apply add select public.guide_sweep_v1() to the weekly sweep (or a pg_cron job guide-sweep-weekly) and confirm notify-staff-inbox accepts {kind guest_wrote, psid guide:<uuid>} from the database caller. The Staff app Guide inbox and the guide v8.0.0 frontend follow the SQL."
   },
   "forward_verification": [
@@ -43,12 +43,17 @@
     },
     {
       "name": "guide_anon_may_not_call_staff_functions",
-      "query": "select not bool_or(has_function_privilege('anon', f, 'execute')) from unnest(array['public.staff_guide_threads_v1(uuid)','public.staff_guide_thread_v1(uuid)','public.staff_guide_reply_v1(uuid,text,text)','public.staff_guide_resolve_v1(uuid,boolean)','public.staff_guide_usage_v1(integer,uuid)','public.guide_token_thread_v1(text)','public.guide_sweep_v1()']::regprocedure[]) f",
+      "query": "select not bool_or(has_function_privilege('anon', f, 'execute')) from unnest(array['public.staff_guide_threads_v1(uuid)','public.staff_guide_thread_v1(uuid)','public.staff_guide_reply_v1(uuid,text,text)','public.staff_guide_resolve_v1(uuid,boolean)','public.staff_guide_usage_v1(integer,uuid)','public.staff_guide_guests_v1(integer,uuid)','public.guide_token_thread_v1(text)','public.guide_sweep_v1()']::regprocedure[]) f",
+      "expect": true
+    },
+    {
+      "name": "guide_guests_report_authenticated_only",
+      "query": "select has_function_privilege('authenticated', 'public.staff_guide_guests_v1(integer,uuid)', 'execute') and not has_function_privilege('anon', 'public.staff_guide_guests_v1(integer,uuid)', 'execute') and not has_function_privilege('service_role', 'public.staff_guide_guests_v1(integer,uuid)', 'execute')",
       "expect": true
     },
     {
       "name": "guide_definer_functions_pin_search_path",
-      "query": "select bool_and(p.proconfig @> array['search_path=\"\"']) and count(*) >= 12 from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and (p.proname like 'guide\\_%' or p.proname like 'staff\\_guide\\_%')",
+      "query": "select bool_and(p.proconfig @> array['search_path=\"\"']) and count(*) >= 13 from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and (p.proname like 'guide\\_%' or p.proname like 'staff\\_guide\\_%')",
       "expect": true
     },
     {
@@ -155,7 +160,7 @@
   },
   "rollback": {
     "strategy": "compensating",
-    "safe_until": "Any time. The rollback drops the trigger, the twelve functions and the five tables of this release; guest messages and usage events are deleted with their tables (export public.guide_messages first with the read-only runner if they matter). Nothing else is touched.",
+    "safe_until": "Any time. The rollback drops the trigger, the thirteen functions and the five tables of this release; guest messages and usage events are deleted with their tables (export public.guide_messages first with the read-only runner if they matter). Nothing else is touched.",
     "steps": [
       {
         "name": "rollback_clients_first",
@@ -178,7 +183,7 @@
     "old_reader": true,
     "old_writer": true,
     "verified": true,
-    "evidence": "Rehearsed 2026-11-25 on a restored copy of production backup cascade-supabase-20261124T145205Z (142 public tables, 237 ledger rows) on host alfred, log .rehearsal-logs/rehearsal-guide_v8-r2.log, exit 8 only because of the accepted_failing_tests baseline. Sequence in one container: ACL snapshot, apply 20261206000000, 12 forward checks (in SQL), rollback supabase/rollbacks/20261206_guide_v8.sql with checks (0 guide_* relations, tables, functions or trigger left; public table count and the md5 of every non-guide table, function, default and schema ACL identical to before), apply again, the 12 forward checks again, state fingerprint (function bodies and ACLs, columns, indexes, trigger) identical to the first apply. The runner then ran the 12 forward checks a third time: 12 passed, 0 failed. pgTAP guide_v8_messages_analytics 103 of 103; the seven baseline suites fail exactly the numbers in accepted_failing_tests and none else (compared by number). The rollback and re-apply steps ran as temporary untracked migrations that were deleted afterwards; nothing temporary is in git."
+    "evidence": "Rehearsed 2026-11-25 (round 3, lane A-guests: staff_guide_guests_v1 added) on a restored copy of production backup cascade-supabase-20261124T145205Z (142 public tables, 237 ledger rows) on host alfred, log .rehearsal-logs/rehearsal-guide_v8-guests.log, exit 8 only because of the accepted_failing_tests baseline. Sequence in one container: ACL snapshot, apply 20261206000000, 13 forward checks (in SQL, 13 guide/staff_guide functions counted), rollback supabase/rollbacks/20261206_guide_v8.sql with checks (0 guide_* relations, tables, functions or trigger left; public table count and the md5 of every non-guide table, function, default and schema ACL identical to before), apply again, the 13 forward checks again, state fingerprint (function bodies and ACLs, columns, indexes, trigger, constraints) identical to the first apply. The runner then ran the 13 forward checks a third time: 13 passed, 0 failed. pgTAP guide_v8_messages_analytics 123 of 123 (20 new tests for staff_guide_guests_v1); the seven baseline suites fail exactly the numbers in accepted_failing_tests and none else (compared by number). The rollback and re-apply steps ran as temporary untracked migrations that were deleted afterwards; nothing temporary is in git."
   },
   "approvals": {
     "production_required": true,

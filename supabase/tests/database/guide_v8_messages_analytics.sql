@@ -3,10 +3,11 @@
 -- Fixture rows and the reads run as the owner role (a --no-acl restore gives authenticated and anon no table grants); only the RPC calls run as anon / authenticated / service_role.
 -- The push trigger is disabled inside this suite (rolled back with it) so a rehearsal copy can never queue an HTTP call to the production notify-staff-inbox function.
 -- Run: CASCADE_REHEARSAL_PRE_SQL=supabase/releases/support/s136_pre_grants.sql scripts/recovery/p6/migration-rehearsal-on-host.sh <backup-set> supabase/releases/20261206_guide_v8.release.json supabase/tests/database/guide_v8_messages_analytics.sql
+-- Section 12 (s136 lane A-guests): staff_guide_guests_v1 (20 tests).
 -- Section 11 (s136 review round 2): placeholder names get no session, the throttle key ignores the client-controlled x-forwarded-for entry, per-date and per-thread caps,
 -- the analytics caps and meta whitelist, the single-property usage report, explicit ACLs.
 begin;
-select plan(103);
+select plan(123);
 
 -- baseline grants for a --no-acl rehearsal restore (idempotent, rolled back with the suite)
 grant usage on schema public, auth to anon, authenticated, service_role;
@@ -460,6 +461,134 @@ select ok((select not v ? 'single_property' and (v ->> 'devices')::int >= 1 from
 -- 11f. explicit ACLs
 select ok((select bool_and(has_table_privilege('service_role', 'public.' || t, p)) from unnest(array['guide_threads', 'guide_sessions', 'guide_messages', 'guide_auth_attempts', 'guide_events']) t, unnest(array['select', 'insert', 'update', 'delete']) p), 's136 acl: service_role has select, insert, update and delete on all five guide tables');
 select ok((select not bool_or(has_sequence_privilege(r, 'public.' || q, p)) from unnest(array['anon', 'authenticated']) r, unnest(array['guide_auth_attempts_id_seq', 'guide_events_id_seq']) q, unnest(array['usage', 'select', 'update']) p) and has_sequence_privilege('service_role', 'public.guide_events_id_seq', 'usage'), 's136 acl: anon and authenticated hold nothing on the two identity sequences; service_role may use them');
+
+-- =============================================================================================================================================
+-- 12. staff_guide_guests_v1 (s136 lane A-guests): guests who signed in to the guide. Clean slate: every earlier fixture thread is removed (its sessions and
+--     messages cascade, its events keep thread_id null); fixtures below are on the default property. Times are relative to now() (constant inside the
+--     transaction), so the window checks hold at any hour: A is stamped exactly now(), the rest minutes, hours or days back.
+--   A f1 "Zzalpha"                  session 1 min ago, events: 2 guide_open, 3 checklist_done, 1 tap, newest event exactly now(); one guest message
+--   B f3 "Zzbeta Mid Surnameson"    sessions 2 min and 90 min ago (no events), one STAFF message only
+--   C f5 "Zzleak 0917123"           session 3 min ago (a digit in the label)      D f7 " " (blank label), session 4 min ago
+--   E f9 40 days ago, F fb 30 hours ago, G fd 80 days ago, H ff 100 days ago
+-- =============================================================================================================================================
+delete from public.guide_threads;
+insert into public.guide_threads(id, property_id, calendar_event_id, checkin_date, checkout_date, guest_label) values
+  (pg_temp.id('f1'), pg_temp.dp(), pg_temp.id('f2'), pg_temp.today(), pg_temp.today() + 2, 'Zzalpha'),
+  (pg_temp.id('f3'), pg_temp.dp(), pg_temp.id('f4'), pg_temp.today(), pg_temp.today() + 2, 'Zzbeta Mid Surnameson'),
+  (pg_temp.id('f5'), pg_temp.dp(), pg_temp.id('f6'), pg_temp.today(), pg_temp.today() + 2, 'Zzleak 0917123'),
+  (pg_temp.id('f7'), pg_temp.dp(), pg_temp.id('f8'), pg_temp.today(), pg_temp.today() + 2, ' '),
+  (pg_temp.id('f9'), pg_temp.dp(), pg_temp.id('fa'), pg_temp.today() - 40, pg_temp.today() - 38, 'Zzold'),
+  (pg_temp.id('fb'), pg_temp.dp(), pg_temp.id('fc'), pg_temp.today() - 2, pg_temp.today(), 'Zzedge'),
+  (pg_temp.id('fd'), pg_temp.dp(), pg_temp.id('fe'), pg_temp.today() - 80, pg_temp.today() - 78, 'Zzeighty'),
+  (pg_temp.id('ff'), pg_temp.dp(), pg_temp.id('f0'), pg_temp.today() - 100, pg_temp.today() - 98, 'Zzcentury');
+insert into public.guide_sessions(token_hash, thread_id, expires_at, created_at) values
+  (lpad(to_hex(1), 64, '0'), pg_temp.id('f1'), now() + interval '2 days', now() - interval '1 minute'),
+  (lpad(to_hex(2), 64, '0'), pg_temp.id('f3'), now() + interval '2 days', now() - interval '2 minutes'),
+  (lpad(to_hex(3), 64, '0'), pg_temp.id('f3'), now() + interval '2 days', now() - interval '90 minutes'),
+  (lpad(to_hex(4), 64, '0'), pg_temp.id('f5'), now() + interval '2 days', now() - interval '3 minutes'),
+  (lpad(to_hex(5), 64, '0'), pg_temp.id('f7'), now() + interval '2 days', now() - interval '4 minutes'),
+  (lpad(to_hex(6), 64, '0'), pg_temp.id('f9'), now() + interval '2 days', now() - interval '40 days'),
+  (lpad(to_hex(7), 64, '0'), pg_temp.id('fb'), now() + interval '2 days', now() - interval '30 hours'),
+  (lpad(to_hex(8), 64, '0'), pg_temp.id('fd'), now() + interval '2 days', now() - interval '80 days'),
+  (lpad(to_hex(9), 64, '0'), pg_temp.id('ff'), now() + interval '2 days', now() - interval '100 days');
+insert into public.guide_events(at, device, thread_id, verified, name) values
+  (now() - interval '30 seconds', 'zz136gdev01', pg_temp.id('f1'), true, 'guide_open'),
+  (now() - interval '20 seconds', 'zz136gdev01', pg_temp.id('f1'), true, 'guide_open'),
+  (now() - interval '25 seconds', 'zz136gdev01', pg_temp.id('f1'), true, 'checklist_done'),
+  (now() - interval '15 seconds', 'zz136gdev01', pg_temp.id('f1'), true, 'checklist_done'),
+  (now(), 'zz136gdev01', pg_temp.id('f1'), true, 'checklist_done'),
+  (now() - interval '10 seconds', 'zz136gdev01', pg_temp.id('f1'), true, 'tap'),
+  (now() - interval '5 seconds', 'zz136gdev02', null, false, 'guide_open'),       -- an anonymous device: belongs to no guest
+  (now() - interval '5 minutes', 'zz136gdev03', pg_temp.id('f3'), true, 'section_view');  -- B has an event that is neither open nor checklist, older than its newest session
+insert into public.guide_messages(thread_id, sender, body, client_msg_id) values
+  (pg_temp.id('f1'), 'guest', 'Hello from A', 'zz136g-msg-0001'),
+  (pg_temp.id('f3'), 'staff', 'Hello to B', 'zz136g-msg-0002');
+
+select pg_temp.as_anon();
+insert into _t values ('g_anon', pg_temp.try('select public.staff_guide_guests_v1(30)'));
+reset role;
+select pg_temp.as_user(pg_temp.id('03'));
+insert into _t values ('g_cleaner', pg_temp.try('select public.staff_guide_guests_v1(30)'));
+reset role;
+select pg_temp.as_user(pg_temp.id('04'));
+insert into _t values ('g_outsider', pg_temp.try('select public.staff_guide_guests_v1(30)'));
+reset role;
+select pg_temp.as_user(pg_temp.id('01'));
+insert into _t values ('g30', pg_temp.try('select public.staff_guide_guests_v1(30)'));
+insert into _t values ('g_other', pg_temp.try(format('select public.staff_guide_guests_v1(30, %L::uuid)', pg_temp.id('b2'))));
+insert into _t values ('g1', pg_temp.try('select public.staff_guide_guests_v1(1)'));
+insert into _t values ('g0', pg_temp.try('select public.staff_guide_guests_v1(0)'));
+insert into _t values ('gneg', pg_temp.try('select public.staff_guide_guests_v1(-5)'));
+insert into _t values ('g3', pg_temp.try('select public.staff_guide_guests_v1(3)'));
+insert into _t values ('g90', pg_temp.try('select public.staff_guide_guests_v1(90)'));
+insert into _t values ('g1000', pg_temp.try('select public.staff_guide_guests_v1(1000)'));
+reset role;
+
+select ok((select v ->> 'err' = '42501' from _t where k = 'g_anon'), 'guests: anon holds no execute and gets 42501');
+select ok((select v ->> 'err' = '42501' and v ->> 'msg' = 'staff access denied' from _t where k = 'g_cleaner')
+      and (select v ->> 'err' = '42501' and v ->> 'msg' = 'staff access denied' from _t where k = 'g_outsider'),
+  'guests: a cleaner without manage_guest_inbox and a staff user with no profile are refused first with 42501 staff access denied (the usage report error shape)');
+select ok((select v = '{"guests": [], "single_property": true}'::jsonb from _t where k = 'g_other'),
+  'guests: any property but the default one answers exactly {"guests": [], "single_property": true} although sessions exist');
+select ok((select (select array_agg(k order by k) from jsonb_object_keys(v) k) = array['guests', 'total'] and jsonb_typeof(v -> 'guests') = 'array' and jsonb_typeof(v -> 'total') = 'number' from _t where k = 'g30')
+      and (select bool_and((select array_agg(k order by k) from jsonb_object_keys(g) k) = array['checkin_date', 'checklist_done', 'checkout_date', 'first_seen', 'guest_label', 'last_seen', 'messaged', 'opens', 'thread_id'])
+             from _t, jsonb_array_elements(v -> 'guests') g where k = 'g30'),
+  'guests: the one-argument call returns exactly guests and total, and each guest exactly the nine contract keys');
+select ok((select array(select (g ->> 'thread_id')::uuid from jsonb_array_elements(v -> 'guests') g) = array[pg_temp.id('f1'), pg_temp.id('f3'), pg_temp.id('f5'), pg_temp.id('f7'), pg_temp.id('fb')] and (v ->> 'total')::int = 5 from _t where k = 'g30'),
+  'guests: ordered last_seen desc A, B, C, D, F (the 40-, 80- and 100-day sessions are outside the 30-day window); total 5');
+select ok((select array(select g ->> 'guest_label' from jsonb_array_elements(v -> 'guests') g) = array['Zzalpha', 'Zzbeta S.', 'Guest', 'Guest', 'Zzedge'] from _t where k = 'g30'),
+  'guests: labels are first name, first name plus last initial for a longer label, and Guest for a label with a digit or a blank one');
+select ok((select position('Surnameson' in v::text) = 0 and position('0917' in v::text) = 0 and position('@' in v::text) = 0 from _t where k = 'g30'),
+  'guests: the report text never holds the surname, the digits of a phone-like label or an e-mail sign');
+select ok((select (g ->> 'opens')::int = 2 and (g ->> 'checklist_done')::int = 3 and (g ->> 'messaged')::boolean is true from _t, jsonb_array_elements(v -> 'guests') g where k = 'g30' and g ->> 'thread_id' = pg_temp.id('f1')::text),
+  'guests: A has 2 opens (two guide_open events beat one session), 3 checklist_done events (the tap and the anonymous device are not counted) and messaged true');
+select ok((select (g ->> 'opens')::int = 2 and (g ->> 'checklist_done')::int = 0 and (g ->> 'messaged')::boolean is false from _t, jsonb_array_elements(v -> 'guests') g where k = 'g30' and g ->> 'thread_id' = pg_temp.id('f3')::text),
+  'guests: B has 2 opens from its two sessions (no open events), 0 checklist_done, and messaged false because only staff wrote');
+select ok((select (g ->> 'first_seen')::timestamptz = (select min(created_at) from public.guide_sessions where thread_id = pg_temp.id('f1')) and (g ->> 'last_seen')::timestamptz = now()
+        from _t, jsonb_array_elements(v -> 'guests') g where k = 'g30' and g ->> 'thread_id' = pg_temp.id('f1')::text)
+      and (select (g ->> 'first_seen')::timestamptz = now() - interval '90 minutes' and (g ->> 'last_seen')::timestamptz = now() - interval '2 minutes'
+        from _t, jsonb_array_elements(v -> 'guests') g where k = 'g30' and g ->> 'thread_id' = pg_temp.id('f3')::text),
+  'guests: first_seen is the first session; last_seen is the newest session or event (A: the event at now(); B: its second session, 2 minutes ago)');
+select ok((select (g ->> 'checkin_date')::date = pg_temp.today() and (g ->> 'checkout_date')::date = pg_temp.today() + 2 from _t, jsonb_array_elements(v -> 'guests') g where k = 'g30' and g ->> 'thread_id' = pg_temp.id('f1')::text),
+  'guests: check-in and check-out dates come from the thread');
+select ok((select jsonb_array_length(v -> 'guests') = 5 and (v ->> 'total')::int = 5 and not exists (select 1 from jsonb_array_elements(v -> 'guests') g where g ->> 'thread_id' in (pg_temp.id('f9')::text, pg_temp.id('fd')::text, pg_temp.id('ff')::text)) from _t where k = 'g30'),
+  'guests: the 30-day window leaves out E (40 days), G (80 days) and H (100 days)');
+select ok((select (v ->> 'total')::int = 7 and exists (select 1 from jsonb_array_elements(v -> 'guests') g where g ->> 'thread_id' = pg_temp.id('f9')::text) and exists (select 1 from jsonb_array_elements(v -> 'guests') g where g ->> 'thread_id' = pg_temp.id('fd')::text)
+        and not exists (select 1 from jsonb_array_elements(v -> 'guests') g where g ->> 'thread_id' = pg_temp.id('ff')::text) from _t where k = 'g90'),
+  'guests: a 90-day window holds E (40 days) and G (80 days) but not H (100 days): total 7');
+select ok((select v = (select v from _t where k = 'g90') from _t where k = 'g1000'),
+  'guests: p_days above 90 is clamped to 90 (1000 answers exactly what 90 does, H still out)');
+select ok((select v = (select v from _t where k = 'g1') and v = (select v from _t where k = 'gneg') and exists (select 1 from jsonb_array_elements(v -> 'guests') g where g ->> 'thread_id' = pg_temp.id('f1')::text)
+        and not exists (select 1 from jsonb_array_elements(v -> 'guests') g where g ->> 'thread_id' = pg_temp.id('fb')::text) from _t where k = 'g0'),
+  'guests: p_days 0 and -5 are clamped to 1 (same answer as 1: today only, A in, F from 30 hours ago out)');
+select ok((select exists (select 1 from jsonb_array_elements(v -> 'guests') g where g ->> 'thread_id' = pg_temp.id('fb')::text) from _t where k = 'g3'),
+  'guests: a 3-day window holds F (a session 30 hours ago)');
+
+-- cap: 65 more guests inside the window, each a session 31 to 95 seconds ago (all newer than B, C, D and F)
+insert into public.guide_threads(id, property_id, calendar_event_id, checkin_date, checkout_date, guest_label)
+select ('e1360000-0000-4000-8000-' || lpad(to_hex(i), 12, '0'))::uuid, pg_temp.dp(), ('e1360000-0000-4000-9000-' || lpad(to_hex(i), 12, '0'))::uuid,
+       pg_temp.today(), pg_temp.today() + 1, 'Zzcap'
+  from generate_series(1, 65) i;
+insert into public.guide_sessions(token_hash, thread_id, expires_at, created_at)
+select lpad(to_hex(1000 + i), 64, '0'), ('e1360000-0000-4000-8000-' || lpad(to_hex(i), 12, '0'))::uuid, now() + interval '2 days', now() - make_interval(secs => 30 + i)
+  from generate_series(1, 65) i;
+select pg_temp.as_user(pg_temp.id('01'));
+insert into _t values ('gcap', pg_temp.try('select public.staff_guide_guests_v1(30)'));
+reset role;
+select ok((select jsonb_array_length(v -> 'guests') = 60 and (v ->> 'total')::int = 70 from _t where k = 'gcap'),
+  'guests: 70 guests in the window answer 60 rows and total 70 (the uncapped count)');
+select ok((select (v -> 'guests' -> 0 ->> 'thread_id')::uuid = pg_temp.id('f1')
+        and not exists (select 1 from jsonb_array_elements(v -> 'guests') g where g ->> 'thread_id' in (pg_temp.id('f3')::text, pg_temp.id('f5')::text, pg_temp.id('f7')::text, pg_temp.id('fb')::text)) from _t where k = 'gcap'),
+  'guests: the capped 60 start with A and drop the oldest (B, C, D and F are cut)');
+select ok((select bool_and(cur <= prev) from (select (g.value ->> 'last_seen')::timestamptz cur, lag((g.value ->> 'last_seen')::timestamptz) over (order by g.ordinality) prev
+        from _t, jsonb_array_elements(v -> 'guests') with ordinality g(value, ordinality) where k = 'gcap') s where prev is not null),
+  'guests: the 60 rows run in descending last_seen order');
+
+select ok(has_function_privilege('authenticated', 'public.staff_guide_guests_v1(integer,uuid)', 'execute')
+      and not has_function_privilege('anon', 'public.staff_guide_guests_v1(integer,uuid)', 'execute')
+      and not has_function_privilege('service_role', 'public.staff_guide_guests_v1(integer,uuid)', 'execute')
+      and (select p.prosecdef and p.proconfig @> array['search_path=""'] from pg_proc p where p.oid = 'public.staff_guide_guests_v1(integer,uuid)'::regprocedure),
+  'guests acl: authenticated only (anon and service_role hold no execute), SECURITY DEFINER with search_path pinned');
 
 select * from finish();
 rollback;
