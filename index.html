@@ -6322,6 +6322,83 @@ body.theme-quiet-luxury .loc-heading { font-size: 20px; }
 body.theme-quiet-luxury .loc-heading em { font-size: inherit; }
 body.theme-quiet-luxury .faq-heading, body.theme-quiet-luxury .iv-proof-line, body.theme-quiet-luxury .iv-proof-line span, body.theme-quiet-luxury .iv-pull, body.theme-quiet-luxury blockquote.gs-disp { font-size: 28px; }
 body.theme-quiet-luxury .skip-link { min-height: 44px; display: inline-flex; align-items: center; }
+
+/* ---------- round A fixes (s137): invitation grid, contact ink, calm footer, light hero, dock room, gallery size ---------- */
+/* A1 hero card: padding clears the inner hairline (6px) by 20px+; two equal columns, 16px gap, left-aligned reply lines */
+body.theme-quiet-luxury #heroBookBar .hero-bk-inner { padding: 1.75rem 1.75rem 1.5rem; }
+body.theme-quiet-luxury #heroBookBar .hero-bk-fields, body.theme-quiet-luxury .iv-reply {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 1rem; row-gap: 0; justify-items: stretch; align-items: stretch; width: 100%; box-sizing: border-box;
+}
+body.theme-quiet-luxury #heroBookBar .hero-bk-field--checkin { grid-column: 1; grid-row: 1; }
+body.theme-quiet-luxury #heroBookBar .hero-bk-field--checkout { grid-column: 2; grid-row: 1; }
+body.theme-quiet-luxury #heroBookBar .hero-bk-sep--mid, body.theme-quiet-luxury #heroBookBar .hero-bk-sep--right { display: none; }
+body.theme-quiet-luxury #heroBookBar .hero-bk-field, body.theme-quiet-luxury .iv-field { width: 100%; text-align: left; border-bottom-width: 1px; }
+body.theme-quiet-luxury #heroBookBar .hero-bk-label, body.theme-quiet-luxury .iv-flab { text-align: left; white-space: nowrap; }
+body.theme-quiet-luxury #heroBookBar .hero-bk-date-val, body.theme-quiet-luxury .iv-fval { text-align: left; }
+body.theme-quiet-luxury .iv-card { padding: 2.25rem 1.75rem 1.75rem; }
+body.theme-quiet-luxury .hero-bk .gs-dock-sub, body.theme-quiet-luxury .iv-fine { text-wrap: balance; }
+@media (min-width: 1024px) { body.theme-quiet-luxury .iv-card { padding: 2.5rem 2.25rem 2rem; } body.theme-quiet-luxury #heroBookBar .hero-bk-inner { padding: 2rem 2rem 1.75rem; } }
+
+/* A4 + A5 hero photo: the picture leads. No flat wash; a soft top gradient for the wordmark and a bottom gradient only behind the headline */
+body.theme-quiet-luxury .hero-overlay { background: linear-gradient(180deg, rgb(28 16 6 / .46) 0, rgb(28 16 6 / .2) 10%, rgb(28 16 6 / 0) 22%, rgb(28 16 6 / 0) 100%); }
+body.theme-quiet-luxury .hero-grain { opacity: .12; }
+body.theme-quiet-luxury .luxury-hero-grid .luxury-hero-copy::before {
+  inset: -9rem -100vw -2.5rem -100vw;
+  background: linear-gradient(180deg, rgb(24 14 6 / 0) 0, rgb(24 14 6 / .2) 18%, rgb(24 14 6 / .52) 31%, rgb(24 14 6 / .62) 50%, rgb(24 14 6 / .66) 100%);
+}
+body.theme-quiet-luxury .luxury-hero-copy .hero-title.gs-quote, body.theme-quiet-luxury .luxury-hero-copy .gs-eb--hero, body.theme-quiet-luxury .luxury-hero-copy .gs-attrib, body.theme-quiet-luxury .luxury-hero-copy .gs-hero-proof a { text-shadow: 0 1px 14px rgb(20 12 6 / .5); }
+@media (min-width: 1024px) {
+  body.theme-quiet-luxury .luxury-hero-grid .luxury-hero-copy::before {
+    inset: -9rem -100vw -2.5rem -100vw;
+    background: linear-gradient(180deg, rgb(24 14 6 / 0) 0, rgb(24 14 6 / .14) 24%, rgb(24 14 6 / .44) 48%, rgb(24 14 6 / .6) 68%, rgb(24 14 6 / .64) 100%);
+  }
+}
+[data-theme="espresso"] body.theme-quiet-luxury .hero-overlay { background: linear-gradient(180deg, rgb(8 5 2 / .42) 0, rgb(8 5 2 / .1) 14%, rgb(8 5 2 / .06) 50%, rgb(8 5 2 / .2) 100%); }
+[data-theme="espresso"] body.theme-quiet-luxury .luxury-hero-grid .luxury-hero-copy::before {
+  background: linear-gradient(180deg, rgb(10 6 2 / 0) 0, rgb(10 6 2 / .3) 22%, rgb(10 6 2 / .62) 44%, rgb(10 6 2 / .76) 64%, rgb(10 6 2 / .78) 100%);
+}
+
+/* A2 contact rows: secondary lines, e-mail, arrows and chips use the muted ink tokens (AA in day and night) */
+body.theme-quiet-luxury .loc-cta-label span, body.theme-quiet-luxury .loc-cta-label span span { color: var(--gs-muted); font-size: .875rem; letter-spacing: .01em; }
+body.theme-quiet-luxury .loc-cta-label strong { color: var(--gs-ink); }
+body.theme-quiet-luxury #contactEmailDisplay { color: var(--gs-ink); font-size: .9375rem; overflow-wrap: anywhere; }
+body.theme-quiet-luxury .loc-cta-btn { color: var(--gs-ink); min-height: 4rem; }
+body.theme-quiet-luxury .loc-cta-btn svg { color: var(--gs-accent-text); opacity: 1; }
+body.theme-quiet-luxury .loc-cta-btn > svg[style] { opacity: .8 !important; color: var(--gs-muted); }
+body.theme-quiet-luxury .nearby-chip, body.theme-quiet-luxury .nearby-chip strong { color: var(--gs-ink); }
+body.theme-quiet-luxury .location-contact [style*="201 150 58"] { color: var(--gs-accent-text) !important; }
+body.theme-quiet-luxury .nearby-chip-dot { opacity: 1; background: var(--gs-accent-text); }
+body.theme-quiet-luxury .nearby-label, body.theme-quiet-luxury .nearby-cat-label, body.theme-quiet-luxury .loc-item-icon { opacity: 1; }
+body.theme-quiet-luxury .loc-item-value, body.theme-quiet-luxury .loc-item-value a { font-weight: 400; }
+
+/* A3 footer: a calm centred stack on the mahogany ground; no separators, 44px links, sentence case */
+body.theme-quiet-luxury .site-footer { padding-top: 3rem; padding-bottom: calc(6.5rem + env(safe-area-inset-bottom, 0px)); }
+body.theme-quiet-luxury .site-footer .footer-inner { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .25rem; text-align: center; }
+body.theme-quiet-luxury .site-footer .footer-brand {
+  order: 1; margin: 0; font-family: var(--gs-display); font-size: 1.75rem; font-weight: 600; line-height: 1.15; letter-spacing: .01em; text-transform: none; color: #F4EBDD;
+}
+body.theme-quiet-luxury .site-footer .fb-name, body.theme-quiet-luxury .site-footer .fb-place { display: block; }
+body.theme-quiet-luxury .site-footer .fb-sep { display: none; }
+body.theme-quiet-luxury .site-footer .fb-place { margin-top: .25rem; font-family: var(--gs-body); font-size: .78rem; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: #D6C8B2; }
+body.theme-quiet-luxury .site-footer .footer-sign { order: 2; margin: 0 0 1rem; font-size: .875rem; line-height: 1.5; color: #D6C8B2; }
+body.theme-quiet-luxury .site-footer .footer-legal-links { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 0 .25rem; margin: 0; }
+body.theme-quiet-luxury .site-footer .footer-sections { order: 3; }
+body.theme-quiet-luxury .site-footer .footer-reach { order: 4; }
+body.theme-quiet-luxury .site-footer .footer-legal { order: 5; }
+body.theme-quiet-luxury .site-footer .footer-legal-links a { display: inline-flex; align-items: center; min-height: 44px; padding-inline: .75rem; font-size: .875rem; color: #F4EBDD; text-decoration: none; letter-spacing: .01em; }
+body.theme-quiet-luxury .site-footer .footer-legal-links a:hover { text-decoration: underline; text-underline-offset: .3em; }
+body.theme-quiet-luxury .site-footer .footer-copy { order: 6; margin: 1rem 0 0; font-size: .78rem; letter-spacing: .02em; color: #C9BBA4; }
+
+/* A6 the dock: room for it under the last line of the page (dock 4rem + 0.875rem offset + safe area) */
+
+/* the concierge box spans 285x295px on a phone and swallowed taps on the footer links: only its button and an open panel take pointer events */
+.concierge-float { pointer-events: none; }
+.concierge-float .concierge-trigger, .concierge-float .concierge-panel.is-open { pointer-events: auto; }
+
+/* A7 gallery: the snapped photo is as wide as the page allows (page width minus the 24px gutters); caption centred below */
+#photos .gs-strip:not(.gs-strip--trips) > li { width: calc(100vw - 2 * var(--iv-gut)); max-width: none; }
+@media (min-width: 760px) { #photos .gs-strip:not(.gs-strip--trips) > li { width: min(68vw, 56rem); } }
+#photos .iv-fig figcaption { text-align: center; font-family: var(--gs-display); font-style: italic; font-size: .9375rem; line-height: 1.4; color: var(--gs-muted); padding: .75rem 0 0; }
 </style>
 </head>
 
@@ -7666,21 +7743,19 @@ body.theme-quiet-luxury .skip-link { min-height: 44px; display: inline-flex; ali
   <footer class="site-footer" role="contentinfo">
     <div class="container">
       <div class="footer-inner">
-        <p class="footer-sign">Marifel &amp; The Cascade Team &middot; <a href="https://www.messenger.com/t/699640026568720" target="_blank" rel="noopener noreferrer">Messenger</a> &middot; <a data-contact="tel" href="tel:+639918538269">Call us</a> &middot; <a href="mailto:cascadereservations@gmail.com">cascadereservations@gmail.com</a></p>
+        <p class="footer-brand"><span class="fb-name">Cascade Hideaway</span><span class="fb-sep" aria-hidden="true"> &middot; </span><span class="fb-place">General Santos City</span></p>
+        <p class="footer-sign">Marifel &amp; The Cascade Team</p>
+        <nav class="footer-legal-links footer-sections" aria-label="Page sections"><a href="#spotless">Guest stories</a><a href="#photos">Photos</a><a href="#location">Location</a></nav>
+        <nav class="footer-legal-links footer-reach" aria-label="Reach us"><a href="https://www.messenger.com/t/699640026568720" target="_blank" rel="noopener noreferrer">Messenger</a><a data-contact="tel" href="tel:+639918538269">Call us</a><a href="mailto:cascadereservations@gmail.com">cascadereservations@gmail.com</a></nav>
+        <nav class="footer-legal-links footer-legal" aria-label="Legal and listing links">
+          <a href="privacy.html">Privacy</a>
+          <a href="booking-terms.html">Booking terms</a>
+          <a href="#contact">Contact</a>
+          <a href="https://www.airbnb.com/rooms/1523827999359515793" target="_blank" rel="noopener noreferrer">Airbnb listing</a>
+        </nav>
         <p class="footer-copy">
           &copy; <span id="footerYear"></span> Cascade Reservations. All rights reserved.
         </p>
-        <p class="footer-brand">Cascade Hideaway &middot; General Santos City</p>
-        <nav class="footer-legal-links footer-sections" aria-label="Page sections"><a href="#spotless">Guest stories</a><span aria-hidden="true">&middot;</span><a href="#photos">Photos</a><span aria-hidden="true">&middot;</span><a href="#location">Location</a></nav>
-        <nav class="footer-legal-links" aria-label="Legal and listing links">
-          <a href="privacy.html">Privacy</a>
-          <span aria-hidden="true">&middot;</span>
-          <a href="booking-terms.html">Booking terms</a>
-          <span aria-hidden="true">&middot;</span>
-          <a href="#contact">Contact</a>
-          <span aria-hidden="true">&middot;</span>
-          <a href="https://www.airbnb.com/rooms/1523827999359515793" target="_blank" rel="noopener noreferrer">Airbnb listing</a>
-        </nav>
       </div>
     </div>
   </footer>
