@@ -125,14 +125,16 @@ Re-run with the committed harness `scripts/recovery/p6/guide-v9-rehearsal.sh` on
 
 | Result | Value |
 |---|---|
-| `full` (log `.rehearsal-logs/r2-full.log`) | migrations applied 10, failed 0; forward checks 13 of 13; guide_v9_secrets 77 of 77; guide_v8_messages_analytics 172 of 172; s136_followups 41 of 41; committed rollback sha256 equal to the bytes that ran (both files); runner exit 8 only from the accepted ACL baseline |
-| other 7 suites | fail exactly the numbers in `accepted_failing_tests`; the failure and error lines (71) are identical to the run without v9 (`rehearsal-guide_v9-pre-full.log`), `diff` empty |
-| `cron` (log `r2-cron.log`) | 4 migrations applied, forward checks 13 of 13 (including `weather_warm_job_scheduled` with `active`), suite 77 of 77, exit 0 |
-| mutants killed by the suite (not ok count) | R1a-leftmost-xff 2 (also forward check), R1a-xff-before-cf 1, R1a-header-ignored 14, R1a-no-header-ignores-p_client 3, R1b-empty-code-inserts 4, R1c-trim-off 2, R1d-cap-off 3, R1d-cap-off-by-one 3 (also forward check), R3-secrets-stable 1 (also forward check), R4-no-fingerprint-check 1, R4-mint-keeps-stale 1, old B 5, old C 3 (also forward check), old D 2, old E 6, old F 3 |
-| mutant that survives | R1d-no-recount (removes the recount after the advisory lock): equivalent in a sequential test, it matters only under concurrency, same class as the lock removal below |
-| logs | `.rehearsal-logs/r2-*.log` (git-ignored) |
+| `full` (log `.rehearsal-logs/r3-final-full.log`, committed bytes of 0822fa2) | migrations applied 10, failed 0; forward checks 14 of 14; guide_v9_secrets 84 of 84 (plan 84); guide_v8_messages_analytics 172 of 172; s136_followups 41 of 41; committed rollback sha256 equal to the bytes that ran (both files); runner exit 8 only from the accepted ACL baseline |
+| other 7 suites | fail exactly the numbers in `accepted_failing_tests`; the failure and error lines (89: not ok, # Failed, psql ERROR) are identical to the run without v9 (`rehearsal-guide_v9-pre-full.log`), `diff` empty |
+| `cron` (log `r3-cron.log`) | 4 migrations applied, forward checks 14 of 14 (including `weather_warm_job_scheduled` with `active`), suite 84 of 84, exit 0 |
+| new body md5 | `b4a0aa337ba7cffac62feb7bcd633f8b`, computed from the committed file, asserted by the forward check `verify_admin_pin_body_md5` and the matching row of the verify script, and accepted by the bound rollback's guard |
+| mutants of the new logic, all killed by the suite (not ok count) | limit 21: 7, limit 19: 5, IPv6 /64 grouping removed: 2, noaddr fallback removed: 2, staff wrapper re-raising 55P03: 1 (logs `r3-mut-*.log`) |
+| round-1 mutants | run on the round-1 bytes (`r2-mut-*.log`), not re-run in round 2 |
+| mutant that survives | R1d-no-recount (removes the recount after the advisory lock). Without the recount, every call that passes the unlocked pre-check while the window sits at the edge inserts, so the overshoot is bounded by the number of concurrent calls at each slide of the window, not by one row. The shipped code keeps the recount, so the cap is exact. Needs two sessions to test; pgTAP in one transaction cannot. |
+| logs | `.rehearsal-logs/r3-*.log` (git-ignored) |
 
-Advisory-lock removal and the recount mutant (the exact-cap race) were **skipped / survive**: it needs two concurrent sessions, which pgTAP in one transaction cannot produce. The cap is asserted exactly in sequence (401 refused), and the worst case under a race is documented as the +1 row.
+Advisory-lock removal and the recount mutant survive for the same reason (two concurrent sessions). A real 55P03 lock wait is likewise not exercised; the suite simulates it with a trigger that raises 55P03 inside `verify_admin_pin`.
 
 Correction of the earlier note: mutant C (`wifi_password` added to the whitelist) is **caught by the suite** (the whitelist test), not only by the forward check. In the first round the run aborted because the harness's own temp migration raised on the forward check before the suite ran; that was the harness, not a gap in the tests.
 
