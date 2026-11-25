@@ -47,6 +47,8 @@ create function pg_temp.today() returns date language sql stable as $$ select (n
 grant execute on function pg_temp.today() to public;
 create function pg_temp.dp() returns uuid language sql immutable as $$ select '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd'::uuid $$;
 grant execute on function pg_temp.dp() to public;
+-- CI's empty database has no default property row (production and backup rehearsals do); seed it like d301 does
+insert into public.properties(id, name, is_active) values ('6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', 'Cascade Hideaway', true) on conflict (id) do nothing;
 create function pg_temp.tok() returns text language sql stable as $$ select v ->> 'token' from _t where k = 'mint' $$;
 grant execute on function pg_temp.tok() to public;
 create function pg_temp.tid() returns text language sql stable as $$ select v ->> 'thread_id' from _t where k = 'mint' $$;
