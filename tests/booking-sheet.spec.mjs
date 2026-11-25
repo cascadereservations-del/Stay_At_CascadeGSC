@@ -24,8 +24,16 @@ async function mock(page, { submit } = {}) {
   return posts;
 }
 async function pickDay(page, ds) {
+  /* The first paint can be replaced: with no check-in picked, the sheet's autoAdvance() jumps to next month once the
+     availability fetch lands and fewer than 7 bookable days are left this month (from the 25th of a 30-day month on).
+     So wait for availability first, then page toward the target month in whichever direction it lies. */
+  await expect(page.locator('#bsAvailNote')).not.toHaveText('Checking availability…');
   const day = page.locator(`#bsGrid [data-d="${ds}"]`);
-  for (let i = 0; i < 4 && !(await day.count()); i++) { await page.locator('#bsNext').click(); await day.waitFor({ state: 'attached', timeout: 4000 }).catch(() => {}); }   /* month paints after the availability fetch: wait for the cell, not a count */
+  for (let i = 0; i < 6 && !(await day.count()); i++) {
+    const shown = (await page.locator('#bsGrid [data-d]').first().getAttribute('data-d')).slice(0, 7);
+    await page.locator(ds.slice(0, 7) < shown ? '#bsPrev' : '#bsNext').click();
+    await day.waitFor({ state: 'attached', timeout: 4000 }).catch(() => {});
+  }
   await day.click();
 }
 async function step1(page, ci = CI, co = CO) {
@@ -200,6 +208,18 @@ test.describe('booking sheet', () => {
     await page.locator('#bsNext3').click();
     await expect(page.locator('#bsH4')).toBeVisible();
     await expect(page.locator('#bsDoneDep')).toHaveText(want);
+  });
+
+  test('late in the month the calendar jumps ahead, and a this-month check-in is still reachable with the previous-month button', async ({ page }) => {
+    await page.clock.setFixedTime(new Date(2027, 0, 27, 9, 0, 0));          /* 27 Jan: 5 bookable days left, so autoAdvance shows February */
+    await mock(page);
+    await page.route('**/functions/v1/availability**', (route) => route.fulfill({ contentType: 'application/json', body: '[]' }));   /* the shared block (plus(34..36)) follows the real date and can land on these nights */
+    await openHeader(page);
+    await expect(page.locator('#bsAvailNote')).not.toHaveText('Checking availability…');
+    await expect(page.locator('#bsMonth')).toHaveText(/February 2027/);
+    await pickDay(page, '2027-01-29'); await pickDay(page, '2027-01-31');
+    await expect(page.locator('#bsRange')).not.toHaveText(/Tap your/);
+    await expect(page.locator('#bsTotal')).toContainText('₱');
   });
 
   test('WMO codes classify to rain, cloudy and clear', async ({ page }) => {
