@@ -46,6 +46,13 @@
 --      the day budget is 1000 (a stay produces a few hundred events a day).
 --    - The reports follow the retention: staff_guide_usage_v1 answers for at most 30 days; staff_guide_guests_v1 (up to 90 days) takes names
 --      and first / last sign-in from guide_sessions, and its event-based numbers (opens, checklist_done, a later last_seen) cover the last 30 days.
+--  * guide_auth_attempts is bounded WITHOUT any scheduled job too. guide_session_v1 (a) answers a check-in date outside [Manila today - 90, today + 3] before
+--    any count, lock or insert (too_early / expired, verify_booking not called, no row), and (b) before any insert deletes up to 200 attempts older than
+--    2 days (oldest first, index guide_auth_attempts_at_idx). Rows kept are those of the last 2 days: failures are capped at 10 per check-in date in
+--    any 15 minutes (exact, under the per-date advisory lock), so at most 94 dates x 10 x 192 fifteen-minute windows = 180480 failure rows, plus ok rows
+--    (one per minted session, at most 20 sessions a thread a day, one thread per date: 94 x 20 x 2 = 3760): 184240 rows. Measured in the pgTAP suite
+--    (test section 16): see the release contract notes.
+--  * guide_messages: guest sends are capped at 30 an hour and 200 a rolling 24 hours per thread (reason 'rate'); the per-thread worst case is in the contract notes.
 --  * guide_sweep_v1 (30-day events, sessions 95 days after expiry, attempts 2 days) is housekeeping only: the storage bound does not depend on
 --    it. Sessions are kept 95 days past expiry because staff_guide_guests_v1 (p_days up to 90) lists guests from guide_sessions; the token helper
 --    refuses an expired token regardless, so a kept row grants nothing. guide_sessions is small: at most 20 new rows a thread a day.
@@ -115,6 +122,7 @@ create table public.guide_auth_attempts (
 );
 create index guide_auth_attempts_idx on public.guide_auth_attempts(client, at desc);
 create index guide_auth_attempts_date_idx on public.guide_auth_attempts(tried_date, at desc) where not ok;
+create index guide_auth_attempts_at_idx on public.guide_auth_attempts(at);   -- the inline trim in guide_session_v1 and the sweep read the oldest rows first
 
 create table public.guide_events (
   id         bigint generated always as identity primary key,
@@ -192,6 +200,20 @@ begin
   end;
   v_client := left(coalesce('ip:' || v_ip, nullif(btrim(p_client), ''), 'anon'), 80);
 
+  -- Date window, BEFORE any count, lock or insert: only a check-in date from Manila today - 90 to today + 3 can ever be a real, signable stay (messaging opens
+  -- 3 days before arrival; the longest stay the house takes ends well inside 90 days, and the token dies 2 days after checkout). Any other date is answered
+  -- without calling verify_booking and WITHOUT writing an attempt row, so a caller cannot grow guide_auth_attempts by walking over random dates. A date after
+  -- today + 3 answers too_early (the same answer a real far-future stay gets; it reveals nothing about bookings), a date before today - 90 answers expired.
+  -- A null date is not in the window test: it falls through to the existing 'missing' answer (no row either).
+  if p_checkin_date is not null then
+    if p_checkin_date > v_today + 3 then
+      return jsonb_build_object('ok', false, 'reason', 'too_early', 'opens_on', p_checkin_date - 3);
+    end if;
+    if p_checkin_date < v_today - 90 then
+      return jsonb_build_object('ok', false, 'reason', 'expired');
+    end if;
+  end if;
+
   -- Serialise concurrent mints for the same check-in date: the throttle counts below are read-then-insert, so without this lock several
   -- parallel calls would all read the same count and slip past the 10-per-date cap together. The lock is held to the end of the transaction.
   -- The wait is capped by the function's own lock_timeout = 2s (see the exception clause at the end): a caller that cannot get the lock in time
@@ -210,6 +232,12 @@ begin
   if p_checkin_date is null or p_initial is null or char_length(btrim(p_initial)) = 0 then
     return jsonb_build_object('ok', false, 'reason', 'missing');
   end if;
+
+  -- Inline retention (no scheduled job): every call that can reach an insert first deletes up to 200 attempts older than 2 days, oldest first (index
+  -- guide_auth_attempts_at_idx). The throttle windows are 15 minutes, so a row older than 2 days is never read. skip locked: a concurrent trim on
+  -- another date's call takes other rows instead of waiting. A call adds at most one row, so while old rows exist every call removes more than it adds.
+  delete from public.guide_auth_attempts
+   where id in (select id from public.guide_auth_attempts where at < now() - interval '2 days' order by at limit 200 for update skip locked);
 
   v_vb := public.verify_booking(p_checkin_date, left(btrim(p_initial), 1), p_property_id);
   if v_vb is null or (v_vb->>'found') = 'false' or (v_vb->>'match') is distinct from 'true' then
@@ -307,6 +335,10 @@ begin
   select count(*) into v_recent from public.guide_messages
    where thread_id = v_thread and sender = 'guest' and created_at > now() - interval '1 hour';
   if v_recent >= 30 then return jsonb_build_object('ok', false, 'reason', 'rate'); end if;
+  -- and at most 200 guest messages per thread in any rolling 24 hours (30 an hour alone would allow 720 a day)
+  select count(*) into v_recent from public.guide_messages
+   where thread_id = v_thread and sender = 'guest' and created_at > now() - interval '24 hours';
+  if v_recent >= 200 then return jsonb_build_object('ok', false, 'reason', 'rate'); end if;
   insert into public.guide_messages(thread_id, sender, body, client_msg_id)
   values (v_thread, 'guest', v_body, p_client_msg_id) returning id, created_at into v_id, v_at;
   update public.guide_threads set last_guest_at = v_at, status = 'open' where id = v_thread;

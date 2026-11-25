@@ -13,7 +13,7 @@
 -- Section 11 (s136 review round 2): placeholder names get no session, the throttle key ignores the client-controlled x-forwarded-for entry, per-date and per-thread caps,
 -- the analytics caps and meta whitelist, the single-property usage report, explicit ACLs.
 begin;
-select plan(163);
+select plan(172);
 
 -- baseline grants for a --no-acl rehearsal restore (idempotent, rolled back with the suite)
 grant usage on schema public, auth to anon, authenticated, service_role;
@@ -407,10 +407,10 @@ select set_config('request.headers', '{}', true);
 select ok((select v ->> 'reason' = 'no_match' from _t where k = 'nohdr') and (select count(*) = 1 from public.guide_auth_attempts where client = 'zz136-nohdr' and not ok), 's136 key: with no address header (blank setting) the client id is the key and the call does not raise');
 
 -- 11c. caps: 10 failures per check-in date per 15 minutes; 20 sessions per thread per day (busy)
-insert into public.guide_auth_attempts(client, tried_date, ok) select 'zz136-d' || g, pg_temp.today() + 5, false from generate_series(1, 9) g;
+insert into public.guide_auth_attempts(client, tried_date, ok) select 'zz136-d' || g, pg_temp.today() - 5, false from generate_series(1, 9) g;
 select pg_temp.as_anon();
-insert into _t values ('dc9', pg_temp.try(format('select public.guide_session_v1(%L::date, %L, %L, %L::uuid)', pg_temp.today() + 5, 'Q', 'zz136-dx', pg_temp.id('b2'))));
-insert into _t values ('dc10', pg_temp.try(format('select public.guide_session_v1(%L::date, %L, %L, %L::uuid)', pg_temp.today() + 5, 'Q', 'zz136-dy', pg_temp.id('b2'))));
+insert into _t values ('dc9', pg_temp.try(format('select public.guide_session_v1(%L::date, %L, %L, %L::uuid)', pg_temp.today() - 5, 'Q', 'zz136-dx', pg_temp.id('b2'))));
+insert into _t values ('dc10', pg_temp.try(format('select public.guide_session_v1(%L::date, %L, %L, %L::uuid)', pg_temp.today() - 5, 'Q', 'zz136-dy', pg_temp.id('b2'))));
 insert into _t values ('dc_other', pg_temp.try(format('select public.guide_session_v1(%L::date, %L, %L, %L::uuid)', pg_temp.today() + 1, 'Q', 'zz136-dz', pg_temp.id('b2'))));
 reset role;
 select ok((select v ->> 'reason' = 'no_match' from _t where k = 'dc9') and (select v ->> 'reason' = 'throttled' and v ->> 'throttled' = 'true' from _t where k = 'dc10'), 's136 cap: nine failures for a check-in date still answer no_match, the tenth failure shuts the date (throttled), whoever asks');
@@ -939,6 +939,107 @@ insert into _t values ('trg_fail', pg_temp.try(format($q$insert into public.guid
 reset role;
 select ok((select v = '1'::jsonb from _t where k = 'trg_fail') and (select count(*) = 1 from public.guide_messages where client_msg_id = 'zz136-trg-0003'),
   's136 trigger: when net.http_post raises, the guest message is still stored (the trigger only warns)');
+
+-- =============================================================================================================================================
+-- 16. s136 round 6: guide_auth_attempts is bounded without a job (date window before any insert, inline 2-day trim, measured size); guest messages capped per day.
+--     verify_booking is replaced by a SPY: it records every call in public.zz136_vbcalls and matches any initial except 'X' (a failed attempt). Rolled back with the suite.
+-- =============================================================================================================================================
+alter table public.guide_messages disable trigger guide_messages_push;
+create table public.zz136_vbcalls(initial text);
+create or replace function public.verify_booking(p_checkin_date date, p_initial text default null::text, p_property_id uuid default '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd'::uuid)
+returns jsonb language plpgsql as $$ begin
+  insert into public.zz136_vbcalls values (p_initial);
+  return jsonb_build_object('found', true, 'expired', false, 'match', p_initial is distinct from 'X', 'first_name', 'Zzstub', 'checkin_date', p_checkin_date, 'checkout_date', p_checkin_date);
+end $$;
+delete from public.guide_auth_attempts;
+select set_config('request.headers', '{}', true);
+
+-- 16a. dates outside [today - 90, today + 3] answer too_early / expired with NO attempt row and verify_booking NOT called (a null date writes nothing either)
+select pg_temp.as_anon();
+insert into _t values ('w_far', (select jsonb_agg(pg_temp.try(format('select public.guide_session_v1(%L::date, %L, %L, %L::uuid)', d, 'X', 'zz136-w' || i, pg_temp.id('b2'))) order by i)
+  from (values (1, pg_temp.today() + 4), (2, pg_temp.today() + 400), (3, 'infinity'::date)) f(i, d)));
+insert into _t values ('w_past', (select jsonb_agg(pg_temp.try(format('select public.guide_session_v1(%L::date, %L, %L, %L::uuid)', d, 'X', 'zz136-w' || i, pg_temp.id('b2'))) order by i)
+  from (values (4, pg_temp.today() - 91), (5, pg_temp.today() - 4000), (6, '-infinity'::date)) f(i, d)));
+insert into _t values ('w_null', pg_temp.try(format('select public.guide_session_v1(null::date, %L, %L, %L::uuid)', 'X', 'zz136-w7', pg_temp.id('b2'))));
+reset role;
+select ok((select v -> 0 ->> 'reason' = 'too_early' and (v -> 0 ->> 'opens_on')::date = pg_temp.today() + 1 and v -> 1 ->> 'reason' = 'too_early' and v -> 2 ->> 'reason' = 'too_early'
+             and v -> 0 ->> 'ok' = 'false' and not v -> 0 ? 'token' from _t where k = 'w_far')
+      and (select count(*) = 0 from public.guide_auth_attempts) and (select count(*) = 0 from public.zz136_vbcalls),
+  's136 window: check-in today + 4, today + 400 and infinity answer too_early (opens_on = date - 3), write no attempt row and never call verify_booking');
+select ok((select bool_and(e ->> 'reason' = 'expired' and e ->> 'ok' = 'false') and count(*) = 3 from _t, jsonb_array_elements(v) e where k = 'w_past')
+      and (select v ->> 'reason' = 'missing' from _t where k = 'w_null')
+      and (select count(*) = 0 from public.guide_auth_attempts) and (select count(*) = 0 from public.zz136_vbcalls),
+  's136 window: check-in today - 91, today - 4000 and -infinity answer expired and a null date answers missing: no attempt row, verify_booking never called');
+
+-- 16b. the edges are inside the window: today + 3 and today - 90 ARE processed (verify_booking called, a failed attempt recorded)
+select pg_temp.as_anon();
+insert into _t values ('w_in3', pg_temp.try(format('select public.guide_session_v1(%L::date, %L, %L, %L::uuid)', pg_temp.today() + 3, 'X', 'zz136-wa', pg_temp.id('b2'))));
+insert into _t values ('w_in90', pg_temp.try(format('select public.guide_session_v1(%L::date, %L, %L, %L::uuid)', pg_temp.today() - 90, 'X', 'zz136-wb', pg_temp.id('b2'))));
+reset role;
+select ok((select v ->> 'reason' = 'no_match' from _t where k = 'w_in3') and (select v ->> 'reason' = 'no_match' from _t where k = 'w_in90')
+      and (select count(*) = 2 from public.zz136_vbcalls)
+      and (select count(*) = 1 from public.guide_auth_attempts where tried_date = pg_temp.today() + 3 and not ok) and (select count(*) = 1 from public.guide_auth_attempts where tried_date = pg_temp.today() - 90 and not ok),
+  's136 window: today + 3 and today - 90 are processed: verify_booking is called and one failed attempt is recorded for each');
+
+-- 16c. inline trim: one call that inserts deletes at most 200 attempts older than 2 days (oldest first); rows aged one day stay
+delete from public.guide_auth_attempts;
+insert into public.guide_auth_attempts(client, tried_date, ok, at) select 'zz136-old' || i, pg_temp.today(), false, now() - interval '3 days' - make_interval(secs => i) from generate_series(1, 250) i;
+insert into public.guide_auth_attempts(client, tried_date, ok, at) select 'zz136-day' || i, pg_temp.today(), false, now() - interval '1 day' - make_interval(secs => i) from generate_series(1, 5) i;
+select pg_temp.as_anon();
+insert into _t values ('trim1', pg_temp.try(format('select public.guide_session_v1(%L::date, %L, %L, %L::uuid)', pg_temp.today(), 'X', 'zz136-tr1', pg_temp.id('b2'))));
+reset role;
+select ok((select v ->> 'reason' = 'no_match' from _t where k = 'trim1')
+      and (select count(*) = 50 from public.guide_auth_attempts where at < now() - interval '2 days')
+      and (select count(*) = 50 from public.guide_auth_attempts where client ~ '^zz136-old([1-9]|[1-4][0-9]|50)$')
+      and (select count(*) = 5 from public.guide_auth_attempts where client like 'zz136-day%') and (select count(*) = 1 from public.guide_auth_attempts where client = 'zz136-tr1'),
+  's136 trim: 250 attempts aged 3 days, one inserting call: the 200 oldest are gone, 50 old rows remain, the 5 rows aged one day and the new row are untouched');
+select pg_temp.as_anon();
+insert into _t values ('trim2', pg_temp.try(format('select public.guide_session_v1(%L::date, %L, %L, %L::uuid)', pg_temp.today(), 'X', 'zz136-tr2', pg_temp.id('b2'))));
+reset role;
+select ok((select count(*) = 0 from public.guide_auth_attempts where at < now() - interval '2 days')
+      and (select count(*) = 5 from public.guide_auth_attempts where client like 'zz136-day%') and (select count(*) = 2 from public.guide_auth_attempts where client like 'zz136-tr%'),
+  's136 trim: the next call removes the last 50 old rows; the rows aged one day and the two new rows remain (nothing younger than 2 days is deleted)');
+
+-- 16d. size, measured on a clone of guide_auth_attempts (same columns, CHECK, identity and all four indexes). Worst case in the last 2 days (the retention):
+--      failures: 94 check-in dates (today - 90 .. today + 3) x 10 per 15 minutes x 192 windows = 180480 (the per-date cap is exact under the advisory lock);
+--      ok rows: 94 dates x 20 sessions a thread a day x 2 days = 3760 (one thread a date); total 184240 rows, client at its maximum width of 80 characters,
+--      each one a distinct client (address rotation), loaded in arrival order.
+create temp table _sz_att (like public.guide_auth_attempts including all);
+insert into _sz_att(client, tried_date, ok, at)
+select left(md5(g::text) || md5((g + 1)::text) || md5((g + 2)::text), 80), pg_temp.today() - 90 + (g % 94), g > 180480, now() - interval '2 days' + make_interval(secs => g * 172800.0 / 184240)
+  from generate_series(1, 184240) g;
+select ok(94 * 10 * 192 + 94 * 20 * 2 = 184240
+      and (select count(*) = 184240 and count(*) filter (where not ok) = 180480 and min(char_length(client)) = 80 and max(char_length(client)) = 80 from _sz_att)
+      and (select count(*) = 94 and min(c) = 1920 and max(c) = 1920 from (select count(*) c from _sz_att where not ok group by tried_date) q)
+      and (select count(*) = 4 from pg_indexes where tablename = '_sz_att') and (select count(*) = 4 from pg_indexes where schemaname = 'public' and tablename = 'guide_auth_attempts'),
+  's136 size: the worst-case clone holds 184240 rows (94 dates x 1920 failures + 3760 ok), clients at 80 characters, and the same four indexes as guide_auth_attempts');
+select ok(pg_total_relation_size('_sz_att') < 80 * 1024 * 1024, 's136 size: the worst-case guide_auth_attempts (184240 rows, all four indexes) stays under 80 MB');
+select diag('SIZE auth_attempts total=' || pg_total_relation_size('_sz_att') || ' heap=' || pg_relation_size('_sz_att') || ' indexes=' || pg_indexes_size('_sz_att') || ' per_row=' || pg_total_relation_size('_sz_att') / 184240
+  || ' [' || (select string_agg(indexname || '=' || pg_relation_size(quote_ident(indexname)::regclass), ' ' order by indexname) from pg_indexes where tablename = '_sz_att') || ']');
+drop table _sz_att;
+
+-- 16e. guest messages: at most 200 guest sends per thread in a rolling 24 hours (30 an hour stays). 199 are already there (aged 5 hours and more), five more are 25 hours old
+--      and do not count: the 200th send is stored, the 201st answers rate.
+select pg_temp.as_anon();
+insert into _t values ('m_mint', pg_temp.try(format('select public.guide_session_v1(%L::date, %L, %L, %L::uuid)', pg_temp.today() + 3, 'Z', 'zz136-wm', pg_temp.id('b2'))));
+reset role;
+create temp table _g0 as select count(*) n from public.guide_messages where thread_id = (select (v ->> 'thread_id')::uuid from _t where k = 'm_mint') and sender = 'guest' and created_at > now() - interval '24 hours';
+insert into public.guide_messages(thread_id, sender, body, client_msg_id, created_at)
+select (select (v ->> 'thread_id')::uuid from _t where k = 'm_mint'), 'guest', 'filler', 'zz136-fill-' || i, now() - interval '5 hours' - make_interval(secs => i) from generate_series(1, 199 - (select n from _g0)) i;
+insert into public.guide_messages(thread_id, sender, body, client_msg_id, created_at)
+select (select (v ->> 'thread_id')::uuid from _t where k = 'm_mint'), 'guest', 'older', 'zz136-older-' || i, now() - interval '25 hours' - make_interval(secs => i) from generate_series(1, 5) i;
+select pg_temp.as_anon();
+insert into _t values ('m200', pg_temp.try(format('select public.guide_send_v1(%L, %L, %L)', (select v ->> 'token' from _t where k = 'm_mint'), 'message number 200', 'zz136-msg-0200')));
+insert into _t values ('m201', pg_temp.try(format('select public.guide_send_v1(%L, %L, %L)', (select v ->> 'token' from _t where k = 'm_mint'), 'message number 201', 'zz136-msg-0201')));
+insert into _t values ('m201dup', pg_temp.try(format('select public.guide_send_v1(%L, %L, %L)', (select v ->> 'token' from _t where k = 'm_mint'), 'message number 200', 'zz136-msg-0200')));
+reset role;
+select ok((select v ->> 'ok' = 'true' and not v ? 'already' from _t where k = 'm200')
+      and (select count(*) = 200 from public.guide_messages where thread_id = (select (v ->> 'thread_id')::uuid from _t where k = 'm_mint') and sender = 'guest' and created_at > now() - interval '24 hours'),
+  's136 messages: with 199 guest messages in the last 24 hours (and five older ones that do not count) the 200th send is stored');
+select ok((select v = '{"ok": false, "reason": "rate"}'::jsonb from _t where k = 'm201') and (select count(*) = 0 from public.guide_messages where client_msg_id = 'zz136-msg-0201')
+      and (select count(*) = 200 from public.guide_messages where thread_id = (select (v ->> 'thread_id')::uuid from _t where k = 'm_mint') and sender = 'guest' and created_at > now() - interval '24 hours')
+      and (select v ->> 'ok' = 'true' and v ->> 'already' = 'true' from _t where k = 'm201dup'),
+  's136 messages: the 201st guest send in 24 hours answers rate and stores nothing; a retry of the stored 200th (same client_msg_id) is still answered already');
 
 select * from finish();
 rollback;
