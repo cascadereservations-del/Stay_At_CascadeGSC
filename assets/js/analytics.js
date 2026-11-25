@@ -2,12 +2,21 @@
   'use strict';
   var ENDPOINT = 'https://qkgfhsdppslwunarczeq.supabase.co/functions/v1/track-site-event';
   var SESSION_KEY = 'cascade_booking_session';
+  var memorySession = '';
+  /* Storage can throw (blocked cookies, private mode, a sandboxed frame): the id then lives in memory for this page. Analytics never throws into a caller. */
+  function newId() {
+    try { return crypto.randomUUID(); } catch (_) { return 's' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10); }
+  }
   function sessionId() {
-    var existing = sessionStorage.getItem(SESSION_KEY);
-    if (existing) return existing;
-    var value = crypto.randomUUID();
-    sessionStorage.setItem(SESSION_KEY, value);
-    return value;
+    try {
+      var existing = sessionStorage.getItem(SESSION_KEY);
+      if (existing) return existing;
+      var value = newId();
+      sessionStorage.setItem(SESSION_KEY, value);
+      return value;
+    } catch (_) {
+      return memorySession || (memorySession = newId());
+    }
   }
   function referrerGroup() {
     if (!document.referrer) return 'direct';
@@ -19,6 +28,7 @@
     } catch (_) { return 'other'; }
   }
   function track(eventName, properties) {
+    try {
     var payload = Object.assign({
       session_id: sessionId(), event_name: eventName, occurred_at: new Date().toISOString(),
       page_version: document.documentElement.dataset.version || '2026-08-24',
@@ -40,6 +50,7 @@
       credentials: 'omit',
       mode: 'cors'
     }).catch(function () {});
+    } catch (_) { /* tracking never blocks a booking */ }
   }
   /* Marketing event layer (s137 R3). Nothing here leaves the browser by itself: it fills window.dataLayer and calls gtag / fbq
      only if a vendor script has defined them (none is installed). It never calls track() above and never touches the database.
