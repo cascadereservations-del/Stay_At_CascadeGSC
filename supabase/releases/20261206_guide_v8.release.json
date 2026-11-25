@@ -3,7 +3,7 @@
   "release_id": "guide_v8_messages_analytics_20261206",
   "phase": "backfill",
   "source": {
-    "branch": "s136/sql-guests",
+    "branch": "s136/sql",
     "commit": "48fb9b3e7521ee5e0d1dc70b61f2eddf7e0a8f82"
   },
   "migrations": [
