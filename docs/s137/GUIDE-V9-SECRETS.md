@@ -51,7 +51,7 @@ One object holding only these ten keys (a key that is not set is left out): `wif
 
 - `guide_staff_sessions`: never more than 50 rows. Rows are added only by a successful mint; the mint first deletes every expired row, then counts, then inserts, all under one advisory lock (`pg_advisory_xact_lock`), so the cap is exact. 50 rows of about 100 bytes plus the key index is a few kilobytes. The pgTAP suite loads 49 live and 30 expired rows, mints, and asserts exactly 50; the 51st mint answers `busy` and adds nothing; five more mints at the cap leave it at 50.
 - The read functions write nothing. `guide_secrets_v1` is STABLE (asserted via `provolatile`) and the suite asserts no row appeared in `admin_auth_attempts`, `guide_sessions` or `guide_staff_sessions` after it ran.
-- pg_net keeps its own response log for the cron job; pg_net trims it itself (6 hours by default). One row per call, 144 calls a day.
+- pg_net keeps its own response log for the cron job (one row per call, 144 calls a day); it trims that log itself (a few hours by default, from memory, not checked here).
 
 ## Weather warm-up
 
@@ -77,7 +77,7 @@ What the function does (read in `direct-booking-waves-0-1-sol/supabase/functions
 
 Order: front end only after the SQL. Nothing here is automatic. Same runner as guide v8.
 
-1. Gate: Lloyd's yes in chat to apply, and F1 decided (it is not part of this apply).
+1. Gate: the owner's yes in chat to apply, and F1 decided (it is not part of this apply).
 2. `git rev-parse --abbrev-ref HEAD` is `s137/guide-v9-secrets`, `git status --short` empty; `npm run test:release-safety`; `node scripts/migrations/verify-expand-contract.mjs --release supabase/releases/20261207_guide_v9_secrets.release.json`.
 3. Fresh backup: `bash scripts/recovery/p5/supabase-backup-over-alfred.sh`, then stamp: `node scripts/migrations/fill-restore-point.mjs /c/Cascade-Backups supabase/releases/20261207_guide_v9_secrets.release.json`.
 4. Rehearsal on the fresh set. A set taken now contains guide v8 and s136_followups, so the plain rehearsal is enough: `SET=$(ls -d /c/Cascade-Backups/cascade-supabase-* | sort | tail -1); CASCADE_REHEARSAL_PRE_SQL=supabase/releases/support/s136_pre_grants.sql bash scripts/recovery/p6/migration-rehearsal-on-host.sh $SET supabase/releases/20261207_guide_v9_secrets.release.json supabase/tests/database/guide_v9_secrets.sql` (forward checks 10 of 10, suite 47 of 47). Apply, rollback, re-apply was rehearsed in this lane with a temporary harness (below); that harness is not committed.
@@ -93,4 +93,21 @@ Revert the front end first, then `bash scripts/migrations/run-sql-on-host.sh sup
 
 ## Rehearsal evidence
 
-RESULTS_PLACEHOLDER
+Rehearsed on Alfred (not production) on the restored copy of backup `cascade-supabase-20261125T004039Z`. That backup predates guide v8 and s136_followups (237 ledger rows; production has 239), so both were applied first in the same container. A temporary harness (untracked migrations, deleted afterwards; it is a variation of the s136 `gen-rehearsal.mjs` pattern) ran: snapshot, apply v9, 10 forward checks, v9 fingerprint, rollback with checks (non-v9 fingerprint identical, so guide v8 is untouched), re-apply, 10 forward checks, fingerprint identical.
+
+| Result | Value |
+|---|---|
+| migrations applied | 8, failed 0 (v8, followups, snapshot, v9, state1, rollback, re-apply, state2) |
+| forward verification | 10 passed, 0 failed |
+| pgTAP guide_v9_secrets | 47 of 47 |
+| pgTAP guide_v8_messages_analytics / s136_followups | 172 of 172 / 41 of 41 |
+| other 7 suites | fail exactly the numbers in `accepted_failing_tests` (acl kind, --no-acl copy) |
+| baseline method | the same 9 suites run in a second container with only v8 + followups (no v9): the not-ok / error lines are identical (73 lines, `diff` empty), 20 `not ok` in both |
+| cleanup leftovers | 0 (both runs) |
+| logs | `.rehearsal-logs/rehearsal-guide_v9-post-full.log` (with v9), `...-pre-full.log` (without), `...-quick1.log` (v9 + v8 suite only), `...-mut-A..F.log` (git-ignored folder in the worktree) |
+
+Exit code of the runner is 8 in both runs because of the accepted ACL baseline (same as every release since s134), not because of this lane.
+
+Mutation check (every mutant edited the migration, was rehearsed, and was restored; migration sha256 unchanged after): A throttle key from `p_client` only fails 21, 22, 23. B cap 5000 fails 35 to 39. C whitelist plus `wifi_password` fails the forward check in the harness (the suite did not run for it). D staff expiry removed fails 30, 31. E expired rows not deleted fails 33, 34, 36 to 39. F Wi-Fi password read from the SSID key fails 14, 16, 28.
+
+Not rehearsable on the copy: the `weather-proxy-warm` job (pg_cron and pg_net are absent there; the migration skips it with a notice and the check passes by its absent-cron branch). It is checked by the verify script and step 7 after the production apply.
