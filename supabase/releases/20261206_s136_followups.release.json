@@ -15,8 +15,8 @@
   "backup": {
     "required": true,
     "scope": "production",
-    "restore_point": "PENDING_FRESH_BACKUP: stamp with scripts/migrations/fill-restore-point.mjs right before the apply",
-    "verified_at": "1970-01-01T00:00:00.000Z",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20261125T004039Z",
+    "verified_at": "2026-11-25T00:45:00.446Z",
     "production_rule": "Two follow-ups, no table, column, row or ACL change. (a) The four-argument staff_decline_direct_booking_v1 (cf_confirm_flow) also declines a booking the hold sweep marked expired when a reason_code event is already on file for it (booking_lifecycle_events.after_state has the key reason_code); a retry on such a row posts no second guest notice; every other status is refused exactly as before; same signature, security definer, empty search_path, grants restated (authenticated only). (b) inventory_purchases.purchased_at defaults to public.manila_today() instead of CURRENT_DATE (UTC); the receipt RPCs still pass coalesce(p_purchased_at, current_date) themselves and are NOT changed (their md5 is pinned by s132 to s134).",
     "notes": "Apply after cf_confirm_flow (20261205000000) is applied (the guard raises 55000 otherwise). No begin/commit in the file: the runner wraps it with the ledger row. Restamp restore_point and verified_at with a fresh backup at apply time (scripts/migrations/fill-restore-point.mjs; the checker refuses one older than an hour) and source.commit to the reviewed head. No app push is needed: Staff 3.4.53 and later already call the decline."
   },
