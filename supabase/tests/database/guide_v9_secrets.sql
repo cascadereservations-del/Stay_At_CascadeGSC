@@ -6,7 +6,7 @@
 -- Fixture rows and direct reads run as the owner role (a --no-acl restore gives anon and authenticated no table grants); only the RPC calls run as anon / authenticated / service_role.
 -- Needs guide v8 applied first (the rehearsal contract stacks it). Run: CASCADE_REHEARSAL_PRE_SQL=supabase/releases/support/s136_pre_grants.sql scripts/recovery/p6/migration-rehearsal-on-host.sh <backup-set> <contract> supabase/tests/database/guide_v9_secrets.sql
 begin;
-select plan(77);
+select plan(84);
 
 -- baseline grants for a --no-acl rehearsal restore (idempotent, rolled back with the suite)
 grant usage on schema public, auth to anon, authenticated, service_role;
@@ -184,11 +184,11 @@ select ok(pg_temp.n('ip:203.0.113.10') = 1 and pg_temp.n('zz137-c1') = 0,
   'staff: only the wrong code is recorded (the empty and the null code write no row), under the hash of the header address (ip:203.0.113.10), not of the client string');
 -- rotating p_client does not reset the throttle: the key is the header address
 select pg_temp.as_anon();
-select public.guide_staff_session_v1('wrong-' || g, 'zz137-rot-' || g) from generate_series(1, 7) g;
+select public.guide_staff_session_v1('wrong-' || g, 'zz137-rot-' || g) from generate_series(1, 19) g;
 insert into _t values ('t8', pg_temp.try($q$select public.guide_staff_session_v1('zzpin137', 'zz137-brand-new-client')$q$));
 reset role;
 select is((select v from _t where k = 't8'), '{"ok": false, "throttled": true}'::jsonb,
-  'staff: after 8 wrong codes from one address (1 + 7, each with a different p_client) even the right code is throttled, unchanged, no token');
+  'staff: after 20 wrong codes from one address (1 + 19, each with a different p_client) even the right code is throttled, unchanged, no token');
 select ok((select count(*) = 0 from public.guide_staff_sessions), 'staff: a throttled attempt created no session');
 select pg_temp.hdr('203.0.113.11');
 select pg_temp.as_anon();
@@ -359,11 +359,11 @@ delete from public.admin_auth_attempts;
 -- forged direct calls: a different header address sending p_client = 'ip:<victim>' fills ITS OWN bucket, never the victim's
 select pg_temp.hdr('198.51.100.7');
 select pg_temp.as_anon();
-select public.verify_admin_pin('wrong-' || g, 'ip:203.0.113.20') from generate_series(1, 8) g;
+select public.verify_admin_pin('wrong-' || g, 'ip:203.0.113.20') from generate_series(1, 20) g;
 insert into _t values ('f_att', pg_temp.try($q$select public.verify_admin_pin('zzpin137', 'ip:203.0.113.20')$q$));
 reset role;
-select ok(pg_temp.n('ip:198.51.100.7') = 8 and pg_temp.n('ip:203.0.113.20') = 0 and (select v = '{"ok": false, "throttled": true}'::jsonb from _t where k = 'f_att'),
-  'key: 8 forged direct calls (p_client = ip:203.0.113.20) from header address 198.51.100.7 land under 198.51.100.7, the attacker is throttled, the victim bucket is empty');
+select ok(pg_temp.n('ip:198.51.100.7') = 20 and pg_temp.n('ip:203.0.113.20') = 0 and (select v = '{"ok": false, "throttled": true}'::jsonb from _t where k = 'f_att'),
+  'key: 20 forged direct calls (p_client = ip:203.0.113.20) from header address 198.51.100.7 land under 198.51.100.7, the attacker is throttled, the victim bucket is empty');
 select pg_temp.hdr('203.0.113.20');
 select pg_temp.as_anon();
 insert into _t values ('f_vic', pg_temp.try($q$select public.verify_admin_pin('zzpin137', 'ip:203.0.113.20')$q$));
@@ -375,11 +375,11 @@ delete from public.guide_staff_sessions;
 -- rotating p_client from one header address is throttled after 8 failures
 select pg_temp.hdr('203.0.113.21');
 select pg_temp.as_anon();
-select public.verify_admin_pin('wrong-' || g, 'zz137-rot-direct-' || g) from generate_series(1, 8) g;
+select public.verify_admin_pin('wrong-' || g, 'zz137-rot-direct-' || g) from generate_series(1, 20) g;
 insert into _t values ('rot9', pg_temp.try($q$select public.verify_admin_pin('zzpin137', 'zz137-rot-direct-fresh')$q$));
 reset role;
-select ok(pg_temp.n('ip:203.0.113.21') = 8 and (select v = '{"ok": false, "throttled": true}'::jsonb from _t where k = 'rot9'),
-  'key: 8 direct failures with 8 different p_client values from one header address are all one bucket; the 9th call (right code, new p_client) is throttled');
+select ok(pg_temp.n('ip:203.0.113.21') = 20 and (select v = '{"ok": false, "throttled": true}'::jsonb from _t where k = 'rot9'),
+  'key: 20 direct failures with 20 different p_client values from one header address are all one bucket; the 21st call (right code, new p_client) is throttled');
 -- the leftmost x-forwarded-for entry is the client's own claim: ignored, the rightmost is used (entries trimmed)
 select pg_temp.hdrs(json_build_object('x-forwarded-for', '6.6.6.6, 203.0.113.30'));
 select pg_temp.as_anon();
@@ -417,8 +417,96 @@ insert into _t values ('badjson', pg_temp.try($q$select public.verify_admin_pin(
 select pg_temp.hdrs(json_build_object('x-forwarded-for', 'not-an-address'));
 select public.verify_admin_pin('wrong', 'zz137-xffbad');
 reset role;
-select ok((select v = '{"ok": false}'::jsonb from _t where k = 'badjson') and pg_temp.n('zz137-badjson') = 1 and pg_temp.n('zz137-xffbad') = 1,
-  'key: malformed JSON in request.headers, or an x-forwarded-for with no address, falls back to p_client and raises nothing');
+select ok((select v = '{"ok": false}'::jsonb from _t where k = 'badjson') and pg_temp.n('noaddr') = 2 and pg_temp.n('zz137-badjson') = 0 and pg_temp.n('zz137-xffbad') = 0,
+  'key: malformed JSON in request.headers, or an x-forwarded-for with no address, keys on the constant noaddr (fail closed, never p_client) and raises nothing');
+
+-- IPv6 is grouped by /64, IPv4 stays per address
+delete from public.admin_auth_attempts;
+create function pg_temp.flood6(p_net text, p_n int) returns void language plpgsql as $f$
+begin
+  for g in 1..p_n loop
+    perform set_config('request.headers', json_build_object('cf-connecting-ip', p_net || ':' || to_hex(g))::text, true);
+    perform public.verify_admin_pin('wrong-' || g, null);
+  end loop;
+end $f$;
+grant execute on function pg_temp.flood6(text, int) to public;
+select pg_temp.hdr('2001:db8:1:2::1');
+select pg_temp.as_anon();
+select public.verify_admin_pin('wrong', 'zz137-v6a');
+reset role;
+select pg_temp.hdr('2001:db8:1:2:ffff:aaaa:bbbb:cccc');
+select pg_temp.as_anon();
+select public.verify_admin_pin('wrong', 'zz137-v6b');
+reset role;
+select pg_temp.hdr('2001:0DB8:1:2:0:0:0:5');
+select pg_temp.as_anon();
+select public.verify_admin_pin('wrong', 'zz137-v6c');
+reset role;
+select pg_temp.hdr('2001:db8:1:3::1');
+select pg_temp.as_anon();
+select public.verify_admin_pin('wrong', 'zz137-v6d');
+reset role;
+select ok(pg_temp.n('ip:2001:db8:1:2::/64') = 3 and pg_temp.n('ip:2001:db8:1:3::/64') = 1 and pg_temp.n('ip:2001:db8:1:2::1') = 0 and (select count(*) = 4 from public.admin_auth_attempts),
+  'ipv6: three addresses of 2001:db8:1:2::/64 (one written in the long upper-case form) share ONE bucket, an address of 2001:db8:1:3::/64 has its own; no per-address row');
+delete from public.admin_auth_attempts;
+select pg_temp.hdr('203.0.113.50');
+select pg_temp.as_anon();
+select public.verify_admin_pin('wrong', 'zz137-v4a');
+reset role;
+select pg_temp.hdr('203.0.113.51');
+select pg_temp.as_anon();
+select public.verify_admin_pin('wrong', 'zz137-v4b');
+reset role;
+select pg_temp.hdr('::ffff:203.0.113.60');
+select pg_temp.as_anon();
+select public.verify_admin_pin('wrong', 'zz137-m6a');
+reset role;
+select pg_temp.hdr('::ffff:203.0.113.61');
+select pg_temp.as_anon();
+select public.verify_admin_pin('wrong', 'zz137-m6b');
+reset role;
+select ok(pg_temp.n('ip:203.0.113.50') = 1 and pg_temp.n('ip:203.0.113.51') = 1 and pg_temp.n('ip:203.0.113.50/32') = 0,
+  'ipv4: two addresses next to each other keep two buckets (no grouping), plain dotted key');
+select ok(pg_temp.n('ip:::ffff:203.0.113.60') = 1 and pg_temp.n('ip:::ffff:203.0.113.61') = 1,
+  'ipv4-mapped: ::ffff:a.b.c.d addresses are not grouped into one /64, each keeps its own bucket');
+-- one host cannot dodge the throttle by walking through the addresses of its /64: 20 wrong codes from 20 addresses of one /64, then the right code from a 21st address of it
+delete from public.admin_auth_attempts;
+select pg_temp.as_anon();
+select pg_temp.flood6('2001:db8:9:9:0:0:0', 20);
+select pg_temp.hdr('2001:db8:9:9:1:2:3:4');
+insert into _t values ('v6_same', pg_temp.try($q$select public.verify_admin_pin('zzpin137', null)$q$));
+reset role;
+select pg_temp.hdr('2001:db8:9:a::1');
+select pg_temp.as_anon();
+insert into _t values ('v6_other', pg_temp.try($q$select public.verify_admin_pin('zzpin137', null)$q$));
+reset role;
+select ok((select v = '{"ok": false, "throttled": true}'::jsonb from _t where k = 'v6_same') and pg_temp.n('ip:2001:db8:9:9::/64') = 20,
+  'ipv6: after 20 wrong codes from 20 different addresses of one /64 even the right code from a 21st address of that /64 is throttled, nothing inserted');
+select ok((select v ->> 'ok' = 'true' from _t where k = 'v6_other'), 'ipv6: another /64 is not throttled by it (right code answers ok)');
+-- headers present but no usable address: 20 wrong codes with 20 different p_client values share the constant noaddr bucket, the 21st is throttled; p_client escapes nothing
+delete from public.admin_auth_attempts;
+select pg_temp.hdr_raw('{"x-forwarded-for": "not an address"}');
+select pg_temp.as_anon();
+select public.verify_admin_pin('wrong-' || g, 'zz137-na-' || g) from generate_series(1, 20) g;
+insert into _t values ('na21', pg_temp.try($q$select public.verify_admin_pin('zzpin137', 'zz137-na-fresh')$q$));
+reset role;
+select ok((select v = '{"ok": false, "throttled": true}'::jsonb from _t where k = 'na21') and pg_temp.n('noaddr') = 20 and pg_temp.n('zz137-na-1') = 0 and pg_temp.n('zz137-na-fresh') = 0,
+  'noaddr: with request.headers present but no usable address, 20 wrong codes with 20 different p_client values fill one shared bucket and the 21st (right code, new p_client) is throttled');
+-- a lock timeout (55P03) coming out of verify_admin_pin inside the staff wrapper answers the throttled shape instead of raising: simulated with a trigger that raises 55P03 on the attempt insert
+delete from public.admin_auth_attempts;
+delete from public.guide_staff_sessions;
+create function public.zz137_raise_lock() returns trigger language plpgsql as $f$ begin raise exception 'simulated lock timeout' using errcode = '55P03'; end $f$;
+create trigger zz137_lock before insert on public.admin_auth_attempts for each row execute function public.zz137_raise_lock();
+select pg_temp.hdr('203.0.113.80');
+select pg_temp.as_anon();
+insert into _t values ('lt_right', pg_temp.try($q$select public.guide_staff_session_v1('zzpin137', 'zz137-lt')$q$));
+insert into _t values ('lt_wrong', pg_temp.try($q$select public.guide_staff_session_v1('wrong', 'zz137-lt')$q$));
+reset role;
+drop trigger zz137_lock on public.admin_auth_attempts;
+drop function public.zz137_raise_lock();
+select ok((select v = '{"ok": false, "throttled": true}'::jsonb from _t where k = 'lt_right') and (select v = '{"ok": false, "throttled": true}'::jsonb from _t where k = 'lt_wrong')
+      and (select count(*) = 0 from public.admin_auth_attempts) and (select count(*) = 0 from public.guide_staff_sessions),
+  'staff: a 55P03 raised inside verify_admin_pin (right or wrong code) comes back as {"ok":false,"throttled":true}, no error, no attempt row, no token');
 
 -- =============================================================================================================================================
 -- 11. verify_admin_pin: an empty code writes no row; inline trim; global cap
@@ -433,10 +521,10 @@ select ok((select v = '{"ok": false}'::jsonb from _t where k = 'e1') and (select
   'empty: an empty and a null code answer {"ok":false} and write no row at all');
 select pg_temp.hdr('203.0.113.41');
 select pg_temp.as_anon();
-select public.verify_admin_pin('wrong-' || g, null) from generate_series(1, 8) g;
+select public.verify_admin_pin('wrong-' || g, null) from generate_series(1, 20) g;
 insert into _t values ('e3', pg_temp.try($q$select public.verify_admin_pin('', null)$q$));
 reset role;
-select ok((select v = '{"ok": false, "throttled": true}'::jsonb from _t where k = 'e3') and pg_temp.n('ip:203.0.113.41') = 8,
+select ok((select v = '{"ok": false, "throttled": true}'::jsonb from _t where k = 'e3') and pg_temp.n('ip:203.0.113.41') = 20,
   'empty: an empty code from an already throttled address still answers the throttled answer, and still writes nothing');
 -- trim: up to 200 rows older than a day per inserting call, oldest first, recent rows kept
 delete from public.admin_auth_attempts;

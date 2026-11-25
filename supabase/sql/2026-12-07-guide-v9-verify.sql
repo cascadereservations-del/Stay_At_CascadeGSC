@@ -1,5 +1,5 @@
 -- verify_20261207_guide_v9_secrets.sql: read-only forward checks after the release (run with the read-only runner).
--- Every row must say ok = true (13 rows). Same queries as forward_verification in supabase/releases/20261207_guide_v9_secrets.release.json (generated from it). Prints no setting value.
+-- Every row must say ok = true (14 rows). Same queries as forward_verification in supabase/releases/20261207_guide_v9_secrets.release.json (generated from it). Prints no setting value.
 begin transaction read only;
 select 'staff_sessions_table_rls_on' as check, (select coalesce((select c.relrowsecurity from pg_class c where c.oid = to_regclass('public.guide_staff_sessions')), false)) as ok
 union all
@@ -25,5 +25,7 @@ select 'verify_admin_pin_definer_acl_unchanged' as check, (select (select p.pros
 union all
 select 'verify_admin_pin_address_key_trim_and_cap' as check, (select p.prosrc like '%request.headers%' and p.prosrc like '%cardinality(v_xff)%' and p.prosrc like '%interval ''1 day''%' and p.prosrc like '%skip locked%' and p.prosrc like '%> 400%' and p.prosrc like '%pg_advisory_xact_lock%' from pg_proc p where p.oid = 'public.verify_admin_pin(text,text)'::regprocedure) as ok
 union all
-select 'admin_auth_attempts_time_index' as check, (select exists (select 1 from pg_indexes where schemaname = 'public' and tablename = 'admin_auth_attempts' and indexname = 'admin_auth_attempts_attempted_at_idx' and indexdef like '%(attempted_at)%')) as ok;
+select 'admin_auth_attempts_time_index' as check, (select exists (select 1 from pg_indexes where schemaname = 'public' and tablename = 'admin_auth_attempts' and indexname = 'admin_auth_attempts_attempted_at_idx' and indexdef like '%(attempted_at)%')) as ok
+union all
+select 'verify_admin_pin_body_md5' as check, (select md5(replace(p.prosrc, chr(13), '')) = 'b4a0aa337ba7cffac62feb7bcd633f8b' from pg_proc p where p.oid = 'public.verify_admin_pin(text,text)'::regprocedure) as ok;
 rollback;

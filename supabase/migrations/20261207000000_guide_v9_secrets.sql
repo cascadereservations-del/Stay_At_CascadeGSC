@@ -61,8 +61,14 @@ declare
   v_res jsonb; v_token text; v_live int; v_exp timestamptz; v_fp text;
 begin
   -- verify_admin_pin keeps its own wrong-code throttle (per request address) and writes its own attempt row; p_client goes through untouched and its answer is
-  -- returned unchanged (token added on success). This call is outside the block below on purpose: a lock timeout there must not undo the attempt row.
-  v_res := public.verify_admin_pin(p_code => p_code, p_client => p_client);
+  -- returned unchanged (token added on success). This call is outside the mint block below on purpose: a lock timeout in the mint must not undo the attempt row.
+  -- verify_admin_pin itself takes an advisory lock (the attempt-log cap) and this function's lock_timeout covers it: a 55P03 from there (nothing was inserted, no code was
+  -- judged) answers the throttled shape ("try again later") instead of raising an HTTP error. Rows the inner call already wrote are kept when it returns normally.
+  begin
+    v_res := public.verify_admin_pin(p_code => p_code, p_client => p_client);
+  exception when lock_not_available then
+    return jsonb_build_object('ok', false, 'throttled', true);
+  end;
   if v_res is null or v_res -> 'ok' is distinct from 'true'::jsonb then
     return coalesce(v_res, jsonb_build_object('ok', false));
   end if;

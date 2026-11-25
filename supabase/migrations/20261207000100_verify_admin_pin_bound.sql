@@ -1,5 +1,5 @@
 -- 20261207000100_verify_admin_pin_bound.sql
--- verify_admin_pin: throttle on the caller's request address, no row for an empty code, inline trim, global cap. NOT APPLIED. Second migration of the guide v9 release
+-- verify_admin_pin: throttle on the caller's request address (IPv6 by /64), 20 wrong tries per address, no row for an empty code, inline trim, global cap. NOT APPLIED. Second migration of the guide v9 release
 -- (contract supabase/releases/20261207_guide_v9_secrets.release.json); apply it AFTER 20261207000000_guide_v9_secrets.sql in the same release run.
 -- Rollback: supabase/rollbacks/20261207_verify_admin_pin_bound.sql (restores the previous body byte for byte, drops the index). Checks: supabase/sql/2026-12-07-guide-v9-verify.sql.
 --
@@ -11,14 +11,21 @@
 -- same search_path = public, extensions; the ACL is restated below and equals the live one)
 --  a. Throttle key. With a request address (cf-connecting-ip, else the RIGHTMOST x-forwarded-for entry, each trimmed and accepted only when address-shaped, exactly as
 --     guide_session_v1 of guide v8 derives it; the LEFTMOST entry is whatever the client sent and is never used) the key is 'ip:' || address and p_client is IGNORED.
---     Only when no header gives an address (a direct SQL call, cron, a malformed request.headers setting) the key is the p_client the caller sent, as before, else 'unknown'.
+--     An IPv6 address is grouped by its /64 (the network a single host or customer routes): the key is 'ip:' || network(address/64), e.g. 'ip:2001:db8:1:2::/64', so one host cannot
+--     get a fresh bucket per source address (audit A2 MAJOR-1). IPv4 (and an IPv4-mapped ::ffff: address) stays per address.
+--     p_client is used ONLY when the request.headers setting is absent or empty (a direct SQL call, cron). When request.headers is present but yields no usable address
+--     (garbled JSON, no address-shaped entry, an address that does not parse) the key is the constant 'noaddr': shared, so it fails closed and rotating p_client escapes nothing (A2 MINOR-1).
+--     With neither headers nor p_client the key is 'unknown'.
 --     The key is hashed as before: sha256(key || '|cascade-guide'). Old rows stay comparable in shape.
+--  a2. Per-address limit: 20 wrong codes per key in 15 minutes (owner decision 2026-11-25, was 8; the live guide is used from one shared property address).
 --  b. A null or empty code answers {"ok": false} (or the throttled answer when the key is already throttled, as before) WITHOUT inserting a row.
 --  c. Inline trim: a call that inserts first deletes up to 200 rows older than 1 day, oldest first (for update skip locked, as guide v8 does for guide_auth_attempts), through the
 --     new index admin_auth_attempts_attempted_at_idx. Both throttle windows are 15 minutes, so a row older than a day is never read.
 --  d. Global cap: when the table already holds more than 400 rows from the last 15 minutes, the call answers exactly like the existing throttled answer
 --     ({"ok": false, "throttled": true}) and inserts nothing, whatever the code (a right code too: the cap is an availability trade for a storage bound).
 --     It is checked cheaply before the bcrypt compare (so a flood costs no bcrypt) and again under one advisory lock right before the insert, so the cap is exact.
+--
+-- ROUGH EDGES (documented, not bugs): everyone behind one public address (the property Wi-Fi) or one IPv6 /64 shares a bucket; 20 wrong codes from anyone there lock all of them for 15 minutes.
 --
 -- STORAGE BOUND (admin_auth_attempts, the only table this function writes). An insert happens only while the last 15 minutes hold at most 400 rows, so at most 401 rows are
 -- inserted in any 15 minutes (exact, because the recount and the insert run under one advisory lock). One day holds 96 such windows: at most 96 x 401 = 38,496 rows a day.
@@ -69,20 +76,27 @@ declare
   v_cand      text;
   v_addr      text;
   v_key       text;
+  v_raw       text;
 begin
   -- Request address as the edge reports it: cf-connecting-ip, then the RIGHTMOST x-forwarded-for entry; each trimmed, used only when address-shaped.
-  -- request.headers is set by PostgREST; bad JSON, a non-object value or a missing setting must never raise: the key just falls back.
+  -- request.headers is set by PostgREST; bad JSON, a non-object value or a missing setting must never raise: the key just falls back ('noaddr' when the setting exists, p_client when it does not).
+  v_raw := nullif(current_setting('request.headers', true), '');
   begin
-    v_hdr := nullif(current_setting('request.headers', true), '')::json;
+    v_hdr := v_raw::json;
     v_xff := string_to_array(coalesce(v_hdr->>'x-forwarded-for', ''), ',');
     foreach v_cand in array array[btrim(v_hdr->>'cf-connecting-ip'), btrim(v_xff[cardinality(v_xff)])] loop
       if v_cand ~ '^[0-9A-Fa-f:.]{2,45}$' then v_addr := v_cand; exit; end if;
     end loop;
+    -- IPv6: one bucket per /64 (an IPv4-mapped ::ffff: address stays as it is); a value that does not parse as an address raises into the handler below.
+    if v_addr like '%:%' and v_addr !~* '^::ffff:' then
+      v_addr := network(set_masklen(v_addr::inet, 64))::text;
+    end if;
   exception when others then
     v_addr := null;
   end;
   -- Identify the caller for throttling. Never store a raw IP: hash it so the table cannot be used to track visitors.
-  v_key := case when v_addr is not null then 'ip:' || v_addr else coalesce(p_client, 'unknown') end;
+  -- Headers present but no usable address: the shared constant 'noaddr' (fail closed). p_client only when there is no headers setting at all.
+  v_key := case when v_addr is not null then 'ip:' || v_addr when v_raw is not null then 'noaddr' else coalesce(p_client, 'unknown') end;
   v_ip := encode(extensions.digest(v_key || '|cascade-guide', 'sha256'), 'hex');
 
   select count(*) into v_recent
@@ -91,7 +105,7 @@ begin
     and succeeded = false
     and attempted_at > now() - interval '15 minutes';
 
-  if v_recent >= 8 then
+  if v_recent >= 20 then
     return jsonb_build_object('ok', false, 'throttled', true);
   end if;
 

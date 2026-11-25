@@ -3,14 +3,14 @@
 -- 2026-11-25) and drops the index admin_auth_attempts_attempted_at_idx. Same signature, SECURITY DEFINER, search_path = public, extensions; grants restated by name
 -- (anon, authenticated, service_role execute; PUBLIC none), equal to the live ACL. run-sql-on-host.sh does NOT wrap a file: this script carries its own begin/commit.
 -- Order: run this BEFORE supabase/rollbacks/20261207_guide_v9_secrets.sql (the v9 functions call verify_admin_pin). Rows already in admin_auth_attempts stay (nothing is deleted).
--- Guard: the live body must be the bound body of this release (md5 79a662721916502d032d5d69366bbd40) or already the previous one (md5 ca4ade3f...); 55000 on anything else.
+-- Guard: the live body must be the bound body of this release (md5 b4a0aa337ba7cffac62feb7bcd633f8b) or already the previous one (md5 ca4ade3f...); 55000 on anything else.
 begin;
 do $g$
 declare v text;
 begin
   select md5(replace(p.prosrc, chr(13), '')) into v from pg_proc p where p.oid = to_regprocedure('public.verify_admin_pin(text,text)');
   if v is null then raise exception 'verify_admin_pin rollback: public.verify_admin_pin(text,text) is missing' using errcode = '55000'; end if;
-  if v is distinct from '79a662721916502d032d5d69366bbd40' and v is distinct from 'ca4ade3f91d42574c9176d2331e10f41' then
+  if v is distinct from 'b4a0aa337ba7cffac62feb7bcd633f8b' and v is distinct from 'ca4ade3f91d42574c9176d2331e10f41' then
     raise exception 'verify_admin_pin rollback: the live body is neither the bound body nor the previous one (md5 %)', v using errcode = '55000';
   end if;
 end $g$;

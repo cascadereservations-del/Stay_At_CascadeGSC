@@ -42,6 +42,11 @@ const MUT = {
   'R1c-trim-off': [BD, "limit 200 for update skip locked", "limit 0 for update skip locked", 1],
   'R1d-cap-off': [BD, "> 400 then", "> 400000000 then", 2],
   'R1d-cap-off-by-one': [BD, "> 400 then", ">= 400 then", 2],
+  'R1e-limit-21': [BD, "if v_recent >= 20 then", "if v_recent >= 21 then", 1],
+  'R1e-limit-19': [BD, "if v_recent >= 20 then", "if v_recent >= 19 then", 1],
+  'R1f-no-64-grouping': [BD, "v_addr := network(set_masklen(v_addr::inet, 64))::text;", "v_addr := v_addr;", 1],
+  'R1g-noaddr-removed': [BD, "when v_raw is not null then 'noaddr' ", "", 1],
+  'R1h-wrapper-reraises-55P03': [V9, "exception when lock_not_available then\n    return jsonb_build_object('ok', false, 'throttled', true);", "exception when lock_not_available then\n    raise;", 1],
   'R1d-no-recount': [BD, "  perform pg_advisory_xact_lock(hashtext('verify_admin_pin_attempts'));\n  if (select count(*) from public.admin_auth_attempts where attempted_at > now() - interval '15 minutes') > 400 then\n    return jsonb_build_object('ok', false, 'throttled', true);\n  end if;\n", "  perform pg_advisory_xact_lock(hashtext('verify_admin_pin_attempts'));\n", 1]
 };
 
