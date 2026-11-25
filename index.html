@@ -6633,6 +6633,96 @@ body.theme-quiet-luxury .loc-cta-btn { transition-duration: 200ms; }
 @media (min-width: 1024px) {
   body.theme-quiet-luxury .luxury-hero-grid .luxury-hero-copy::before { inset-block-start: auto; block-size: 28rem; }
 }
+/* ============================================================
+   ROUND G (s137): one glass. Every floating layer (hero date card, dock, concierge button and panel, booking sheet)
+   is the same translucent material from the guest guide: one fill, one hairline, one shadow, one blur.
+   Secondary buttons are hairlines (glass over a photo, transparent on paper); primaries stay solid.
+   Cards on plain paper keep a hairline and no fill. No SVG displacement, no rim gradient, no sheen, no gold gradient.
+   ============================================================ */
+:root {
+  --iv-glass: rgb(252 249 243 / .74); --iv-glass-strong: rgb(252 249 243 / .90);
+  --iv-glass-line: rgb(28 16 6 / .10); --iv-glass-inner: rgb(28 16 6 / .07); --iv-hair: rgb(28 16 6 / .22);
+  --iv-field-line: #6E614F; --iv-glass-photo: var(--iv-glass); --iv-glass-solid: #E8E5DE;
+  --iv-glass-shadow: 0 1px 2px rgb(28 16 6 / .05), 0 14px 30px -16px rgb(28 16 6 / .28);
+  --iv-glass-filter: blur(18px) saturate(125%);
+}
+[data-theme="espresso"] {
+  --iv-glass: rgb(44 33 21 / .60); --iv-glass-strong: rgb(22 17 11 / .86);
+  --iv-glass-line: rgb(255 240 215 / .16); --iv-glass-inner: rgb(255 240 215 / .10); --iv-hair: rgb(255 240 215 / .26);
+  --iv-field-line: #BBAF9B; --iv-glass-photo: rgb(44 33 21 / .78); --iv-glass-solid: #16110B;
+  --iv-glass-shadow: 0 1px 2px rgb(0 0 0 / .3), 0 16px 34px -18px rgb(0 0 0 / .7);
+  --iv-glass-filter: blur(18px) saturate(150%);
+}
+/* no backdrop-filter support, or the visitor asked for less transparency: the near opaque fill, no blur */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  :root, [data-theme="espresso"] { --iv-glass: var(--iv-glass-strong); --iv-glass-photo: var(--iv-glass-strong); }
+}
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+  :root, [data-theme="espresso"] { --iv-glass: var(--iv-glass-strong); --iv-glass-photo: var(--iv-glass-strong); --iv-glass-filter: none; }
+  :root .bs-panel { -webkit-backdrop-filter: none; backdrop-filter: none; }
+}
+
+/* G1 the hero date card: the photo shows through; the double hairline works on glass; reply lines are darker so they read as fields */
+:root body.theme-quiet-luxury .hero-bk.gs-lg.gs-lg--dark {
+  background-color: var(--iv-glass-photo); border: 1px solid var(--iv-glass-line); border-radius: var(--r-card); box-shadow: var(--iv-glass-shadow);
+  -webkit-backdrop-filter: var(--iv-glass-filter); backdrop-filter: var(--iv-glass-filter);
+}
+:root body.theme-quiet-luxury .hero-bk.gs-lg.gs-lg--dark::after { border-color: var(--iv-glass-inner); }
+:root body.theme-quiet-luxury #heroBookBar .hero-bk-field { border-bottom-color: var(--iv-field-line); }
+@media (hover: hover) and (pointer: fine) { :root body.theme-quiet-luxury #heroBookBar .hero-bk-field:hover { border-bottom-color: var(--gs-accent-text); } }
+
+/* text on glass over a photo: a touch darker by day, lighter at night, so small text holds 4.5:1 on the lightest and darkest pixels behind */
+:root body.theme-quiet-luxury .hero-bk, :root body.theme-quiet-luxury .sticky-book-cta.gs-dock { --gs-muted: #4D4132; --gs-accent-text: #6A4F22; }
+[data-theme="espresso"] body.theme-quiet-luxury .hero-bk, [data-theme="espresso"] body.theme-quiet-luxury .sticky-book-cta.gs-dock { --gs-muted: #E0D3BF; --gs-accent-text: #DCB062; }
+
+/* G2 the dock */
+:root body.theme-quiet-luxury .sticky-book-cta.gs-dock {
+  background-color: var(--iv-glass-photo); border: 1px solid var(--iv-glass-line); border-radius: var(--r-pill); box-shadow: var(--iv-glass-shadow);
+  -webkit-backdrop-filter: var(--iv-glass-filter); backdrop-filter: var(--iv-glass-filter);
+}
+
+/* G3 concierge: button and open panel are the same glass; the panel's text follows the theme (it was always dark) */
+:root body.theme-quiet-luxury .concierge-trigger {
+  background-color: var(--iv-glass-photo); border: 1px solid var(--iv-glass-line); box-shadow: var(--iv-glass-shadow);
+  -webkit-backdrop-filter: var(--iv-glass-filter); backdrop-filter: var(--iv-glass-filter);
+}
+@media (hover: hover) and (pointer: fine) { :root body.theme-quiet-luxury .concierge-trigger:hover { background-color: var(--iv-glass-strong); box-shadow: var(--iv-glass-shadow); } }
+:root body.theme-quiet-luxury .concierge-panel {
+  background-color: var(--iv-glass-strong); border: 1px solid var(--iv-glass-line); border-radius: var(--r-card); box-shadow: var(--iv-glass-shadow);
+  -webkit-backdrop-filter: var(--iv-glass-filter); backdrop-filter: var(--iv-glass-filter);
+}
+:root body.theme-quiet-luxury .concierge-panel::before { display: none; }
+/* an older rule switched the blur off for these two with !important; the glass puts it back (still none under reduced transparency) */
+body.theme-quiet-luxury #conciergePanel, body.theme-quiet-luxury #conciergeTrigger { -webkit-backdrop-filter: var(--iv-glass-filter) !important; backdrop-filter: var(--iv-glass-filter) !important; }
+:root body.theme-quiet-luxury .concierge-divider { background: var(--iv-glass-line); }
+:root body.theme-quiet-luxury .concierge-heading { color: var(--gs-accent-text); }
+:root body.theme-quiet-luxury .concierge-link { color: var(--gs-ink); border-bottom-color: var(--iv-glass-line); }
+@media (hover: hover) and (pointer: fine) { :root body.theme-quiet-luxury .concierge-link:hover { color: var(--gs-accent-text); } }
+
+/* G5 booking sheet: the same glass at the strong alpha; inner bars carry no fill of their own (two translucent layers would band) */
+:root .bs-panel {
+  background-color: var(--iv-glass-strong); border: 1px solid var(--iv-glass-line); box-shadow: var(--iv-glass-shadow);
+  -webkit-backdrop-filter: var(--iv-glass-filter); backdrop-filter: var(--iv-glass-filter);
+}
+:root .bs-panel::after { border-color: var(--iv-glass-inner); }
+:root .bs-top { background: transparent; }
+:root .bs-actions { background: var(--iv-glass-solid); border-top-color: var(--iv-glass-line); }
+/* the sticky action bar is the one piece content scrolls under, so it is the sheet glass flattened (strong glass over the scrim): same colour, no ghosted text */
+:root .bs-grab { background: var(--iv-hair); }
+:root .bs-in:not(:focus):not(:hover):not([aria-invalid="true"]) { border-bottom-color: var(--iv-field-line); }
+
+/* G6 secondary controls: hairline, no opaque box. Calendar days sit straight on the glass. */
+:root .bs-day:not(.is-mid):not(.is-end) { background-color: transparent; }
+:root .bs-month button, :root .bs-stepper button, :root .bs-copy button, :root .bs-refrow label.bs-up, :root .bs-ghost, :root .bs-card, :root .bs-pay {
+  background-color: transparent; border-color: var(--iv-hair);
+}
+:root .gs-railbtn { background-color: transparent; border-color: var(--iv-hair); }
+:root .bs-seg { border-color: var(--iv-hair); }
+/* G7 primaries stay solid; disabled is a calm hairline with muted text, not a pale blob */
+:root .bs-cta:disabled { background: transparent; color: var(--gs-muted); border: 1px solid var(--iv-hair); box-shadow: none; opacity: 1; }
+
+/* G8 paper cards: the book-direct card is a hairline on paper, no fill, no blur, no float shadow */
+:root .iv-card { background-color: transparent; -webkit-backdrop-filter: none; backdrop-filter: none; box-shadow: none; border-color: var(--gs-line2); }
 </style>
 <noscript><style>.ch-reveal{opacity:1!important;transform:none!important}.iv-rule{transform:none!important;animation:none!important}</style></noscript>
 </head>
