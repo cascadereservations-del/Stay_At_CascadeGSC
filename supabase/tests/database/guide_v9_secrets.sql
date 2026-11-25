@@ -1,10 +1,12 @@
--- Session 137: release guide_v9_secrets_20261207 (guest guide v9): guide_secrets_v1 (stay secrets against a live guest or staff token), guide_staff_session_v1 (staff PIN -> 12 h token,
--- table guide_staff_sessions capped at 50 rows), get_public_settings (ten whitelisted keys) and the weather-proxy-warm cron job. Built on the guide v8 session system (guide_sessions).
+-- Session 137: release guide_v9_secrets_20261207 (guest guide v9): guide_secrets_v1 (stay secrets against a live guest or staff token, volatile so it is POST only), guide_staff_session_v1
+-- (staff PIN -> 12 h token that dies with the staff code, table guide_staff_sessions capped at 50 rows), get_public_settings (ten whitelisted keys), the weather-proxy-warm cron job, and
+-- the second migration 20261207000100 (verify_admin_pin keyed on the request address, no row for an empty code, inline trim, global cap of 400 rows per 15 minutes).
+-- Built on the guide v8 session system (guide_sessions).
 -- Synthetic fixtures only (uuids e1370000-..., names "Zz S137 ..."); everything rolls back. app_settings test values and the admin PIN hash are set INSIDE the transaction.
 -- Fixture rows and direct reads run as the owner role (a --no-acl restore gives anon and authenticated no table grants); only the RPC calls run as anon / authenticated / service_role.
 -- Needs guide v8 applied first (the rehearsal contract stacks it). Run: CASCADE_REHEARSAL_PRE_SQL=supabase/releases/support/s136_pre_grants.sql scripts/recovery/p6/migration-rehearsal-on-host.sh <backup-set> <contract> supabase/tests/database/guide_v9_secrets.sql
 begin;
-select plan(47);
+select plan(77);
 
 -- baseline grants for a --no-acl rehearsal restore (idempotent, rolled back with the suite)
 grant usage on schema public, auth to anon, authenticated, service_role;
@@ -46,6 +48,25 @@ grant execute on function pg_temp.stok() to public;
 create function pg_temp.secrets(p text) returns jsonb language plpgsql as $f$
 begin return public.guide_secrets_v1(p); end $f$;
 grant execute on function pg_temp.secrets(text) to public;
+-- headers as PostgREST would set them (any JSON object), a raw header string, a stored token, and a per-key attempt count
+create function pg_temp.hdrs(p json) returns void language sql as $$ select set_config('request.headers', p::text, true) $$;
+grant execute on function pg_temp.hdrs(json) to public;
+create function pg_temp.hdr_raw(p text) returns void language sql as $$ select set_config('request.headers', p, true) $$;
+grant execute on function pg_temp.hdr_raw(text) to public;
+create function pg_temp.tk(p text) returns text language sql stable as $$ select v ->> 'token' from _t where k = p $$;
+grant execute on function pg_temp.tk(text) to public;
+create function pg_temp.n(p_key text) returns bigint language sql stable as $$
+  select count(*) from public.admin_auth_attempts where ip_hash = encode(extensions.digest(p_key || '|cascade-guide', 'sha256'), 'hex') $$;
+grant execute on function pg_temp.n(text) to public;
+-- N wrong codes, each from its own address (no per-address throttle can apply): used to prove the global cap
+create function pg_temp.flood(p_n int) returns void language plpgsql as $f$
+begin
+  for g in 1..p_n loop
+    perform set_config('request.headers', json_build_object('cf-connecting-ip', '10.7.' || (g / 250) || '.' || (g % 250 + 1))::text, true);
+    perform public.verify_admin_pin('wrong-' || g, null);
+  end loop;
+end $f$;
+grant execute on function pg_temp.flood(int) to public;
 
 -- =============================================================================================================================================
 -- Fixtures. Test values for the settings (the rehearsal copy holds real ones: they are overwritten inside this transaction and rolled back).
@@ -86,9 +107,18 @@ select ok(not exists (select 1 from unnest(array['public.guide_staff_session_v1(
 select ok((select count(*) = 3 and bool_and(p.prosecdef and p.proconfig @> array['search_path=""']) from pg_proc p where p.pronamespace = 'public'::regnamespace and p.proname in ('guide_staff_session_v1', 'guide_secrets_v1', 'get_public_settings')),
   'functions: all three are SECURITY DEFINER with search_path "" (asserted with the literal quotes)');
 select ok((select p.proconfig @> array['lock_timeout=2s'] and p.provolatile = 'v' from pg_proc p where p.oid = 'public.guide_staff_session_v1(text,text)'::regprocedure)
-      and (select p.provolatile = 's' from pg_proc p where p.oid = 'public.guide_secrets_v1(text)'::regprocedure)
+      and (select p.provolatile = 'v' from pg_proc p where p.oid = 'public.guide_secrets_v1(text)'::regprocedure)
       and (select p.provolatile = 's' from pg_proc p where p.oid = 'public.get_public_settings()'::regprocedure),
-  'functions: the mint carries lock_timeout 2s and is volatile; the secrets read and the settings read are STABLE (no write path)');
+  'functions: the mint carries lock_timeout 2s and is volatile; the secrets read is VOLATILE (PostgREST serves only POST, so a token never lands in a URL); the settings read is STABLE');
+select ok((select p.prosecdef and p.proconfig = array['search_path=public, extensions'] and p.prorettype = 'jsonb'::regtype
+                   and pg_get_function_arguments(p.oid) = 'p_code text, p_client text DEFAULT NULL::text' from pg_proc p where p.oid = 'public.verify_admin_pin(text,text)'::regprocedure),
+  'verify_admin_pin: still (p_code text, p_client text default null) returns jsonb, SECURITY DEFINER, search_path public, extensions (unchanged by the second migration)');
+select ok(has_function_privilege('anon', 'public.verify_admin_pin(text,text)', 'execute') and has_function_privilege('authenticated', 'public.verify_admin_pin(text,text)', 'execute')
+      and has_function_privilege('service_role', 'public.verify_admin_pin(text,text)', 'execute')
+      and not exists (select 1 from pg_proc p cross join lateral aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a where p.oid = 'public.verify_admin_pin(text,text)'::regprocedure and a.grantee = 0),
+  'verify_admin_pin: anon, authenticated and service_role may execute it, PUBLIC may not (the live ACL, restated by name)');
+select ok(exists (select 1 from pg_indexes where schemaname = 'public' and tablename = 'admin_auth_attempts' and indexname = 'admin_auth_attempts_attempted_at_idx' and indexdef like '%(attempted_at)%'),
+  'verify_admin_pin: the attempted_at index for the trim and the window count exists');
 
 -- =============================================================================================================================================
 -- 2. guide_secrets_v1: refusals
@@ -150,15 +180,15 @@ reset role;
 select ok((select v = '{"ok": false}'::jsonb from _t where k = 'w1') and (select v = '{"ok": false}'::jsonb from _t where k = 'w2') and (select v = '{"ok": false}'::jsonb from _t where k = 'w3'),
   'staff: a wrong, an empty and a null code return verify_admin_pin''s answer unchanged ({"ok":false}), no token, no reason');
 select ok((select count(*) = 0 from public.guide_staff_sessions), 'staff: wrong codes created no staff session row');
-select ok((select count(*) = 3 from public.admin_auth_attempts where ip_hash = encode(extensions.digest('ip:203.0.113.10|cascade-guide', 'sha256'), 'hex') and not succeeded),
-  'staff: the three failures are recorded by verify_admin_pin under the hash of the header address (ip:203.0.113.10), not of the client string');
+select ok(pg_temp.n('ip:203.0.113.10') = 1 and pg_temp.n('zz137-c1') = 0,
+  'staff: only the wrong code is recorded (the empty and the null code write no row), under the hash of the header address (ip:203.0.113.10), not of the client string');
 -- rotating p_client does not reset the throttle: the key is the header address
 select pg_temp.as_anon();
-select public.guide_staff_session_v1('wrong-' || g, 'zz137-rot-' || g) from generate_series(1, 5) g;
+select public.guide_staff_session_v1('wrong-' || g, 'zz137-rot-' || g) from generate_series(1, 7) g;
 insert into _t values ('t8', pg_temp.try($q$select public.guide_staff_session_v1('zzpin137', 'zz137-brand-new-client')$q$));
 reset role;
 select is((select v from _t where k = 't8'), '{"ok": false, "throttled": true}'::jsonb,
-  'staff: after 8 wrong codes from one address (3 + 5, each with a different p_client) even the right code is throttled, unchanged, no token');
+  'staff: after 8 wrong codes from one address (1 + 7, each with a different p_client) even the right code is throttled, unchanged, no token');
 select ok((select count(*) = 0 from public.guide_staff_sessions), 'staff: a throttled attempt created no session');
 select pg_temp.hdr('203.0.113.11');
 select pg_temp.as_anon();
@@ -203,10 +233,10 @@ select ok((select count(*) = 0 from public.guide_staff_sessions where token_hash
 -- 6. the bound: 50 live rows, expired rows deleted on each mint, busy above
 -- =============================================================================================================================================
 delete from public.guide_staff_sessions;
-insert into public.guide_staff_sessions(token_hash, expires_at)
-  select encode(extensions.digest('zz137-expired-' || g, 'sha256'), 'hex'), now() - interval '1 minute' * g from generate_series(1, 30) g;
-insert into public.guide_staff_sessions(token_hash, expires_at)
-  select encode(extensions.digest('zz137-live-' || g, 'sha256'), 'hex'), now() + interval '1 hour' from generate_series(1, 49) g;
+insert into public.guide_staff_sessions(token_hash, expires_at, pin_fp)
+  select encode(extensions.digest('zz137-expired-' || g, 'sha256'), 'hex'), now() - interval '1 minute' * g, md5(coalesce((select a.value #>> '{}' from public.app_settings a where a.key='admin_pin_hash'),'')) from generate_series(1, 30) g;
+insert into public.guide_staff_sessions(token_hash, expires_at, pin_fp)
+  select encode(extensions.digest('zz137-live-' || g, 'sha256'), 'hex'), now() + interval '1 hour', md5(coalesce((select a.value #>> '{}' from public.app_settings a where a.key='admin_pin_hash'),'')) from generate_series(1, 49) g;
 select pg_temp.hdr('203.0.113.13');
 select pg_temp.as_anon();
 insert into _t values ('m50', pg_temp.try($q$select public.guide_staff_session_v1('zzpin137', 'zz137-c3')$q$));
@@ -243,11 +273,11 @@ delete from public.guide_staff_sessions;
 -- =============================================================================================================================================
 -- 7. nobody reads the tables directly
 -- =============================================================================================================================================
-insert into public.guide_staff_sessions(token_hash, expires_at) values (encode(extensions.digest('zz137-direct', 'sha256'), 'hex'), now() + interval '1 hour');
+insert into public.guide_staff_sessions(token_hash, expires_at, pin_fp) values (encode(extensions.digest('zz137-direct', 'sha256'), 'hex'), now() + interval '1 hour', repeat('0', 32));
 select pg_temp.as_anon();
 insert into _t values ('rd_anon', pg_temp.try('select to_jsonb(count(*)) from public.guide_staff_sessions'));
 insert into _t values ('rd_anon_gs', pg_temp.try('select to_jsonb(count(*)) from public.guide_sessions'));
-insert into _t values ('wr_anon', pg_temp.try($q$with i as (insert into public.guide_staff_sessions(token_hash, expires_at) values (repeat('a', 64), now() + interval '1 day') returning 1) select to_jsonb(count(*)) from i$q$));
+insert into _t values ('wr_anon', pg_temp.try($q$with i as (insert into public.guide_staff_sessions(token_hash, expires_at, pin_fp) values (repeat('a', 64), now() + interval '1 day', repeat('0', 32)) returning 1) select to_jsonb(count(*)) from i$q$));
 reset role;
 select pg_temp.as_user(pg_temp.id('01'));
 insert into _t values ('rd_auth', pg_temp.try('select to_jsonb(count(*)) from public.guide_staff_sessions'));
@@ -286,11 +316,189 @@ reset role;
 select ok((select not (v ? 'min_nights') and (select count(*) from jsonb_object_keys(v)) = 9 from _t where k = 'ps_miss'), 'settings: a missing whitelisted key is left out (nine keys), never null or 0');
 
 -- =============================================================================================================================================
--- 9. the weather-proxy warm-up job (where pg_cron exists)
+-- 9. a staff token dies with the staff code (fingerprint of the admin_pin_hash setting)
 -- =============================================================================================================================================
-select ok(to_regclass('cron.job') is null or (xpath('/row/c/text()', query_to_xml($q$select count(*) as c from cron.job where jobname = 'weather-proxy-warm' and schedule = '*/10 * * * *'
+delete from public.guide_staff_sessions;
+select pg_temp.hdr('203.0.113.60');
+select pg_temp.as_anon();
+insert into _t values ('fp_a', pg_temp.try($q$select public.guide_staff_session_v1('zzpin137', 'zz137-fp')$q$));
+reset role;
+select ok((select length(v ->> 'token') = 64 from _t where k = 'fp_a') and (select count(*) = 1 from public.guide_staff_sessions)
+      and (select s.pin_fp = md5(a.value #>> '{}') and s.pin_fp <> (a.value #>> '{}') and s.pin_fp ~ '^[a-f0-9]{32}$' from public.guide_staff_sessions s, public.app_settings a where a.key = 'admin_pin_hash'),
+  'fingerprint: the minted row stores md5 of the admin_pin_hash setting (32 hex), not the hash');
+select pg_temp.as_anon();
+insert into _t values ('fp_s1', pg_temp.try(format('select public.guide_secrets_v1(%L)', pg_temp.tk('fp_a'))));
+reset role;
+select ok((select v ->> 'ok' = 'true' and v ->> 'kind' = 'staff' from _t where k = 'fp_s1'), 'fingerprint: before the staff code changes the token reads the secrets (kind staff)');
+update public.app_settings set value = to_jsonb(extensions.crypt('zznewpin137', extensions.gen_salt('bf', 4))) where key = 'admin_pin_hash';
+select pg_temp.as_anon();
+insert into _t values ('fp_s2', pg_temp.try(format('select public.guide_secrets_v1(%L)', pg_temp.tk('fp_a'))));
+reset role;
+select is((select v from _t where k = 'fp_s2'), '{"ok": false}'::jsonb, 'fingerprint: after the staff code changes the same, still unexpired token answers {"ok":false}');
+select pg_temp.hdr('203.0.113.61');
+select pg_temp.as_anon();
+insert into _t values ('fp_b', pg_temp.try($q$select public.guide_staff_session_v1('zznewpin137', 'zz137-fp')$q$));
+insert into _t values ('fp_old_pin', pg_temp.try($q$select public.guide_staff_session_v1('zzpin137', 'zz137-fp')$q$));
+reset role;
+select ok((select length(v ->> 'token') = 64 from _t where k = 'fp_b') and (select v = '{"ok": false}'::jsonb from _t where k = 'fp_old_pin'),
+  'fingerprint: the new staff code mints a token, the old code is refused');
+select ok((select count(*) = 1 and bool_and(token_hash = encode(extensions.digest(pg_temp.tk('fp_b'), 'sha256'), 'hex')) from public.guide_staff_sessions),
+  'fingerprint: the mint deleted the stale row (it no longer holds a slot of the 50): one row, the new token');
+select pg_temp.as_anon();
+insert into _t values ('fp_s3', pg_temp.try(format('select public.guide_secrets_v1(%L)', pg_temp.tk('fp_b'))));
+reset role;
+select ok((select v ->> 'ok' = 'true' and v ->> 'kind' = 'staff' from _t where k = 'fp_s3') and public.guide_secrets_v1(pg_temp.tk('fp_a')) = '{"ok": false}'::jsonb,
+  'fingerprint: the new token reads the secrets, the old one stays refused');
+update public.app_settings set value = to_jsonb(extensions.crypt('zzpin137', extensions.gen_salt('bf', 4))) where key = 'admin_pin_hash';
+delete from public.guide_staff_sessions;
+
+-- =============================================================================================================================================
+-- 10. verify_admin_pin: the throttle key is the request address (second migration)
+-- =============================================================================================================================================
+delete from public.admin_auth_attempts;
+-- forged direct calls: a different header address sending p_client = 'ip:<victim>' fills ITS OWN bucket, never the victim's
+select pg_temp.hdr('198.51.100.7');
+select pg_temp.as_anon();
+select public.verify_admin_pin('wrong-' || g, 'ip:203.0.113.20') from generate_series(1, 8) g;
+insert into _t values ('f_att', pg_temp.try($q$select public.verify_admin_pin('zzpin137', 'ip:203.0.113.20')$q$));
+reset role;
+select ok(pg_temp.n('ip:198.51.100.7') = 8 and pg_temp.n('ip:203.0.113.20') = 0 and (select v = '{"ok": false, "throttled": true}'::jsonb from _t where k = 'f_att'),
+  'key: 8 forged direct calls (p_client = ip:203.0.113.20) from header address 198.51.100.7 land under 198.51.100.7, the attacker is throttled, the victim bucket is empty');
+select pg_temp.hdr('203.0.113.20');
+select pg_temp.as_anon();
+insert into _t values ('f_vic', pg_temp.try($q$select public.verify_admin_pin('zzpin137', 'ip:203.0.113.20')$q$));
+insert into _t values ('f_vic_staff', pg_temp.try($q$select public.guide_staff_session_v1('zzpin137', 'ip:203.0.113.20')$q$));
+reset role;
+select ok((select v ->> 'ok' = 'true' from _t where k = 'f_vic'), 'key: the victim address is not throttled by the forged calls (right code answers ok)');
+select ok((select v ->> 'ok' = 'true' and length(v ->> 'token') = 64 from _t where k = 'f_vic_staff'), 'key: the victim can still sign in through guide_staff_session_v1 (the p_client is passed straight through)');
+delete from public.guide_staff_sessions;
+-- rotating p_client from one header address is throttled after 8 failures
+select pg_temp.hdr('203.0.113.21');
+select pg_temp.as_anon();
+select public.verify_admin_pin('wrong-' || g, 'zz137-rot-direct-' || g) from generate_series(1, 8) g;
+insert into _t values ('rot9', pg_temp.try($q$select public.verify_admin_pin('zzpin137', 'zz137-rot-direct-fresh')$q$));
+reset role;
+select ok(pg_temp.n('ip:203.0.113.21') = 8 and (select v = '{"ok": false, "throttled": true}'::jsonb from _t where k = 'rot9'),
+  'key: 8 direct failures with 8 different p_client values from one header address are all one bucket; the 9th call (right code, new p_client) is throttled');
+-- the leftmost x-forwarded-for entry is the client's own claim: ignored, the rightmost is used (entries trimmed)
+select pg_temp.hdrs(json_build_object('x-forwarded-for', '6.6.6.6, 203.0.113.30'));
+select pg_temp.as_anon();
+select public.verify_admin_pin('wrong', 'zz137-xff');
+reset role;
+select ok(pg_temp.n('ip:203.0.113.30') = 1 and pg_temp.n('ip:6.6.6.6') = 0 and pg_temp.n('zz137-xff') = 0, 'key: x-forwarded-for "6.6.6.6, 203.0.113.30" keys on the RIGHTMOST entry, not the leftmost, not p_client');
+select pg_temp.hdrs(json_build_object('x-forwarded-for', ' 9.9.9.9 ,  8.8.8.8 , 203.0.113.34 '));
+select pg_temp.as_anon();
+select public.verify_admin_pin('wrong', 'zz137-xff3');
+reset role;
+select ok(pg_temp.n('ip:203.0.113.34') = 1 and pg_temp.n('ip:9.9.9.9') = 0 and pg_temp.n('ip:8.8.8.8') = 0, 'key: three entries with spaces key on the trimmed last one');
+-- cf-connecting-ip wins over x-forwarded-for
+select pg_temp.hdrs(json_build_object('cf-connecting-ip', '203.0.113.31', 'x-forwarded-for', '203.0.113.32'));
+select pg_temp.as_anon();
+select public.verify_admin_pin('wrong', 'zz137-cf');
+reset role;
+select ok(pg_temp.n('ip:203.0.113.31') = 1 and pg_temp.n('ip:203.0.113.32') = 0, 'key: cf-connecting-ip wins over x-forwarded-for');
+-- a garbage cf-connecting-ip falls through to the x-forwarded-for entry
+select pg_temp.hdrs(json_build_object('cf-connecting-ip', 'not an ip!', 'x-forwarded-for', '203.0.113.33'));
+select pg_temp.as_anon();
+select public.verify_admin_pin('wrong', 'zz137-garbage');
+reset role;
+select ok(pg_temp.n('ip:203.0.113.33') = 1 and pg_temp.n('zz137-garbage') = 0, 'key: a garbage cf-connecting-ip is skipped and the x-forwarded-for entry is used');
+-- no header address: the p_client the caller sent, else unknown; a malformed header setting never raises
+select pg_temp.hdr_raw('');
+select pg_temp.as_anon();
+select public.verify_admin_pin('wrong', 'zz137-direct');
+insert into _t values ('nulcl', pg_temp.try($q$select public.verify_admin_pin('wrong', null)$q$));
+reset role;
+select ok(pg_temp.n('zz137-direct') = 1 and pg_temp.n('ip:') = 0, 'key: with no request headers the key is the p_client the caller sent (direct SQL, cron)');
+select ok(pg_temp.n('unknown') = 1 and (select v = '{"ok": false}'::jsonb from _t where k = 'nulcl'), 'key: with no headers and no p_client the key is "unknown"');
+select pg_temp.hdr_raw('this is not json');
+select pg_temp.as_anon();
+insert into _t values ('badjson', pg_temp.try($q$select public.verify_admin_pin('wrong', 'zz137-badjson')$q$));
+select pg_temp.hdrs(json_build_object('x-forwarded-for', 'not-an-address'));
+select public.verify_admin_pin('wrong', 'zz137-xffbad');
+reset role;
+select ok((select v = '{"ok": false}'::jsonb from _t where k = 'badjson') and pg_temp.n('zz137-badjson') = 1 and pg_temp.n('zz137-xffbad') = 1,
+  'key: malformed JSON in request.headers, or an x-forwarded-for with no address, falls back to p_client and raises nothing');
+
+-- =============================================================================================================================================
+-- 11. verify_admin_pin: an empty code writes no row; inline trim; global cap
+-- =============================================================================================================================================
+delete from public.admin_auth_attempts;
+select pg_temp.hdr('203.0.113.40');
+select pg_temp.as_anon();
+insert into _t values ('e1', pg_temp.try($q$select public.verify_admin_pin('', 'zz137-e')$q$));
+insert into _t values ('e2', pg_temp.try($q$select public.verify_admin_pin(null, 'zz137-e')$q$));
+reset role;
+select ok((select v = '{"ok": false}'::jsonb from _t where k = 'e1') and (select v = '{"ok": false}'::jsonb from _t where k = 'e2') and (select count(*) = 0 from public.admin_auth_attempts),
+  'empty: an empty and a null code answer {"ok":false} and write no row at all');
+select pg_temp.hdr('203.0.113.41');
+select pg_temp.as_anon();
+select public.verify_admin_pin('wrong-' || g, null) from generate_series(1, 8) g;
+insert into _t values ('e3', pg_temp.try($q$select public.verify_admin_pin('', null)$q$));
+reset role;
+select ok((select v = '{"ok": false, "throttled": true}'::jsonb from _t where k = 'e3') and pg_temp.n('ip:203.0.113.41') = 8,
+  'empty: an empty code from an already throttled address still answers the throttled answer, and still writes nothing');
+-- trim: up to 200 rows older than a day per inserting call, oldest first, recent rows kept
+delete from public.admin_auth_attempts;
+insert into public.admin_auth_attempts(ip_hash, succeeded, attempted_at) select 'zz137-old-' || g, false, now() - interval '2 days' - g * interval '1 second' from generate_series(1, 250) g;
+insert into public.admin_auth_attempts(ip_hash, succeeded, attempted_at) values ('zz137-half-day', false, now() - interval '12 hours'), ('zz137-23h', false, now() - interval '23 hours');
+select pg_temp.hdr('203.0.113.42');
+select pg_temp.as_anon();
+select public.verify_admin_pin('', 'zz137-trim');
+reset role;
+select ok((select count(*) = 250 from public.admin_auth_attempts where attempted_at < now() - interval '1 day'), 'trim: a call that inserts nothing (empty code) deletes nothing');
+select pg_temp.as_anon();
+select public.verify_admin_pin('wrong', 'zz137-trim');
+reset role;
+select ok((select count(*) = 50 from public.admin_auth_attempts where attempted_at < now() - interval '1 day')
+      and (select count(*) = 2 from public.admin_auth_attempts where ip_hash in ('zz137-half-day', 'zz137-23h')) and pg_temp.n('ip:203.0.113.42') = 1,
+  'trim: one inserting call deleted exactly 200 of the 250 rows older than a day and kept the 12 h and the 23 h rows');
+select pg_temp.as_anon();
+select public.verify_admin_pin('wrong', 'zz137-trim');
+reset role;
+select ok((select count(*) = 0 from public.admin_auth_attempts where attempted_at < now() - interval '1 day') and (select count(*) = 4 from public.admin_auth_attempts),
+  'trim: the next inserting call removed the last 50; the table holds the 2 recent fixture rows and the 2 new rows');
+-- global cap: more than 400 rows in the last 15 minutes = the throttled answer, nothing inserted, whatever the code
+delete from public.admin_auth_attempts;
+insert into public.admin_auth_attempts(ip_hash, succeeded, attempted_at) select 'zz137-cap-' || g, false, now() - interval '1 minute' from generate_series(1, 400) g;
+select pg_temp.hdr('203.0.113.70');
+select pg_temp.as_anon();
+insert into _t values ('cap400', pg_temp.try($q$select public.verify_admin_pin('zzpin137', null)$q$));
+reset role;
+select ok((select v ->> 'ok' = 'true' from _t where k = 'cap400') and (select count(*) = 401 from public.admin_auth_attempts where attempted_at > now() - interval '15 minutes'),
+  'cap: with exactly 400 rows in the last 15 minutes a call is still served and inserts its row (401)');
+select pg_temp.hdr('203.0.113.71');
+select pg_temp.as_anon();
+insert into _t values ('cap401', pg_temp.try($q$select public.verify_admin_pin('zzpin137', null)$q$));
+insert into _t values ('cap401w', pg_temp.try($q$select public.verify_admin_pin('wrong', null)$q$));
+insert into _t values ('cap401s', pg_temp.try($q$select public.guide_staff_session_v1('zzpin137', null)$q$));
+reset role;
+select ok((select v = '{"ok": false, "throttled": true}'::jsonb from _t where k = 'cap401') and (select v = '{"ok": false, "throttled": true}'::jsonb from _t where k = 'cap401w')
+      and (select count(*) = 401 from public.admin_auth_attempts) and pg_temp.n('ip:203.0.113.71') = 0,
+  'cap: with 401 rows in the last 15 minutes the right code and a wrong code both get {"ok":false,"throttled":true} and nothing is inserted');
+select ok((select v = '{"ok": false, "throttled": true}'::jsonb and not (v ? 'token') from _t where k = 'cap401s') and (select count(*) = 0 from public.guide_staff_sessions),
+  'cap: guide_staff_session_v1 at the cap returns the throttled answer, no token, no session row');
+update public.admin_auth_attempts set attempted_at = now() - interval '16 minutes';
+select pg_temp.as_anon();
+insert into _t values ('cap_after', pg_temp.try($q$select public.verify_admin_pin('zzpin137', null)$q$));
+reset role;
+select ok((select v ->> 'ok' = 'true' from _t where k = 'cap_after'), 'cap: once the rows are older than 15 minutes the function answers again');
+-- the bound itself: 450 wrong codes from 450 different addresses insert exactly 401 rows (cap 400 plus the one that crosses it)
+delete from public.admin_auth_attempts;
+select pg_temp.as_anon();
+select pg_temp.flood(450);
+reset role;
+select is((select count(*) from public.admin_auth_attempts), 401::bigint,
+  'bound: 450 attempts from 450 addresses leave exactly 401 rows (at most 401 per 15 minutes, so at most 96 x 401 = 38,496 rows a day; the trim keeps one day)');
+delete from public.admin_auth_attempts;
+delete from public.guide_staff_sessions;
+
+-- =============================================================================================================================================
+-- 12. the weather-proxy warm-up job (where pg_cron exists)
+-- =============================================================================================================================================
+select ok(to_regclass('cron.job') is null or (xpath('/row/c/text()', query_to_xml($q$select count(*) as c from cron.job where jobname = 'weather-proxy-warm' and schedule = '*/10 * * * *' and active
                        and command like '%/functions/v1/weather-proxy%' and command like '%net.http_get%'$q$, false, true, '')))[1]::text::int = 1,
-  'cron: weather-proxy-warm is scheduled every 10 minutes and calls net.http_get on the weather-proxy URL, once (skipped where pg_cron is absent)');
+  'cron: weather-proxy-warm is scheduled every 10 minutes, active, and calls net.http_get on the weather-proxy URL, once (skipped where pg_cron is absent)');
 
 select * from finish();
 rollback;

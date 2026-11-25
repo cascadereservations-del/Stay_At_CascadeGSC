@@ -7,21 +7,24 @@
 -- Design rules
 --  * Built ON the guest session system of guide v8 (20261206000000): a guest token is the one guide_session_v1 mints (guide_sessions, sha256 only).
 --    No second guest token or throttle table is created. The token check is the existing helper guide_token_thread_v1.
---  * Additive only. verify_admin_pin and every v8 function are CALLED, never replaced. app_settings is read, never written.
---  * guide_secrets_v1(token): read path, no table write. {"ok":false} for a missing, malformed, unknown or expired token (one answer, no reason, so a
---    caller cannot tell a wrong token from an expired one). A live guest token or a live staff token gets the four stay values.
---  * guide_staff_session_v1(code, client): the staff PIN of the existing admin login (verify_admin_pin, its own 8 failures / 15 min per client key) becomes a
+--  * Additive: the guide v8 functions are CALLED, never replaced. app_settings is read, never written. verify_admin_pin is replaced by the SECOND migration of this
+--    release (20261207000100_verify_admin_pin_bound.sql), which keys its throttle on the request address and bounds admin_auth_attempts; this file only calls it.
+--  * guide_secrets_v1(token): no table write. It is declared VOLATILE on purpose: PostgREST serves a STABLE function on GET, which would let a token travel in a URL;
+--    a VOLATILE one is POST only. {"ok":false} for a missing, malformed, unknown or expired token (one answer, no reason, so a caller cannot tell a wrong token from an
+--    expired one). A live guest token or a live staff token gets the four stay values.
+--  * guide_staff_session_v1(code, client): the staff PIN of the existing admin login (verify_admin_pin, 8 failures / 15 min per request address) becomes a
 --    12 hour token, so the guide can show the same secrets to staff without a booking. Only the sha256 of the token is stored.
---    - verify_admin_pin throttles ONLY on a hash of the p_client string the caller sends, which a caller can rotate. This function therefore passes
---      its own key: the address from cf-connecting-ip, else the RIGHTMOST x-forwarded-for entry (each trimmed, accepted only when address-shaped), exactly as
---      guide_session_v1 derives it; only with no usable header does it fall back to the p_client the caller sent. verify_admin_pin itself is unchanged.
+--    - The caller's p_client is passed straight through to verify_admin_pin; the address key, the empty-code rule, the trim and the global cap live there (second migration).
+--    - A staff token dies when the staff code changes: each row stores md5(admin_pin_hash setting) as pin_fp at mint (a fingerprint, never the hash), and guide_secrets_v1
+--      accepts a staff token only while its pin_fp equals the current one. The mint also deletes rows with a stale pin_fp, so they do not occupy the cap.
 --    - STORAGE BOUND: public.guide_staff_sessions never holds more than 50 rows. Rows are added only by a successful mint, which first deletes every
---      expired row and refuses (reason 'busy', no token) when 50 live rows remain; the count and the insert run under one advisory lock, so the cap is
---      exact. 50 rows of 64 + 8 + 8 bytes plus the key index are a few kilobytes. 50 live staff sessions is far above the real use (a handful of staff
+--      expired or stale row and refuses (reason 'busy', no token) when 50 live rows remain; the count and the insert run under one advisory lock, so the cap is
+--      exact. 50 rows of 64 + 32 + 8 + 8 bytes plus the key index are a few kilobytes. 50 live staff sessions is far above the real use (a handful of staff
 --      phones, 12 hours each) and low enough that a stolen PIN cannot fill the table.
+--    - admin_auth_attempts (written by verify_admin_pin on each mint attempt) is bounded by the second migration: at most 401 rows per 15 minutes, 38,496 a day, about 10 MB.
 --  * get_public_settings(): a fixed whitelist of ten app_settings keys that carry nothing secret. No secret and no admin key is ever returned.
 --  * weather-proxy warm-up: a pg_cron job every 10 minutes asks the function for the Cascade forecast, so a guest does not wait for a cold start.
---    Arithmetic is in docs/s137/GUIDE-V9-SECRETS.md (the function caches 15 minutes: a 10 minute call refreshes every second call, 72 refreshes a day).
+--    Arithmetic is in docs/s137/GUIDE-V9-SECRETS.md (the function caches 15 minutes: a 10 minute call refreshes every second call, 72 refreshes a day; at most 96 with guest traffic).
 -- ML-21: every function restates its grants in full below. Supabase default privileges grant EXECUTE to anon, so each is revoked from
 -- public, anon, authenticated and service_role by name before the intended roles are granted.
 
@@ -44,6 +47,7 @@ end $$;
 create table public.guide_staff_sessions (
   token_hash  text primary key check (token_hash ~ '^[a-f0-9]{64}$'),
   expires_at  timestamptz not null,
+  pin_fp      text not null check (pin_fp ~ '^[a-f0-9]{32}$'),   -- md5 of the admin_pin_hash setting at mint: a changed staff code kills the token
   created_at  timestamptz not null default now()
 );
 alter table public.guide_staff_sessions enable row level security;
@@ -54,39 +58,27 @@ revoke all on public.guide_staff_sessions from public, anon, authenticated, serv
 create function public.guide_staff_session_v1(p_code text, p_client text default null)
 returns jsonb language plpgsql volatile security definer set search_path = '' set lock_timeout = '2s' as $$
 declare
-  v_hdr json; v_xff text[]; v_cand text; v_ip text; v_client text;
-  v_res jsonb; v_token text; v_live int; v_exp timestamptz;
+  v_res jsonb; v_token text; v_live int; v_exp timestamptz; v_fp text;
 begin
-  -- request.headers is set by PostgREST; bad JSON, a non-object value or a missing setting must never raise: the key just falls back.
-  begin
-    v_hdr := nullif(current_setting('request.headers', true), '')::json;
-    v_xff := string_to_array(coalesce(v_hdr->>'x-forwarded-for', ''), ',');
-    foreach v_cand in array array[btrim(v_hdr->>'cf-connecting-ip'), btrim(v_xff[cardinality(v_xff)])] loop
-      if v_cand ~ '^[0-9A-Fa-f:.]{2,45}$' then v_ip := v_cand; exit; end if;
-    end loop;
-  exception when others then
-    v_ip := null;
-  end;
-  v_client := left(coalesce('ip:' || v_ip, nullif(btrim(p_client), ''), 'anon'), 80);
-
-  -- verify_admin_pin keeps its own wrong-code throttle and writes its own attempt row; its answer is returned unchanged (token added on success).
-  -- This call is outside the block below on purpose: a lock timeout there must not undo the attempt row.
-  v_res := public.verify_admin_pin(p_code => p_code, p_client => v_client);
+  -- verify_admin_pin keeps its own wrong-code throttle (per request address) and writes its own attempt row; p_client goes through untouched and its answer is
+  -- returned unchanged (token added on success). This call is outside the block below on purpose: a lock timeout there must not undo the attempt row.
+  v_res := public.verify_admin_pin(p_code => p_code, p_client => p_client);
   if v_res is null or v_res -> 'ok' is distinct from 'true'::jsonb then
     return coalesce(v_res, jsonb_build_object('ok', false));
   end if;
 
   begin
     perform pg_advisory_xact_lock(hashtext('guide_staff_session'));
-    delete from public.guide_staff_sessions where expires_at <= now();
-    select count(*) into v_live from public.guide_staff_sessions;      -- every row left is live
+    v_fp := md5(coalesce((select a.value #>> '{}' from public.app_settings a where a.key = 'admin_pin_hash'), ''));
+    delete from public.guide_staff_sessions where expires_at <= now() or pin_fp <> v_fp;
+    select count(*) into v_live from public.guide_staff_sessions;      -- every row left is live and carries the current staff-code fingerprint
     if v_live >= 50 then
       return v_res || jsonb_build_object('reason', 'busy');
     end if;
     v_token := encode(extensions.gen_random_bytes(32), 'hex');
     v_exp := now() + interval '12 hours';
-    insert into public.guide_staff_sessions(token_hash, expires_at)
-    values (encode(extensions.digest(v_token, 'sha256'), 'hex'), v_exp);
+    insert into public.guide_staff_sessions(token_hash, expires_at, pin_fp)
+    values (encode(extensions.digest(v_token, 'sha256'), 'hex'), v_exp, v_fp);
     return v_res || jsonb_build_object('token', v_token, 'expires_at', v_exp);
   exception when lock_not_available then
     return v_res || jsonb_build_object('reason', 'busy');
@@ -98,7 +90,7 @@ grant execute on function public.guide_staff_session_v1(text, text) to anon, aut
 
 -- 3. the secrets, against a live guest or staff token -------------------------------------------------------------------------------------
 create function public.guide_secrets_v1(p_token text) returns jsonb
-language plpgsql stable security definer set search_path = '' as $$
+language plpgsql volatile security definer set search_path = '' as $$
 declare v_kind text;
 begin
   if p_token is null or char_length(p_token) not between 32 and 128 then
@@ -108,7 +100,8 @@ begin
     v_kind := 'guest';
   else
     select 'staff' into v_kind from public.guide_staff_sessions s
-     where s.token_hash = encode(extensions.digest(p_token, 'sha256'), 'hex') and s.expires_at > now();
+     where s.token_hash = encode(extensions.digest(p_token, 'sha256'), 'hex') and s.expires_at > now()
+       and s.pin_fp = md5(coalesce((select a.value #>> '{}' from public.app_settings a where a.key = 'admin_pin_hash'), ''));
   end if;
   if v_kind is null then
     return jsonb_build_object('ok', false);

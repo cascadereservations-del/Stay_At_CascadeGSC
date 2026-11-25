@@ -2,6 +2,7 @@
 -- the guide_staff_sessions table). run-sql-on-host.sh does NOT wrap a file: this script carries its own begin/commit.
 -- Guide v8 (sessions, messages, analytics) and verify_admin_pin are not touched. Staff tokens issued by guide_staff_session_v1 die with the table:
 -- a staff phone just signs in again. Revert the guide v9 frontend first (it calls these functions); until then the guide falls back to its old behaviour.
+-- ORDER: run supabase/rollbacks/20261207_verify_admin_pin_bound.sql BEFORE this file (it restores verify_admin_pin and drops the attempts index); this file does not touch verify_admin_pin.
 begin;
 do $$
 begin
