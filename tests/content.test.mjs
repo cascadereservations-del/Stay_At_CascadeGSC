@@ -132,6 +132,7 @@ test('marketing copy shows no peso price or percentage while SHOW_PRICE is false
   marketing = stripBalanced(marketing, /<(dialog)\b[^>]*id="bookSheet"[^>]*>/);
   marketing = stripBalanced(marketing, /<([a-z0-9]+)\b(?:[^>"']|"[^"]*"|'[^']*')*?\shidden(?=[\s>/=])(?:[^>"']|"[^"]*"|'[^']*')*>/i);
   marketing = stripBalanced(marketing, /<([a-z0-9]+)\b[^>]*data-price-only[^>]*>/);
+  marketing = marketing.replace(/<span data-rating="fiveStar">[^<]*<\/span>/g, ''); /* round D (D4): the review-share no-JS fallback is a rating, not a price; its value is pinned in the guest stories test */
   const text = marketing.replace(/<[^>]+>/g, ' ').replace(/&#x20B1;|&#8369;|&peso;/gi, '₱');
   assert.doesNotMatch(text, /₱\s?\d|\b\d{1,3}\s?%|\b1,?780\b/);
 });
@@ -195,7 +196,10 @@ test('Guest stories: rating facts and refresh copy (fiveStar from RATING, deposi
   assert.match(html, new RegExp(`fiveStar: ${reviews.rating.fiveStarPct}, verifiedOn: '${reviews.rating.verifiedOn}'`));
   const noScript = html.replace(/<script[\s\S]*?<\/script>/g, '');
   assert.equal((noScript.match(/data-rating="fiveStar"/g) || []).length, 2, 'hero proof line and rating band render the five-star share from RATING');
-  assert.doesNotMatch(noScript, /\b97\s?%/, 'the five-star share is never hard-coded in markup');
+  /* round D (D4): each span carries the RATING value as a no-JS fallback that the script overwrites; the number lives nowhere else in markup */
+  const fallbacks = [...noScript.matchAll(/<span data-rating="fiveStar">([^<]*)<\/span>/g)].map((m) => m[1]);
+  assert.deepEqual(fallbacks, [`${reviews.rating.fiveStarPct}%`, `${reviews.rating.fiveStarPct}%`], 'the no-JS fallback is the RATING share');
+  assert.doesNotMatch(noScript.replace(/<span data-rating="fiveStar">[^<]*<\/span>/g, ''), /\b97\s?%/, 'the five-star share is never hard-coded in markup outside the fallback');
   assert.match(html, /<span>Settle your reservation fee by GCash or bank transfer\. We confirm every booking personally\.<\/span>/);
   assert.doesNotMatch(html, /Check today(’|&rsquo;|')s price|>Check price<|>Check my price</);
   assert.match(html, /id="stickyBookCtaBtn" data-gs-book>Reserve<\/a>/);

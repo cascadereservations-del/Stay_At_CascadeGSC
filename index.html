@@ -5127,7 +5127,7 @@
     function watchMotion() {
       if (!('IntersectionObserver' in window)) return;
       var io = new IntersectionObserver(function (es) { es.forEach(function (e) { e.target.classList.toggle('gs-off', !e.isIntersecting); }); }, { rootMargin: '120px' });
-      document.querySelectorAll('.gs-tone, .gs-o1, .gs-o2, .luxury-hero-media, .gs-cta, .hero-bk-cta').forEach(function (el) { io.observe(el); });
+      document.querySelectorAll('.gs-o1, .gs-o2, .luxury-hero-media, .gs-cta, .hero-bk-cta').forEach(function (el) { io.observe(el); });
     }
     function init() { apply(state); fetchWeather(); watchHero(); watchMotion(); }
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
@@ -5977,7 +5977,7 @@
     --glass-shadow: 0 1px 2px rgb(0 0 0 / .3), 0 16px 34px -18px rgb(0 0 0 / .7);
   }
   /* round 2: body paper follows the theme (see the round 2 block) */
-  .gs-toned > .gs-tone, .gs-orb { display: none !important; }   /* F5: no colour washes or blurred orbs */
+  .gs-orb { display: none !important; }   /* F5: no colour washes or blurred orbs */
 
   /* ---------- Glass: floating layers only (header, dock, hero booking panel, rating band, chips on photos) ---------- */
   .theme-quiet-luxury .site-header, .theme-quiet-luxury .hero-bk.gs-lg.gs-lg--dark, .theme-quiet-luxury .sticky-book-cta.gs-dock {
@@ -5987,19 +5987,17 @@
   }
   .theme-quiet-luxury .site-header.is-scrolled, .theme-quiet-luxury .site-header.is-revealed { box-shadow: var(--glass-shadow); }
   .theme-quiet-luxury .site-header::after, .theme-quiet-luxury .hero-bk::after, .theme-quiet-luxury .sticky-book-cta.gs-dock::after { display: none; }
-  body.theme-quiet-luxury .gs-lg.gs-lg::before, .gs-qcard::before { display: none !important; }
+  body.theme-quiet-luxury .gs-lg.gs-lg::before { display: none !important; }
   .gs-lg { box-shadow: var(--d-float); }
   .theme-quiet-luxury .gs-lg.gs-lg--dark { background-color: var(--glass-dark); -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat)); backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat)); }
-  .theme-quiet-luxury .gs-band.gs-lg--dark { background-color: var(--glass-dark); -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat)); backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat)); }
   .theme-quiet-luxury .gs-lg.gs-lg--light { background-color: color-mix(in srgb, var(--gs-paper) 90%, transparent); -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(125%); backdrop-filter: blur(var(--glass-blur)) saturate(125%); border: 1px solid var(--gs-rule); }
   .theme-quiet-luxury .gs-lg.gs-lg--dark .gs-link { color: #fff; }
   @media (min-width: 1024px) and (hover: hover) and (pointer: fine) {
-    html.gs-refract .theme-quiet-luxury .hero-bk.gs-lg,
-    html.gs-refract .theme-quiet-luxury .gs-band.gs-lg { -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat)); backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat)); }
+    html.gs-refract .theme-quiet-luxury .hero-bk.gs-lg { -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat)); backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat)); }
   }
   @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
     .theme-quiet-luxury .site-header, .theme-quiet-luxury .hero-bk.gs-lg.gs-lg--dark, .theme-quiet-luxury .sticky-book-cta.gs-dock,
-    .theme-quiet-luxury .gs-lg.gs-lg--dark, .theme-quiet-luxury .gs-band.gs-lg--dark { -webkit-backdrop-filter: none; backdrop-filter: none; background-color: #1C1006; }
+    .theme-quiet-luxury .gs-lg.gs-lg--dark { -webkit-backdrop-filter: none; backdrop-filter: none; background-color: #1C1006; }
   }
   /* header: taller so the 48 px button sits inside the pill */
   .theme-quiet-luxury .site-header, .theme-quiet-luxury .site-header.is-scrolled, .theme-quiet-luxury .site-header.is-revealed { height: 3.75rem; border-radius: var(--r-pill); }
@@ -6049,9 +6047,8 @@
   .gs-card .gs-eb--light { color: var(--gs-accent-text); }
   .gs-card-quote { border-top-color: var(--gs-rule); }
   .gs-ladder div { background: var(--gs-soft); border: 1px solid var(--gs-rule); }
-  .gs-qcard, .gs-pill, .gs-honest, .gs-minicard { box-shadow: none; border: 1px solid var(--gs-rule); border-radius: var(--r-card); background: var(--gs-paper); }
+  .gs-pill, .gs-honest, .gs-minicard { box-shadow: none; border: 1px solid var(--gs-rule); border-radius: var(--r-card); background: var(--gs-paper); }
   .gs-pill { border-radius: var(--r-pill); }
-  .gs-qcard { color: var(--gs-ink); }
   .gs-floatq { box-shadow: var(--d-float); border-radius: var(--r-card); }
   .gs-btn--paper { box-shadow: none; }
   .theme-quiet-luxury .amenities-note, .theme-quiet-luxury .airbnb-proof-embed, .theme-quiet-luxury .review-card, .theme-quiet-luxury .faq-item {
@@ -6059,7 +6056,7 @@
   }
   @media (hover: hover) and (pointer: fine) {
     .theme-quiet-luxury .review-card:hover, .theme-quiet-luxury .faq-item:hover, .theme-quiet-luxury .rate-card:hover { box-shadow: none; transform: none; border-color: #CFC3AE; }
-    .gs-qcard:hover, .gs-trip:hover { transform: none; }
+    .gs-trip:hover { transform: none; }
   }
   .theme-quiet-luxury .faq-item summary { min-height: var(--tap); }
   .theme-quiet-luxury .loc-item-value a { display: inline-flex; align-items: center; min-height: var(--tap); }
@@ -6073,15 +6070,15 @@
     font-family: var(--gs-body); font-size: .78rem; font-weight: 700; letter-spacing: .14em; line-height: 1.4;
   }
   [data-theme="espresso"] .gs-eb { letter-spacing: .1em; }
-  .gs-h2, .gs-h3, .bs-h, .faq-heading, .theme-quiet-luxury .luxury-hero-copy .hero-title.gs-quote, .gs-band-num { font-weight: 600; }
+  .gs-h2, .gs-h3, .bs-h, .faq-heading, .theme-quiet-luxury .luxury-hero-copy .hero-title.gs-quote { font-weight: 600; }
   .theme-quiet-luxury :where(h1, h2, h3) { font-weight: 600; }
   .gs-attrib, .gs-hero-proof, .gs-dock-sub, .gs-dock-meta, .gs-greet--loc, .gs-lb-cap, .gs-card-note, .gs-card-from { font-size: .875rem; }
-  .gs-link, .gs-space .gs-meta, .gs-band-cats li { font-size: .875rem; }
+  .gs-link, .gs-space .gs-meta { font-size: .875rem; }
   .gs-bd { font-size: 1rem; }
   .theme-quiet-luxury .faq-item summary, .theme-quiet-luxury .site-header .logo-name { font-size: 1.25rem; }
   main figcaption, .gs-greet { font-size: .875rem; }
   .gs-maps .gs-btn, .gs-space-info .gs-btn { font-size: .906rem; min-height: var(--btn-h); }
-  .gs-qcard q, .gs-minicard blockquote { font-size: 1.25rem; }
+  .gs-minicard blockquote { font-size: 1.25rem; }
 
   /* ---------- Legacy sections: light surfaces keep AA with the bronze text tone ---------- */
   .theme-quiet-luxury .faq-chevron { border-color: #A47F45; }
@@ -6089,7 +6086,7 @@
   .theme-quiet-luxury .hero-location, .theme-quiet-luxury .hero-trust-rating { letter-spacing: .1em; }
   .theme-quiet-luxury .desk-sidebar-savings, .theme-quiet-luxury .desk-sidebar-trust { letter-spacing: .06em; }
 
-  @media (prefers-reduced-motion: reduce) { .gs-qcard, .gs-trip { transition: none; } }
+  @media (prefers-reduced-motion: reduce) { .gs-trip { transition: none; } }
 
   /* ============================================================
      ROUND 2 (s137): "The Invitation". Ivory card stock, mahogany ink, one bronze accent, photographs doing the persuading.
@@ -6300,7 +6297,7 @@
   /* ---------- D6 motion: slow, once, nothing loops; off under reduced motion ---------- */
   @keyframes gs-zoomout { from { scale: 1.06; } to { scale: 1; } }
   @keyframes iv-draw { from { transform: scaleX(0); } to { transform: scaleX(1); } }
-  .gs-stage-img, .gs-bleed-img, .gs-toned > .gs-tone { animation: none; }
+  .gs-stage-img, .gs-bleed-img { animation: none; }
   @media (prefers-reduced-motion: no-preference) {
     main .ch-reveal { transform: translateY(12px); transition: opacity .8s var(--iv-ease), transform .8s var(--iv-ease); }
     main .ch-reveal.ch-revealed { transform: none; }
@@ -6389,9 +6386,9 @@ body.theme-quiet-luxury .site-footer .footer-copy { order: 6; margin: 1rem 0 0; 
 
 /* A6 the dock: room for it under the last line of the page (dock 4rem + 0.875rem offset + safe area) */
 
-/* the concierge box spans 285x295px on a phone and swallowed taps on the footer links: only its button and an open panel take pointer events */
+/* the concierge box spans 285x295px on a phone and swallowed taps on the footer links: only its button and an open panel take pointer events, and only while the float is shown (round D: a hidden float, faded out by the auto-hide, took taps meant for the hero Reserve button) */
 .concierge-float { pointer-events: none; }
-.concierge-float .concierge-trigger, .concierge-float .concierge-panel.is-open { pointer-events: auto; }
+.concierge-float:not(.is-hidden):not(.is-scroll-hidden) .concierge-trigger, .concierge-float:not(.is-hidden):not(.is-scroll-hidden) .concierge-panel.is-open { pointer-events: auto; }
 
 /* A7 gallery: the snapped photo is as wide as the page allows (page width minus the 24px gutters); caption centred below */
 #photos .gs-strip:not(.gs-strip--trips) > li { width: calc(100vw - 2 * var(--iv-gut)); max-width: none; }
@@ -6640,9 +6637,9 @@ body.theme-quiet-luxury .loc-cta-btn { transition-duration: 200ms; }
    Cards on plain paper keep a hairline and no fill. No SVG displacement, no rim gradient, no sheen, no gold gradient.
    ============================================================ */
 :root {
-  --iv-glass: rgb(252 249 243 / .74); --iv-glass-strong: rgb(252 249 243 / .90);
+  --iv-glass: rgb(252 249 243 / .58); --iv-glass-strong: rgb(252 249 243 / .99);
   --iv-glass-line: rgb(28 16 6 / .10); --iv-glass-inner: rgb(28 16 6 / .07); --iv-hair: rgb(28 16 6 / .22);
-  --iv-field-line: #6E614F; --iv-glass-photo: var(--iv-glass); --iv-glass-solid: #E8E5DE;
+  --iv-field-line: #6E614F; --iv-glass-photo: var(--iv-glass); --iv-glass-solid: #F9F6F0;
   --iv-glass-shadow: 0 1px 2px rgb(28 16 6 / .05), 0 14px 30px -16px rgb(28 16 6 / .28);
   --iv-glass-filter: blur(18px) saturate(125%);
 }
@@ -6672,7 +6669,7 @@ body.theme-quiet-luxury .loc-cta-btn { transition-duration: 200ms; }
 @media (hover: hover) and (pointer: fine) { :root body.theme-quiet-luxury #heroBookBar .hero-bk-field:hover { border-bottom-color: var(--gs-accent-text); } }
 
 /* text on glass over a photo: a touch darker by day, lighter at night, so small text holds 4.5:1 on the lightest and darkest pixels behind */
-:root body.theme-quiet-luxury .hero-bk, :root body.theme-quiet-luxury .sticky-book-cta.gs-dock { --gs-muted: #4D4132; --gs-accent-text: #6A4F22; }
+:root body.theme-quiet-luxury .hero-bk, :root body.theme-quiet-luxury .sticky-book-cta.gs-dock { --gs-muted: #3A2F22; --gs-accent-text: #5A4219; }
 [data-theme="espresso"] body.theme-quiet-luxury .hero-bk, [data-theme="espresso"] body.theme-quiet-luxury .sticky-book-cta.gs-dock { --gs-muted: #E0D3BF; --gs-accent-text: #DCB062; }
 
 /* G2 the dock */
@@ -6723,6 +6720,30 @@ body.theme-quiet-luxury #conciergePanel, body.theme-quiet-luxury #conciergeTrigg
 
 /* G8 paper cards: the book-direct card is a hairline on paper, no fill, no blur, no float shadow */
 :root .iv-card { background-color: transparent; -webkit-backdrop-filter: none; backdrop-filter: none; box-shadow: none; border-color: var(--gs-line2); }
+/* ---------- round D fixes (s137): hidden concierge takes no taps, ring colours, day glass, one primary style ---------- */
+/* D1 a hidden float leaves hit-testing and the tab order. The fade still plays: visibility flips after the 280ms opacity fade and comes back at once. */
+.concierge-float.is-hidden, .concierge-float.is-scroll-hidden { visibility: hidden; transition: opacity .28s var(--ch-ease), transform .28s var(--ch-ease), visibility 0s linear .28s; }
+@media (prefers-reduced-motion: reduce) { .concierge-float.is-hidden, .concierge-float.is-scroll-hidden { transition: none; } }
+
+/* D2 the hero Reserve button's focus ring is bronze by day (the white ring vanished on the ivory glass); night keeps the light ring */
+:root #heroBookBar .hero-bk-cta:focus-visible { outline-color: var(--gs-accent-text); }
+[data-theme="espresso"] #heroBookBar .hero-bk-cta:focus-visible { outline-color: var(--ch-cream); }
+/* D3 focus rings on paper by day are the bronze text colour (gold on ivory is under 3:1); night keeps the gold, which is above 3:1 on the dark paper */
+:root:not([data-theme="espresso"]) .faq-item summary:focus-visible, :root:not([data-theme="espresso"]) .cal-change-btn:focus-visible,
+:root:not([data-theme="espresso"]) .sr-toggle-btn:focus-visible, :root:not([data-theme="espresso"]) .contact-type-pill:focus-visible,
+:root:not([data-theme="espresso"]) .skip-link:focus { outline-color: var(--gs-accent-text); }
+
+/* N2 the day hero date card is the most transparent glass the text allows (.58: every label holds 4.8:1 or better on the busiest pixels behind it, measured at 375 and 1280).
+   The dock and the concierge button keep a slightly firmer day fill: they float over any section, including the dark photo ones. Night is unchanged. */
+:root { --iv-glass-float: rgb(252 249 243 / .74); }
+[data-theme="espresso"] { --iv-glass-float: var(--iv-glass-photo); }
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) { :root, [data-theme="espresso"] { --iv-glass-float: var(--iv-glass-strong); } }
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) { :root, [data-theme="espresso"] { --iv-glass-float: var(--iv-glass-strong); } }
+:root body.theme-quiet-luxury .sticky-book-cta.gs-dock, :root body.theme-quiet-luxury .concierge-trigger { background-color: var(--iv-glass-float); }
+@media (hover: hover) and (pointer: fine) { :root body.theme-quiet-luxury .concierge-trigger:hover { background-color: var(--iv-glass-strong); } }
+
+/* N3 the concierge primary is upright like every other primary */
+:root body.theme-quiet-luxury .concierge-reserve-btn { font-style: normal; }
 </style>
 <noscript><style>.ch-reveal{opacity:1!important;transform:none!important}.iv-rule{transform:none!important;animation:none!important}</style></noscript>
 </head>
@@ -6797,7 +6818,7 @@ body.theme-quiet-luxury #conciergePanel, body.theme-quiet-luxury #conciergeTrigg
       <p class="gs-eb gs-eb--hero">Guest Favorite &middot; General Santos City</p>
       <h1 class="hero-title gs-quote" id="hero-heading">“Our home away from home in <em>Gensan.</em>”</h1>
       <p class="gs-attrib">Bianca, November 2026, back for another stay</p>
-      <p class="gs-hero-proof" role="group" data-rating-label="{score} out of 5 from {count} reviews on Airbnb, verified {verified}"><a href="#proof"><span data-rating="fiveStar"></span> of guests gave five stars</a></p>
+      <p class="gs-hero-proof" role="group" data-rating-label="{score} out of 5 from {count} reviews on Airbnb, verified {verified}"><a href="#proof"><span data-rating="fiveStar">97%</span> of guests gave five stars</a></p>
     </div>
 
     <!-- Hero Booking Card — airline-style glass morphism widget -->
@@ -6874,7 +6895,7 @@ body.theme-quiet-luxury #conciergePanel, body.theme-quiet-luxury #conciergeTrigg
 
   <section class="iv-sec iv-gallery gs-space" id="photos" aria-labelledby="gs-space-h">
     <div class="iv-wrap iv-head"><h2 class="gs-disp iv-h" id="gs-space-h">The space</h2><span class="iv-rule" aria-hidden="true"></span></div>
-    <ul class="gs-strip" tabindex="0" aria-labelledby="gs-space-h"><li><figure class="iv-fig"><img class="gs-strip-img" src="assets/images/stay/bed-bright.webp" srcset="assets/images/stay/bed-bright-480.webp 480w, assets/images/stay/bed-bright-960.webp 960w, assets/images/stay/bed-bright.webp 1600w" sizes="(min-width:1024px) 38rem, 86vw" alt="Queen bed" width="1600" height="1067" loading="lazy" decoding="async"><figcaption>Queen bed</figcaption></figure></li><li><figure class="iv-fig"><img class="gs-strip-img" src="assets/images/stay/living-bright.webp" srcset="assets/images/stay/living-bright-480.webp 480w, assets/images/stay/living-bright-960.webp 960w, assets/images/stay/living-bright.webp 1600w" sizes="(min-width:1024px) 38rem, 86vw" alt="Living area with sofa" width="1600" height="1067" loading="lazy" decoding="async"><figcaption>Living area with sofa</figcaption></figure></li><li><figure class="iv-fig"><img class="gs-strip-img" src="assets/images/stay/kitchen.webp" srcset="assets/images/stay/kitchen-480.webp 480w, assets/images/stay/kitchen-960.webp 960w, assets/images/stay/kitchen.webp 1400w" sizes="(min-width:1024px) 38rem, 86vw" alt="White kitchenette" width="1400" height="934" loading="lazy" decoding="async"><figcaption>White kitchenette</figcaption></figure></li><li><figure class="iv-fig"><img class="gs-strip-img" src="assets/images/stay/bathroom.webp" srcset="assets/images/stay/bathroom-480.webp 480w, assets/images/stay/bathroom-960.webp 960w, assets/images/stay/bathroom.webp 1050w" sizes="(min-width:1024px) 38rem, 86vw" alt="Bathroom" width="1050" height="1400" loading="lazy" decoding="async"><figcaption>Bathroom</figcaption></figure></li><li><figure class="iv-fig"><img class="gs-strip-img" src="assets/images/stay/dining.webp" srcset="assets/images/stay/dining-480.webp 480w, assets/images/stay/dining-960.webp 960w, assets/images/stay/dining.webp 1600w" sizes="(min-width:1024px) 38rem, 86vw" alt="Dining counter" width="1600" height="1200" loading="lazy" decoding="async"><figcaption>Dining counter</figcaption></figure></li></ul>
+    <ul class="gs-strip" tabindex="0" aria-labelledby="gs-space-h"><li><figure class="iv-fig"><img class="gs-strip-img" src="assets/images/stay/bed-bright.webp" srcset="assets/images/stay/bed-bright-480.webp 480w, assets/images/stay/bed-bright-960.webp 960w, assets/images/stay/bed-bright.webp 1600w" sizes="(min-width:1024px) 38rem, 86vw" alt="" width="1600" height="1067" loading="lazy" decoding="async"><figcaption>Queen bed</figcaption></figure></li><li><figure class="iv-fig"><img class="gs-strip-img" src="assets/images/stay/living-bright.webp" srcset="assets/images/stay/living-bright-480.webp 480w, assets/images/stay/living-bright-960.webp 960w, assets/images/stay/living-bright.webp 1600w" sizes="(min-width:1024px) 38rem, 86vw" alt="" width="1600" height="1067" loading="lazy" decoding="async"><figcaption>Living area with sofa</figcaption></figure></li><li><figure class="iv-fig"><img class="gs-strip-img" src="assets/images/stay/kitchen.webp" srcset="assets/images/stay/kitchen-480.webp 480w, assets/images/stay/kitchen-960.webp 960w, assets/images/stay/kitchen.webp 1400w" sizes="(min-width:1024px) 38rem, 86vw" alt="" width="1400" height="934" loading="lazy" decoding="async"><figcaption>White kitchenette</figcaption></figure></li><li><figure class="iv-fig"><img class="gs-strip-img" src="assets/images/stay/bathroom.webp" srcset="assets/images/stay/bathroom-480.webp 480w, assets/images/stay/bathroom-960.webp 960w, assets/images/stay/bathroom.webp 1050w" sizes="(min-width:1024px) 38rem, 86vw" alt="" width="1050" height="1400" loading="lazy" decoding="async"><figcaption>Bathroom</figcaption></figure></li><li><figure class="iv-fig"><img class="gs-strip-img" src="assets/images/stay/dining.webp" srcset="assets/images/stay/dining-480.webp 480w, assets/images/stay/dining-960.webp 960w, assets/images/stay/dining.webp 1600w" sizes="(min-width:1024px) 38rem, 86vw" alt="" width="1600" height="1200" loading="lazy" decoding="async"><figcaption>Dining counter</figcaption></figure></li></ul>
     <div class="iv-wrap gs-space-info">
       <ul class="gs-chips" aria-label="Included with your stay"><li class="gs-chip">Fiber Wi-Fi</li><li class="gs-chip">Strong aircon</li><li class="gs-chip">Netflix TV</li><li class="gs-chip">Full kitchen</li><li class="gs-chip">Hot shower</li><li class="gs-chip">Workspace</li><li class="gs-chip">Free parking</li><li class="gs-chip">Laundry-ready</li><li class="gs-chip">Backup power</li><li class="gs-chip">Self check-in</li></ul>
       <p class="gs-meta">Up to 3 guests &middot; 1 queen bed + floor mattress</p>
@@ -6884,7 +6905,7 @@ body.theme-quiet-luxury #conciergePanel, body.theme-quiet-luxury #conciergeTrigg
 
   <section class="iv-sec iv-proof" id="proof" aria-label="Guest rating">
     <div class="iv-wrap iv-proof-in" role="group" aria-label="Airbnb rating" data-rating-label="{score} out of 5 from {count} reviews on Airbnb, verified {verified}">
-      <p class="gs-disp iv-proof-line"><span data-rating="fiveStar"></span> of guests gave five stars</p>
+      <p class="gs-disp iv-proof-line"><span data-rating="fiveStar">97%</span> of guests gave five stars</p>
       <p class="iv-proof-sub"><a class="gs-link" id="airbnbOutboundLink" href="https://www.airbnb.com/rooms/1523827999359515793#reviews" target="_blank" rel="noopener noreferrer" data-track-event="airbnb_outbound"><span data-rating="count">64</span> reviews on Airbnb &#x2197;</a><span class="iv-dot" aria-hidden="true">&middot;</span><span id="airbnbProofVerifiedNote">Verified on <span data-rating="verified">24 Nov 2026</span> &middot; not a live feed</span></p>
       <div class="airbnb-proof-embed gs-proof-embed" id="airbnbProofEmbed" data-state="pending" role="group" aria-label="Live Airbnb listing">
           <div class="airbnb-proof-embed-loading" id="airbnbProofLoading" hidden aria-hidden="true">Loading live Airbnb reviews&hellip;</div>
@@ -6896,7 +6917,7 @@ body.theme-quiet-luxury #conciergePanel, body.theme-quiet-luxury #conciergeTrigg
   </section>
 
   <section class="iv-sec iv-ch" id="hospitality" aria-labelledby="gs-ch1-h">
-    <figure class="iv-fig iv-fig--bleed"><img class="gs-photo" src="assets/images/stay/living-corner-960.webp" srcset="assets/images/stay/living-corner-480.webp 480w, assets/images/stay/living-corner-960.webp 960w, assets/images/stay/living-corner.webp 1400w" sizes="(min-width:1024px) 1280px, 100vw" alt="Living corner with a lit lamp, a sofa and a made bed" width="1400" height="934" loading="lazy" decoding="async"><figcaption>Living corner with a lit lamp, a sofa and a made bed</figcaption></figure>
+    <figure class="iv-fig iv-fig--bleed"><img class="gs-photo" src="assets/images/stay/living-corner-960.webp" srcset="assets/images/stay/living-corner-480.webp 480w, assets/images/stay/living-corner-960.webp 960w, assets/images/stay/living-corner.webp 1400w" sizes="(min-width:1024px) 1280px, 100vw" alt="" width="1400" height="934" loading="lazy" decoding="async"><figcaption>Living corner with a lit lamp, a sofa and a made bed</figcaption></figure>
     <div class="iv-wrap iv-prose">
       <p class="gs-eb">Malasakit</p>
       <h2 class="gs-disp iv-h" id="gs-ch1-h">Cared for as if you were our own.</h2>
@@ -6909,7 +6930,7 @@ body.theme-quiet-luxury #conciergePanel, body.theme-quiet-luxury #conciergeTrigg
   <figure class="iv-pull"><blockquote class="gs-disp">“…for me, it was beyond hotel quality.”</blockquote><figcaption class="gs-meta">Carissa, July 2026</figcaption></figure>
 
   <section class="iv-sec iv-ch" id="comfort" aria-labelledby="gs-ch3-h">
-    <figure class="iv-fig iv-fig--bleed"><img class="gs-photo" src="assets/images/stay/coffee-on-bed.webp" srcset="assets/images/stay/coffee-on-bed-480.webp 480w, assets/images/stay/coffee-on-bed-960.webp 960w, assets/images/stay/coffee-on-bed.webp 1400w" sizes="(min-width:1024px) 1280px, 100vw" alt="Coffee cup resting on crisp white bed linen" width="1400" height="934" loading="lazy" decoding="async"><figcaption>Coffee cup resting on crisp white bed linen</figcaption></figure>
+    <figure class="iv-fig iv-fig--bleed"><img class="gs-photo" src="assets/images/stay/coffee-on-bed.webp" srcset="assets/images/stay/coffee-on-bed-480.webp 480w, assets/images/stay/coffee-on-bed-960.webp 960w, assets/images/stay/coffee-on-bed.webp 1400w" sizes="(min-width:1024px) 1280px, 100vw" alt="" width="1400" height="934" loading="lazy" decoding="async"><figcaption>Coffee cup resting on crisp white bed linen</figcaption></figure>
     <div class="iv-wrap iv-prose">
       <p class="gs-eb">Comfort &middot; 18 reviews</p>
       <h2 class="gs-disp iv-h" id="gs-ch3-h">Rest, properly.</h2>
@@ -6920,8 +6941,8 @@ body.theme-quiet-luxury #conciergePanel, body.theme-quiet-luxury #conciergeTrigg
 
   <section class="iv-sec iv-ch" id="spotless" aria-labelledby="gs-spot-h">
     <div class="iv-duo">
-      <figure class="iv-fig"><img class="gs-photo" src="assets/images/stay/shower.webp" srcset="assets/images/stay/shower-480.webp 480w, assets/images/stay/shower-960.webp 960w, assets/images/stay/shower.webp 1199w" sizes="(min-width:1024px) 38rem, 100vw" alt="Rain shower against a light stone wall" width="1199" height="1600" loading="lazy" decoding="async"><figcaption>Rain shower against a light stone wall</figcaption></figure>
-      <figure class="iv-fig"><img class="gs-photo" src="assets/images/stay/bathroom-960.webp" srcset="assets/images/stay/bathroom-480.webp 480w, assets/images/stay/bathroom-960.webp 960w" sizes="(min-width:1024px) 38rem, 100vw" alt="Bright, clean bathroom with a stone wall" width="960" height="720" loading="lazy" decoding="async"><figcaption>Bright, clean bathroom with a stone wall</figcaption></figure>
+      <figure class="iv-fig"><img class="gs-photo" src="assets/images/stay/shower.webp" srcset="assets/images/stay/shower-480.webp 480w, assets/images/stay/shower-960.webp 960w, assets/images/stay/shower.webp 1199w" sizes="(min-width:1024px) 38rem, 100vw" alt="" width="1199" height="1600" loading="lazy" decoding="async"><figcaption>Rain shower against a light stone wall</figcaption></figure>
+      <figure class="iv-fig"><img class="gs-photo" src="assets/images/stay/bathroom-960.webp" srcset="assets/images/stay/bathroom-480.webp 480w, assets/images/stay/bathroom-960.webp 960w" sizes="(min-width:1024px) 38rem, 100vw" alt="" width="960" height="720" loading="lazy" decoding="async"><figcaption>Bright, clean bathroom with a stone wall</figcaption></figure>
     </div>
     <div class="iv-wrap iv-prose">
       <p class="gs-eb">Spotless &middot; Cleanliness rated 5.0</p>
@@ -6933,7 +6954,7 @@ body.theme-quiet-luxury #conciergePanel, body.theme-quiet-luxury #conciergeTrigg
   </section>
 
   <section class="iv-sec iv-ch" id="arrival" aria-labelledby="gs-ch4-h">
-    <figure class="iv-fig iv-fig--bleed"><img class="gs-photo" src="assets/images/stay/facade.webp" srcset="assets/images/stay/facade-480.webp 480w, assets/images/stay/facade-960.webp 960w, assets/images/stay/facade.webp 1600w" sizes="(min-width:1024px) 1280px, 100vw" alt="The unit’s front gate and entrance in Bria Homes" width="1600" height="1067" loading="lazy" decoding="async"><figcaption>The unit’s front gate and entrance in Bria Homes</figcaption></figure>
+    <figure class="iv-fig iv-fig--bleed"><img class="gs-photo" src="assets/images/stay/facade.webp" srcset="assets/images/stay/facade-480.webp 480w, assets/images/stay/facade-960.webp 960w, assets/images/stay/facade.webp 1600w" sizes="(min-width:1024px) 1280px, 100vw" alt="" width="1600" height="1067" loading="lazy" decoding="async"><figcaption>The unit’s front gate and entrance in Bria Homes</figcaption></figure>
     <div class="iv-wrap iv-prose">
       <p class="gs-eb">Check-in 5.0 &middot; Communication 5.0</p>
       <h2 class="gs-disp iv-h" id="gs-ch4-h">Easy arrival.</h2>
@@ -11025,7 +11046,7 @@ body.theme-quiet-luxury #conciergePanel, body.theme-quiet-luxury #conciergeTrigg
          class="concierge-reserve-btn"
          onclick="document.getElementById('conciergePanel').classList.remove('is-open');document.getElementById('conciergeTrigger').classList.remove('is-open');document.getElementById('conciergeTrigger').setAttribute('aria-expanded','false');"
          aria-label="Reserve your stay at Cascade Hideaway">
-        Reserve Your Stay
+        Reserve your stay
       </a>
       <div class="concierge-divider" aria-hidden="true"></div>
       <p class="concierge-heading">Need help?</p>
@@ -11589,7 +11610,7 @@ body.theme-quiet-luxury #conciergePanel, body.theme-quiet-luxury #conciergeTrigg
      (its own observer ran earlier in the page, so this one handles only the elements added here). Hero excluded (LCP). */
   (function () {
     if (!('IntersectionObserver' in window) || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-    var SKIP = '[aria-hidden="true"], .gs-pq, .gs-honest, .gs-band, .gs-minicard, figure, .gs-quotes, .gs-lg, .ch-reveal';
+    var SKIP = '[aria-hidden="true"], .gs-pq, .gs-honest, .gs-minicard, figure, .gs-quotes, .gs-lg, .ch-reveal';
     var io = new IntersectionObserver(function (es) {
       es.forEach(function (e) { if (e.isIntersecting) { e.target.classList.add('ch-revealed'); io.unobserve(e.target); } });
     }, { rootMargin: '0px 0px -40px 0px', threshold: 0.06 });
@@ -11608,7 +11629,7 @@ body.theme-quiet-luxury #conciergePanel, body.theme-quiet-luxury #conciergeTrigg
 
   /* 3. Tap to enlarge photos: native <dialog>, swipe, arrows, Esc; loads the widest srcset candidate per photo shown (capped at 960w when Save-Data is on) */
   (function () {
-    var imgs = [].slice.call(document.querySelectorAll('#spotless .gs-photo, #hospitality .gs-photo, #location .gs-photo, #location .gs-trip-img, #photos .gs-strip-img'));
+    var all = [].slice.call(document.querySelectorAll('#spotless .gs-photo, #hospitality .gs-photo, #location .gs-photo, #location .gs-trip-img, #photos .gs-strip-img')), imgs = all;
     if (!imgs.length || !window.HTMLDialogElement) return;
     var d = document.createElement('dialog'); d.className = 'gs-lb'; d.setAttribute('aria-label', 'Photo viewer');
     d.innerHTML = '<figure class="gs-lb-fig"><img class="gs-lb-img" alt=""><figcaption class="gs-lb-cap"></figcaption></figure>' +
@@ -11620,8 +11641,10 @@ body.theme-quiet-luxury #conciergePanel, body.theme-quiet-luxury #conciergeTrigg
     var im = d.querySelector('.gs-lb-img'), cap = d.querySelector('.gs-lb-cap'), cnt = d.querySelector('.gs-lb-count'), i = 0, opener = null, x0 = 0, y0 = 0;
     var lim = (navigator.connection && navigator.connection.saveData) ? 960 : Infinity;
     function widest(el) { var best = el.currentSrc || el.src, bw = 0; (el.getAttribute('srcset') || '').split(',').forEach(function (c) { var p = c.trim().split(/\s+/), w = parseInt(p[1], 10) || 0; if (p[0] && w > bw && w <= lim) { bw = w; best = new URL(p[0], document.baseURI).href; } }); return best; }
+    /* a photo whose visible caption says the same as its alt has an empty alt: the viewer labels it from the caption */
+    function label(el) { var f = el.closest('figure'), c = f && f.querySelector('figcaption'); return el.alt || (c ? c.textContent.trim() : ''); }
     function show(n) { i = (n + imgs.length) % imgs.length; var s = imgs[i];
-      im.src = widest(s); im.alt = s.alt; cap.textContent = s.alt; cnt.textContent = (i + 1) + ' of ' + imgs.length; }
+      var t = label(s); im.src = widest(s); im.alt = t; cap.textContent = t; cnt.textContent = (i + 1) + ' of ' + imgs.length; }
     /* r6: zoom from the tapped tile with a View Transition where supported (else the CSS fade); the name sits on one element at a time */
     var rmq = matchMedia('(prefers-reduced-motion: reduce)'), VTN = 'gs-lb-photo';
     /* WebKit (Safari, every iOS browser) uses the CSS fade: the VT close crashed Playwright WebKit and is unverified on a real iPhone */
@@ -11634,13 +11657,13 @@ body.theme-quiet-luxury #conciergePanel, body.theme-quiet-luxury #conciergeTrigg
       var t = document.startViewTransition(function () { from.style.viewTransitionName = ''; var p = change(); if (to) to.style.viewTransitionName = VTN; return p; });
       t.finished.catch(function () {}).then(function () { if (to) to.style.viewTransitionName = ''; from.style.viewTransitionName = ''; d.classList.remove('gs-lb--vt'); });
     }
-    function open(n, el) { opener = el; show(n); vt(el, im, function () { d.showModal(); document.documentElement.classList.add('gs-lb-open');
+    function open(n, el) { imgs = all.filter(function (p) { return p === el || p.offsetParent !== null; }); n = imgs.indexOf(el); opener = el; show(n); vt(el, im, function () { d.showModal(); document.documentElement.classList.add('gs-lb-open');
       /* wait (max 300 ms) for the large file so the new snapshot is not blank */
       return im.decode ? Promise.race([im.decode().catch(function () {}), new Promise(function (r) { setTimeout(r, 300); })]) : null; }); }
     function closeLb() { if (!d.open) return; var tile = imgs[i]; vt(im, tile && onScreen(tile) ? tile : null, function () { d.close(); }); }
     imgs.forEach(function (img, n) {
       img.classList.add('gs-zoomable'); img.tabIndex = 0; img.setAttribute('role', 'button');
-      img.setAttribute('aria-label', 'Enlarge photo: ' + img.alt);
+      img.setAttribute('aria-label', 'Enlarge photo: ' + label(img));
       img.addEventListener('click', function () { open(n, img); });
       img.addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(n, img); } });
     });
@@ -11732,25 +11755,6 @@ body.theme-quiet-luxury #conciergePanel, body.theme-quiet-luxury #conciergeTrigg
          .then(function () { b.textContent = 'Address copied'; if (live) live.textContent = 'Address copied'; clearTimeout(t);
            t = setTimeout(function () { b.textContent = label; if (live) live.textContent = ''; }, 2000); });
       });
-    });
-  }());
-
-  /* 7. Share this stay (adds the saved dates when there are any) */
-  (function () {
-    var band = document.querySelector('.gs-band-links'); if (!band) return;
-    var b = document.createElement('button'); b.type = 'button'; b.className = 'gs-link gs-copy gs-copy-share'; b.textContent = 'Share this stay';
-    var live = document.createElement('span'); live.className = 'gs-sr'; live.setAttribute('aria-live', 'polite');
-    band.appendChild(b); band.appendChild(live);
-    b.addEventListener('click', function () {
-      var url = location.origin + location.pathname, s = {};
-      try { s = JSON.parse(sessionStorage.getItem('cascade.sheet.v1') || 'null') || {}; } catch (e) {}
-      if (s.ci && s.co) url += '?checkin=' + s.ci + '&checkout=' + s.co;
-      var sc = document.querySelector('[data-rating="score"]');
-      if (navigator.share) { navigator.share({ title: 'Cascade Hideaway', text: 'Guest Favorite in General Santos City, ' + (sc ? sc.textContent : '') + ' on Airbnb', url: url }).catch(function () {}); return; }
-      (navigator.clipboard ? navigator.clipboard.writeText(url) : Promise.reject()).then(function () {
-        b.textContent = 'Link copied'; live.textContent = 'Link copied';
-        setTimeout(function () { b.textContent = 'Share this stay'; live.textContent = ''; }, 2000);
-      }, function () {});
     });
   }());
 }());

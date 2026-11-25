@@ -117,6 +117,43 @@ test.describe('Guest stories lightbox', () => {
   });
 });
 
+/* Round D (D1): while the concierge auto-hide has it hidden (on the hero, over a CTA), its button must take no taps and no focus */
+test.describe('Concierge float while hidden', () => {
+  for (const theme of ['midday', 'night']) {
+    test(`${theme}: the hidden button is not hit-testable, not focusable, and never steals a tap from the hero Reserve button`, { tag: '@webkit' }, async ({ page }) => {
+      await page.goto('/?theme-time=' + theme);
+      await expect(page.locator('#conciergeFloat')).toHaveClass(/is-hidden/);
+      await expect(page.locator('#conciergeFloat')).toHaveCSS('visibility', 'hidden');
+      const spot = await page.evaluate(() => { const b = document.getElementById('conciergeTrigger').getBoundingClientRect(); return { x: b.left + b.width / 2, y: b.top + b.height / 2 }; });
+      const hit = (pt) => page.evaluate(({ x, y }) => { const h = document.elementFromPoint(x, y); return { concierge: !!(h && h.closest('#conciergeTrigger, #conciergePanel')), submit: !!(h && h.closest('#qbwSubmit')) }; }, pt);
+      expect((await hit(spot)).concierge).toBe(false);
+      /* scroll so the hero Reserve button sits under the (hidden) button's centre, where the button's box reaches it */
+      await page.evaluate(async () => {
+        window.__reserveClicks = 0;
+        document.getElementById('qbwSubmit').addEventListener('click', (e) => { window.__reserveClicks++; e.preventDefault(); e.stopImmediatePropagation(); }, true);
+        const s = document.getElementById('qbwSubmit').getBoundingClientRect(), t = document.getElementById('conciergeTrigger').getBoundingClientRect();
+        scrollBy({ top: (s.top + s.height / 2) - (t.top + t.height / 2), behavior: 'instant' }); await new Promise((r) => setTimeout(r, 500));
+      });
+      const over = await page.evaluate(() => { const s = document.getElementById('qbwSubmit').getBoundingClientRect(), t = document.getElementById('conciergeTrigger').getBoundingClientRect(); const x = Math.max(s.left, t.left) + 4, y = t.top + t.height / 2; return { x, y, inside: x >= s.left && x <= s.right && y >= s.top && y <= s.bottom && x >= t.left && x <= t.right }; });
+      if (over.inside) {
+        expect(await hit(over)).toEqual({ concierge: false, submit: true });
+        await page.mouse.click(over.x, over.y);
+        expect(await page.evaluate(() => window.__reserveClicks)).toBe(1);
+        expect(await page.evaluate(() => document.getElementById('conciergePanel').classList.contains('is-open'))).toBe(false);
+      }
+      /* Tab from the top of the page never lands on the hidden button */
+      await page.evaluate(() => { scrollTo({ top: 0, behavior: 'instant' }); document.activeElement && document.activeElement.blur(); });
+      await expect(page.locator('#conciergeFloat')).toHaveClass(/is-hidden/);
+      for (let k = 0; k < 12; k++) {
+        await page.keyboard.press('Tab');
+        const bad = await page.evaluate(() => { const f = document.getElementById('conciergeFloat'); return !!document.activeElement.closest('#conciergeFloat') && getComputedStyle(f).visibility === 'hidden'; });
+        expect(bad).toBe(false);
+        if (!(await page.evaluate(() => document.getElementById('conciergeFloat').classList.contains('is-hidden')))) break;
+      }
+    });
+  }
+});
+
 test.describe('Guest stories motion and network', () => {
   test('reduced motion: 0 running infinite animations and no reveal classes added', async ({ page }) => {
     await page.emulateMedia({ reducedMotion: 'reduce' });
