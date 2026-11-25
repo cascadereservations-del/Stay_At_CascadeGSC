@@ -920,6 +920,10 @@ begin
   end if;
   if not (select rolbypassrls from pg_roles where rolname = 'service_role') then alter role service_role bypassrls; end if;
 end $$;
+-- CI (supabase local) ships the real pg_net, owned by another role: the stub cannot be installed there, so these 3 checks are skipped;
+-- the rehearsal (restored backup, no pg_net) runs them.
+select (to_regnamespace('net') is null or (has_schema_privilege(to_regnamespace('net')::oid, 'CREATE') and coalesce((select pg_get_userbyid(p.proowner) = current_user from pg_proc p where p.oid = to_regprocedure('net.http_post(text,jsonb,jsonb,jsonb,integer)')), true))) as zz136_can_stub \gset
+\if :zz136_can_stub
 create table net._zz136_calls(url text, body jsonb, has_secret boolean);
 create or replace function net.http_post(url text, body jsonb default '{}'::jsonb, params jsonb default '{}'::jsonb, headers jsonb default '{}'::jsonb, timeout_milliseconds integer default 5000)
 returns bigint language plpgsql as $f$ begin insert into net._zz136_calls values (url, body, headers ? 'x-cascade-cron-secret'); return 1; end $f$;
@@ -941,6 +945,9 @@ insert into _t values ('trg_fail', pg_temp.try(format($q$insert into public.guid
 reset role;
 select ok((select v = '1'::jsonb from _t where k = 'trg_fail') and (select count(*) = 1 from public.guide_messages where client_msg_id = 'zz136-trg-0003'),
   's136 trigger: when net.http_post raises, the guest message is still stored (the trigger only warns)');
+\else
+select skip('s136 trigger: real pg_net present and not owned by the test role (CI); the push trigger checks run in the rehearsal', 3);
+\endif
 
 -- =============================================================================================================================================
 -- 16. s136 round 6: guide_auth_attempts is bounded without a job (date window before any insert, inline 2-day trim, measured size); guest messages capped per day.
