@@ -176,9 +176,11 @@ test('Guest stories: every on-page guest quote is an excerpt of a dated review i
     assert.ok(hits.length, `quote not found in any dated fixture review: "${quote}"`);
     const a = attribution.match(/^(.+?), (January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sept|Sep|Oct|Nov|Dec) (\d{4})\b/);
     assert.ok(a, `attribution without a month and year: "${attribution}" for "${quote}"`);
+    /* the hero line no longer names the guest (privacy): "A returning guest, <month>" is checked on month and stars only */
+    const anon = a[1] === 'A returning guest', who = (r) => anon || r.name === a[1];
     const month = `${a[3]}-${String(MONTHS.findIndex((x) => x.startsWith(a[2].slice(0, 3))) + 1).padStart(2, '0')}`;
-    assert.ok(hits.some((r) => r.name === a[1] && r.month === month), `"${quote}" is attributed to ${a[1]}, ${month}; the fixture has ${hits.map((r) => `${r.name} ${r.month}`).join(' / ')}`);
-    assert.ok(hits.some((r) => r.name === a[1] && r.month === month && r.stars === 5), `"${quote}" (${a[1]}, ${month}) comes from a review under five stars`);
+    assert.ok(hits.some((r) => who(r) && r.month === month), `"${quote}" is attributed to ${a[1]}, ${month}; the fixture has ${hits.map((r) => `${r.name} ${r.month}`).join(' / ')}`);
+    assert.ok(hits.some((r) => who(r) && r.month === month && r.stars === 5), `"${quote}" (${a[1]}, ${month}) comes from a review under five stars`);
   }
   assert.deepEqual(pendingSeen, PENDING_VERIFICATION, 'a pending quote left the page: drop it from PENDING_VERIFICATION');
 });
