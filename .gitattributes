@@ -3,3 +3,6 @@ infrastructure/cascade-n8n/p4/** text eol=lf
 scripts/recovery/p5/** text eol=lf
 # bash runners must stay LF: autocrlf=true checked them out as CRLF and bash failed on "set -o pipefail\r" (2026-09-17)
 *.sh text eol=lf
+# ML-42: SQL scripts of the guide v9 release are streamed and hashed; keep them LF on every checkout.
+supabase/migrations/20261207*.sql text eol=lf
+supabase/rollbacks/20261207_*.sql text eol=lf
