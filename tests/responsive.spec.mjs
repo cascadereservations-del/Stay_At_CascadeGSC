@@ -63,13 +63,13 @@ test.describe('responsive contract', () => {
   test('body background uses the quiet-luxury bone token', async ({ page }) => {
     await page.setViewportSize({ width: 1024, height: 900 });
     await page.goto('/index.html');
-    await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(249, 246, 240)');
+    await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(245, 240, 231)');
   });
 
   test('submit control uses the restrained radius token', async ({ page }) => {
     await page.setViewportSize({ width: 1024, height: 900 });
     await page.goto('/index.html');
-    await expect(page.locator('#qbwSubmit')).toHaveCSS('border-radius', '4px');
+    await expect(page.locator('#qbwSubmit')).toHaveCSS('border-radius', '99px');
   });
 
   for (const width of [360, 390]) {

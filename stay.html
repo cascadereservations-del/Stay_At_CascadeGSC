@@ -9,22 +9,22 @@
 <meta name="description" content="Private status page for a Cascade Hideaway direct booking.">
 <meta name="robots" content="noindex, nofollow">
 <meta name="referrer" content="no-referrer">
-<meta name="theme-color" content="#1F1D1A">
+<meta name="theme-color" content="#1C1006">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;1,400&family=Raleway:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400&family=Raleway:wght@400;500;600;700&display=swap">
 <link rel="stylesheet" href="assets/css/legal.css">
 <style>
   .st-wrap { width: min(41rem, 100% - 2rem); margin: 0 auto; padding: 2.5rem 0 4rem; }
-  .st-brand { font-size: 0.8rem; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ch-gold-muted); margin: 0 0 1rem; }
+  .st-brand { font-size: 0.78rem; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ch-gold-muted); margin: 0 0 1rem; }
   .st-brand a { color: inherit; text-decoration: none; }
-  h1 { font-family: var(--ch-font-display); font-weight: 400; font-size: clamp(2.2rem, 6vw, 3.2rem); line-height: 1.05; margin: 0 0 1.5rem; color: var(--ch-ink); }
-  .st-card { border: 1px solid var(--ch-line); background: rgb(255 255 255 / 0.6); padding: 1.5rem; margin: 0 0 1.5rem; }
+  h1 { font-family: var(--ch-font-display); font-weight: 600; font-size: clamp(2.2rem, 6vw, 3.2rem); line-height: 1.05; margin: 0 0 1.5rem; color: var(--ch-ink); }
+  .st-card { border: 1px solid var(--ch-line); border-radius: 20px; background: #FCF9F3; padding: 1.5rem; margin: 0 0 1.5rem; }
   .st-card h2 { margin-top: 0; }
   .st-card h2::before { display: none; }
   .st-state { font-family: var(--ch-font-display); font-size: clamp(1.7rem, 4vw, 2.2rem); line-height: 1.15; margin: 0 0 0.6rem; color: var(--ch-ink); }
-  .st-ref { font-size: 0.8rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ch-gold-muted); font-weight: 600; margin: 0 0 1rem; }
-  .st-hold { margin: 0 0 1rem; padding: 0.75rem 1rem; background: rgb(201 150 58 / 0.12); border-left: 3px solid var(--ch-gold); font-weight: 500; }
+  .st-ref { font-size: 0.78rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ch-gold-muted); font-weight: 600; margin: 0 0 1rem; }
+  .st-hold { margin: 0 0 1rem; padding: 0.75rem 1rem; background: #F0EADD; border: 1px solid var(--ch-line); border-radius: 12px; font-weight: 500; }
   .st-grid { margin: 0; display: grid; grid-template-columns: max-content 1fr; gap: 0.35rem 1.25rem; }
   .st-grid dt { color: var(--ch-muted); }
   .st-grid dd { margin: 0; color: var(--ch-ink); font-weight: 500; font-variant-numeric: tabular-nums; }
@@ -34,7 +34,7 @@
   .st-steps li.done { color: var(--ch-ink); font-weight: 500; }
   .st-steps li.done::before { background: var(--ch-gold); border-color: var(--ch-gold); }
   .st-steps small { font-weight: 400; color: var(--ch-muted); }
-  .st-btn { display: inline-block; padding: 0.8em 1.5em; background: var(--ch-cognac); color: var(--ch-cream); border: 0; font: inherit; font-weight: 600; cursor: pointer; }
+  .st-btn { display: inline-flex; align-items: center; justify-content: center; min-height: 48px; padding: 0 1.5em; border-radius: 99px; background: #1C1006; color: #F4E9D2; border: 0; font: inherit; font-weight: 600; cursor: pointer; }
   .st-btn:disabled { opacity: 0.55; cursor: default; }
   .st-note { font-size: 0.92rem; color: var(--ch-muted); }
   .st-err { color: #8a2b1d; font-weight: 500; }

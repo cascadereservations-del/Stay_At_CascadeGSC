@@ -222,7 +222,7 @@
   <!-- ── FONTS, PRECONNECTS, LCP PRELOAD, STYLES ──────────────── -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;1,400&family=Raleway:wght@400;500;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400&family=Raleway:wght@400;500;600;700&display=swap" rel="stylesheet">
 
   <!-- Hero LCP preload — the same studio-wide image the hero img below uses -->
   <link rel="preload" as="image"
@@ -5937,6 +5937,160 @@
   }
 
 </style>
+<style id="gs-style-v9">
+  /* ============================================================
+     GS v9 (s137): booking site restyled to the guest guide v9 "quiet luxury" look.
+     One final layer, patch only: the seven layers above are untouched.
+     Order: tokens, glass, buttons, cards, labels and type, legacy sections, motion.
+     Day = guide "Ivory, Mahogany & Bronze" (sand). Night = guide default (espresso).
+     ============================================================ */
+  :root {
+    --r-card: 20px; --r-sheet: 28px; --r-pill: 99px; --tap: 44px; --btn-h: 48px;
+    --glass-blur: 18px; --glass-sat: 150%;
+    --glass-dark: rgb(22 17 11 / .84); --glass-dark-border: rgb(255 240 215 / .16);
+    --d-float: 0 1px 2px rgb(28 16 6 / .05), 0 12px 28px -14px rgb(28 16 6 / .24);
+    --glass-shadow: 0 1px 2px rgb(0 0 0 / .3), 0 16px 34px -18px rgb(0 0 0 / .7);
+    --lg-rim: none;
+    --lg-shadow: var(--d-float);
+    /* legacy --ch-* tokens remapped to the guide (the pinned values in cascade-luxury.css stay as written) */
+    --ch-bone: #F5F0E7; --ch-parchment: #EDE6D9; --ch-ink: #1C1006; --ch-mahogany: #1C1006; --ch-mahogany-soft: #2A1D10;
+    --ch-brass: #765A2B; --ch-brass-dark: #765A2B; --ch-cognac: #765A2B; --ch-stone: #5C4F40; --ch-line: #E3DACA;
+    --ch-radius-s: 12px; --ch-radius-m: 16px; --ch-radius-l: 20px; --ch-shadow-paper: var(--d-float);
+    --ch-gold-gradient: linear-gradient(var(--gs-gold-line), var(--gs-gold-line));
+    /* F8: the type scale is 0.78 / 0.875 / 1 / 1.25 / 1.375rem plus two clamp() headings */
+    --step--2: .78rem; --step--1: .875rem; --step-0: 1rem; --step-1: 1.25rem; --step-2: 1.375rem;
+    --step-3: clamp(1.75rem, 1.3rem + 1.6vw, 2.5rem); --step-4: clamp(2rem, 1.35rem + 2.6vw, 3.5rem); --step-5: clamp(2rem, 1.35rem + 2.6vw, 3.5rem);
+  }
+  /* day: guide "Ivory, Mahogany & Bronze". Gold is never a fill by day. */
+  :root, [data-theme="sand"] {
+    --gs-bg: #F5F0E7; --gs-paper: #FCF9F3; --gs-ink: #1C1006; --gs-muted: #5C4F40; --gs-deep: #1C1006; --gs-on-deep: #F4E9D2;
+    --gs-on-deep-muted: #D9CCB5; --gs-accent: #1C1006; --gs-on-accent: #F4E9D2; --gs-accent-text: #765A2B; --gs-highlight: #E9D3A4;
+    --gs-soft: #F0EADD; --gs-rule: #E3DACA; --gs-line2: #CFC3AE; --gs-pri-h: #33230F; --gs-ring: rgb(244 233 210 / .5);
+    --gs-gold-line: #A47F45;
+  }
+  /* night: guide default. The primary is a gold fill, as in the guide. */
+  [data-theme="espresso"] {
+    --gs-bg: #14100B; --gs-paper: #1F1912; --gs-ink: #F3ECE0; --gs-muted: #C9BBA8; --gs-deep: #1F1912; --gs-on-deep: #F3ECE0;
+    --gs-on-deep-muted: #C9BBA8; --gs-accent: #C9963A; --gs-on-accent: #14100B; --gs-accent-text: #DCB062; --gs-highlight: #DCB062;
+    --gs-soft: #2A2219; --gs-rule: #3A3026; --gs-line2: #3A3026; --gs-pri-h: #DCB062; --gs-ring: transparent;
+    --gs-gold-line: #C9963A;
+    --glass-shadow: 0 1px 2px rgb(0 0 0 / .3), 0 16px 34px -18px rgb(0 0 0 / .7);
+  }
+  body.theme-quiet-luxury { background: #F5F0E7; }   /* fixed: the legacy sections below the stories stay ivory in both themes */
+  .gs-toned > .gs-tone, .gs-orb { display: none !important; }   /* F5: no colour washes or blurred orbs */
+
+  /* ---------- Glass: floating layers only (header, dock, hero booking panel, rating band, chips on photos) ---------- */
+  .theme-quiet-luxury .site-header, .theme-quiet-luxury .hero-bk.gs-lg.gs-lg--dark, .theme-quiet-luxury .sticky-book-cta.gs-dock {
+    border: 1px solid var(--glass-dark-border); background-color: var(--glass-dark); background-image: none;
+    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat)); backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
+    box-shadow: var(--glass-shadow); text-shadow: none;
+  }
+  .theme-quiet-luxury .site-header.is-scrolled, .theme-quiet-luxury .site-header.is-revealed { box-shadow: var(--glass-shadow); }
+  .theme-quiet-luxury .site-header::after, .theme-quiet-luxury .hero-bk::after, .theme-quiet-luxury .sticky-book-cta.gs-dock::after { display: none; }
+  body.theme-quiet-luxury .gs-lg.gs-lg::before, .gs-qcard::before { display: none !important; }
+  .gs-lg { box-shadow: var(--d-float); }
+  .theme-quiet-luxury .gs-lg.gs-lg--dark { background-color: var(--glass-dark); -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat)); backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat)); }
+  .theme-quiet-luxury .gs-band.gs-lg--dark { background-color: var(--glass-dark); -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat)); backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat)); }
+  .theme-quiet-luxury .gs-lg.gs-lg--light { background-color: color-mix(in srgb, var(--gs-paper) 90%, transparent); -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(125%); backdrop-filter: blur(var(--glass-blur)) saturate(125%); border: 1px solid var(--gs-rule); }
+  .theme-quiet-luxury .gs-lg.gs-lg--dark .gs-link { color: #fff; }
+  @media (min-width: 1024px) and (hover: hover) and (pointer: fine) {
+    html.gs-refract .theme-quiet-luxury .hero-bk.gs-lg,
+    html.gs-refract .theme-quiet-luxury .gs-band.gs-lg { -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat)); backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat)); }
+  }
+  @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+    .theme-quiet-luxury .site-header, .theme-quiet-luxury .hero-bk.gs-lg.gs-lg--dark, .theme-quiet-luxury .sticky-book-cta.gs-dock,
+    .theme-quiet-luxury .gs-lg.gs-lg--dark, .theme-quiet-luxury .gs-band.gs-lg--dark { -webkit-backdrop-filter: none; backdrop-filter: none; background-color: #1C1006; }
+  }
+  /* header: taller so the 48 px button sits inside the pill */
+  .theme-quiet-luxury .site-header, .theme-quiet-luxury .site-header.is-scrolled, .theme-quiet-luxury .site-header.is-revealed { height: 3.75rem; border-radius: var(--r-pill); }
+  @media (min-width: 760px) {
+    .theme-quiet-luxury .site-header, .theme-quiet-luxury .site-header.is-scrolled, .theme-quiet-luxury .site-header.is-revealed { height: 4rem; border-radius: var(--r-pill); }
+  }
+  .theme-quiet-luxury .hero-bk.gs-lg.gs-lg--dark { border-radius: var(--r-sheet); }
+  .theme-quiet-luxury .sticky-book-cta.gs-dock { border-radius: var(--r-pill); }
+
+  /* ---------- Buttons: one style (pill, 48 px, sentence case, 700). Primary is dark by day, gold fill by night. ---------- */
+  .theme-quiet-luxury .hero-bk-cta, .theme-quiet-luxury #heroBookBar .hero-bk-cta, #heroBookBar #qbwSubmit,
+  .theme-quiet-luxury .sticky-book-cta-btn, .theme-quiet-luxury .site-header .header-cta,
+  .gs-btn, .gs-btn--lg, .bs-cta, .bs-ghost, .theme-quiet-luxury .desk-sidebar-cta, .theme-quiet-luxury .concierge-reserve-btn {
+    box-sizing: border-box; min-height: var(--btn-h); padding-inline: 1.5rem; border-radius: var(--r-pill);
+    font-family: var(--gs-body); font-size: .906rem; font-weight: 700; line-height: 1.2; letter-spacing: 0; text-transform: none;
+    text-shadow: none; box-shadow: none; background-image: none;
+  }
+  .theme-quiet-luxury .hero-bk-cta, .theme-quiet-luxury #heroBookBar .hero-bk-cta, .theme-quiet-luxury .sticky-book-cta-btn,
+  .gs-btn--accent, .gs-btn--deep, .bs-cta, .theme-quiet-luxury .desk-sidebar-cta, .theme-quiet-luxury .concierge-reserve-btn,
+  .theme-quiet-luxury .site-header .header-cta {
+    background-color: var(--gs-accent); color: var(--gs-on-accent); border: 1px solid transparent;
+  }
+  .theme-quiet-luxury .hero-bk-cta, .theme-quiet-luxury #heroBookBar .hero-bk-cta, .theme-quiet-luxury .sticky-book-cta-btn,
+  .theme-quiet-luxury .site-header .header-cta { border-color: var(--gs-ring); }
+  .theme-quiet-luxury #heroBookBar .hero-bk-cta { margin-top: .55rem; }
+  [data-theme="espresso"] .gs-btn--deep { background-color: var(--gs-accent); color: var(--gs-on-accent); }
+  .gs-cta::after, .theme-quiet-luxury .hero-bk-cta::after { display: none !important; }
+  .theme-quiet-luxury .sticky-book-cta-btn, .theme-quiet-luxury .site-header .header-cta { border-radius: var(--r-pill); }
+  .theme-quiet-luxury .site-header .header-cta { min-height: 44px; padding-inline: 1.125rem; }
+  /* secondaries are hairlines */
+  .gs-btn--paper, .bs-ghost { background: transparent; color: var(--gs-ink); border: 1px solid var(--gs-line2); box-shadow: none; font-weight: 700; }
+  /* F6: while the hero is in view the header button is a hairline secondary, so the hero button is the one primary */
+  body.gs-hero-in.theme-quiet-luxury .site-header .header-cta { background-color: transparent; color: #fff; border: 1px solid rgb(255 255 255 / .45); }
+  @media (hover: hover) and (pointer: fine) {
+    .gs-btn:hover, .theme-quiet-luxury .site-header .header-cta:hover { filter: none; transform: none; }
+    .theme-quiet-luxury .hero-bk-cta:hover, .theme-quiet-luxury .sticky-book-cta-btn:hover, .gs-btn--accent:hover, .gs-btn--deep:hover, .bs-cta:hover:not(:disabled),
+    .theme-quiet-luxury .desk-sidebar-cta:hover, .theme-quiet-luxury .concierge-reserve-btn:hover { filter: none; background-color: var(--gs-pri-h); opacity: 1; box-shadow: none; }
+    .gs-btn--paper:hover, .bs-ghost:hover { background: var(--gs-soft); }
+  }
+  .bs-cta:disabled { background: var(--gs-soft); color: var(--gs-muted); border: 1px solid var(--gs-rule); opacity: 1; }
+  .theme-quiet-luxury .concierge-reserve-btn::before { display: none; }
+  .gs-step { background: var(--gs-accent); color: var(--gs-on-accent); }
+
+  /* ---------- Cards on hairlines; shadow only on floating layers ---------- */
+  .gs-card { background: var(--gs-paper); color: var(--gs-ink); border: 1px solid var(--gs-rule); border-radius: var(--r-card);
+    --gs-on-deep-muted: var(--gs-muted); --gs-highlight: var(--gs-accent-text); }
+  .gs-card .gs-eb--light { color: var(--gs-accent-text); }
+  .gs-card-quote { border-top-color: var(--gs-rule); }
+  .gs-ladder div { background: var(--gs-soft); border: 1px solid var(--gs-rule); }
+  .gs-qcard, .gs-pill, .gs-honest, .gs-minicard { box-shadow: none; border: 1px solid var(--gs-rule); border-radius: var(--r-card); background: var(--gs-paper); }
+  .gs-pill { border-radius: var(--r-pill); }
+  .gs-qcard { color: var(--gs-ink); }
+  .gs-floatq { box-shadow: var(--d-float); border-radius: var(--r-card); }
+  .gs-btn--paper { box-shadow: none; }
+  .theme-quiet-luxury .amenities-note, .theme-quiet-luxury .airbnb-proof-embed, .theme-quiet-luxury .review-card, .theme-quiet-luxury .faq-item {
+    background: #FCF9F3; border: 1px solid #E3DACA; border-radius: var(--r-card); box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none;
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .theme-quiet-luxury .review-card:hover, .theme-quiet-luxury .faq-item:hover, .theme-quiet-luxury .rate-card:hover { box-shadow: none; transform: none; border-color: #CFC3AE; }
+    .gs-qcard:hover, .gs-trip:hover { transform: none; }
+  }
+  .theme-quiet-luxury .faq-item summary { min-height: var(--tap); }
+  .theme-quiet-luxury .loc-item-value a { display: inline-flex; align-items: center; min-height: var(--tap); }
+  .bs-panel { border-radius: var(--r-sheet) var(--r-sheet) 0 0; }
+  @media (min-width: 700px) { .bs-panel { border-radius: var(--r-sheet); } }
+
+  /* ---------- Labels and type: one label style, serif headings 600 ---------- */
+  .gs-eb, .gs-eb--hero, .gs-eb--cover, .theme-quiet-luxury .section-label-text, .theme-quiet-luxury .hero-bk-label,
+  .theme-quiet-luxury .loc-eyebrow, .theme-quiet-luxury .loc-item-label, .theme-quiet-luxury .contact-block-label, .theme-quiet-luxury .stay-label,
+  .theme-quiet-luxury .footer-brand, .theme-quiet-luxury .concierge-heading, .gs-rail-head h2.gs-eb {
+    font-family: var(--gs-body); font-size: .78rem; font-weight: 700; letter-spacing: .14em; line-height: 1.4;
+  }
+  [data-theme="espresso"] .gs-eb { letter-spacing: .1em; }
+  .gs-h2, .gs-h3, .bs-h, .faq-heading, .theme-quiet-luxury .luxury-hero-copy .hero-title.gs-quote, .gs-band-num { font-weight: 600; }
+  .theme-quiet-luxury :where(h1, h2, h3) { font-weight: 600; }
+  .gs-attrib, .gs-hero-proof, .gs-dock-sub, .gs-dock-meta, .gs-greet--loc, .gs-lb-cap, .gs-card-note, .gs-card-from { font-size: .875rem; }
+  .gs-link, .gs-space .gs-meta, .gs-band-cats li { font-size: .875rem; }
+  .gs-bd { font-size: 1rem; }
+  .theme-quiet-luxury .faq-item summary, .theme-quiet-luxury .site-header .logo-name { font-size: 1.25rem; }
+  main figcaption, .gs-greet { font-size: .875rem; }
+  .gs-maps .gs-btn, .gs-space-info .gs-btn { font-size: .906rem; min-height: var(--btn-h); }
+  .gs-qcard q, .gs-minicard blockquote { font-size: 1.25rem; }
+
+  /* ---------- Legacy sections: light surfaces keep AA with the bronze text tone ---------- */
+  .theme-quiet-luxury .faq-chevron { border-color: #A47F45; }
+  .theme-quiet-luxury .faq-chevron svg { stroke: #765A2B; }
+  .theme-quiet-luxury .hero-location, .theme-quiet-luxury .hero-trust-rating { letter-spacing: .1em; }
+  .theme-quiet-luxury .desk-sidebar-savings, .theme-quiet-luxury .desk-sidebar-trust { letter-spacing: .06em; }
+
+  @media (prefers-reduced-motion: reduce) { .gs-qcard, .gs-trip { transition: none; } }
+</style>
 </head>
 
 <body class="theme-quiet-luxury">
@@ -10291,7 +10445,7 @@
          class="concierge-reserve-btn"
          onclick="document.getElementById('conciergePanel').classList.remove('is-open');document.getElementById('conciergeTrigger').classList.remove('is-open');document.getElementById('conciergeTrigger').setAttribute('aria-expanded','false');"
          aria-label="Reserve your stay at Cascade Hideaway">
-        Reserve Your Stay <span class="leaf" aria-hidden="true">🌿</span>
+        Reserve Your Stay
       </a>
       <div class="concierge-divider" aria-hidden="true"></div>
       <p class="concierge-heading">Need help?</p>
