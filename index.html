@@ -6168,7 +6168,7 @@
   .theme-quiet-luxury #heroBookBar .hero-bk-label, .iv-flab { display: block; font-family: var(--gs-body); font-size: .78rem; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--gs-muted) !important; text-shadow: none; }
   .theme-quiet-luxury #heroBookBar .hero-bk-date-val, .iv-fval { display: block; font-family: var(--gs-display); font-size: 1.25rem; font-weight: 600; line-height: 1.3; color: var(--gs-ink) !important; text-shadow: none; }
   .theme-quiet-luxury #heroBookBar .hero-bk-date-val.is-placeholder, .iv-fval { color: var(--gs-muted) !important; }
-  .theme-quiet-luxury .hero-bk-field:hover, .iv-field:hover { border-bottom-color: var(--gs-accent-text); background: transparent; }
+  @media (hover: hover) and (pointer: fine) { .theme-quiet-luxury .hero-bk-field:hover, .iv-field:hover { border-bottom-color: var(--gs-accent-text); background: transparent; } }
   .theme-quiet-luxury .hero-bk-field:focus-visible, .iv-field:focus-visible { outline: 2px solid var(--gs-accent-text); outline-offset: 3px; }
   .theme-quiet-luxury #heroBookBar .hero-bk-cta, .iv-primary { display: flex; width: 100%; align-items: center; justify-content: center; margin-top: 1.1rem; }
   .theme-quiet-luxury #heroBookBar .hero-bk-cta { border-color: transparent; }
@@ -6384,7 +6384,7 @@ body.theme-quiet-luxury .site-footer .footer-sections { order: 3; }
 body.theme-quiet-luxury .site-footer .footer-reach { order: 4; }
 body.theme-quiet-luxury .site-footer .footer-legal { order: 5; }
 body.theme-quiet-luxury .site-footer .footer-legal-links a { display: inline-flex; align-items: center; min-height: 44px; padding-inline: .75rem; font-size: .875rem; color: #F4EBDD; text-decoration: none; letter-spacing: .01em; }
-body.theme-quiet-luxury .site-footer .footer-legal-links a:hover { text-decoration: underline; text-underline-offset: .3em; }
+@media (hover: hover) and (pointer: fine) { body.theme-quiet-luxury .site-footer .footer-legal-links a:hover { text-decoration: underline; text-underline-offset: .3em; } }
 body.theme-quiet-luxury .site-footer .footer-copy { order: 6; margin: 1rem 0 0; font-size: .78rem; letter-spacing: .02em; color: #C9BBA4; }
 
 /* A6 the dock: room for it under the last line of the page (dock 4rem + 0.875rem offset + safe area) */
@@ -6442,14 +6442,16 @@ body.theme-quiet-luxury .nearby-cat-label { width: auto; padding-top: .8rem; col
 body.theme-quiet-luxury .nearby-chips { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 0; }
 body.theme-quiet-luxury .nearby-chip { display: flex; align-items: center; gap: .5rem; width: 100%; box-sizing: border-box; padding: .5rem 0; border: 0; background: transparent; font-size: .875rem; letter-spacing: 0; }
 body.theme-quiet-luxury .nearby-chip + .nearby-chip { border-top: 1px solid var(--gs-rule); }
-body.theme-quiet-luxury .nearby-chip:hover { background: transparent; color: var(--gs-ink); text-decoration: underline; text-underline-offset: .25em; }
+@media (hover: hover) and (pointer: fine) { body.theme-quiet-luxury .nearby-chip:hover { background: transparent; color: var(--gs-ink); text-decoration: underline; text-underline-offset: .25em; } }
 body.theme-quiet-luxury .nearby-chip-dot { display: none; }
 body.theme-quiet-luxury .nearby-chip strong { margin-left: auto; font-weight: 600; white-space: nowrap; }
 body.theme-quiet-luxury .loc-cta-group { margin-top: 2rem; gap: 0; }
 body.theme-quiet-luxury .loc-cta-btn, body.theme-quiet-luxury .loc-cta-btn.is-messenger { border: 0; border-top: 1px solid var(--gs-rule); border-radius: 0; background: transparent; padding: .75rem 0; }
 body.theme-quiet-luxury .loc-cta-group > :last-child { border-bottom: 1px solid var(--gs-rule); }
+@media (hover: hover) and (pointer: fine) {
 body.theme-quiet-luxury .loc-cta-btn:hover, body.theme-quiet-luxury .loc-cta-btn.is-messenger:hover { background: transparent; border-color: var(--gs-rule); }
 body.theme-quiet-luxury .loc-cta-btn:hover .loc-cta-label strong { text-decoration: underline; text-underline-offset: .25em; }
+}
 
 /* B10 FAQ header: a chapter (eyebrow, sentence-case serif heading, rule) */
 body.theme-quiet-luxury .faq-section { padding-block: calc(var(--iv-gap) / 2); }
@@ -6508,7 +6510,7 @@ body.theme-quiet-luxury .concierge-trigger {
   -webkit-backdrop-filter: none; backdrop-filter: none;
 }
 [data-theme="espresso"] body.theme-quiet-luxury .concierge-trigger { box-shadow: var(--glass-shadow); }
-body.theme-quiet-luxury .concierge-trigger:hover { background: var(--gs-soft); box-shadow: var(--d-float); }
+@media (hover: hover) and (pointer: fine) { body.theme-quiet-luxury .concierge-trigger:hover { background: var(--gs-soft); box-shadow: var(--d-float); } }
 body.theme-quiet-luxury .concierge-trigger:focus-visible { outline: 2px solid var(--gs-accent-text); outline-offset: 3px; }
 
 /* B4 to B6 the booking sheet is the invitation: solid card stock, double hairline, reply lines */
@@ -6528,7 +6530,7 @@ dialog.bs::backdrop { background: rgb(18 10 4 / .74); }
 .bs-lbl .bs-sub { text-transform: none; letter-spacing: 0; font-weight: 400; }
 .bs-in { height: 3rem; min-height: var(--tap); border: 0; border-bottom: 1px solid var(--gs-line2); border-radius: 0; padding: 0 .125rem; background: transparent; font-family: var(--gs-display); font-size: 1.25rem; font-weight: 500; color: var(--gs-ink); }
 .bs-in::placeholder { color: var(--gs-muted); opacity: 1; }
-.bs-in:hover { border-bottom-color: var(--gs-accent-text); }
+@media (hover: hover) and (pointer: fine) { .bs-in:hover { border-bottom-color: var(--gs-accent-text); } }
 .bs-in:focus { outline: none; border-bottom-color: var(--gs-accent-text); box-shadow: 0 1px 0 0 var(--gs-accent-text); }
 .bs-in:focus-visible { outline: 2px solid var(--gs-accent-text); outline-offset: 3px; border-radius: 2px; }
 .bs-in[aria-invalid="true"] { border-bottom-color: #9C3A1E; box-shadow: 0 1px 0 0 #9C3A1E; }
@@ -6548,7 +6550,91 @@ dialog.bs::backdrop { background: rgb(18 10 4 / .74); }
 .bs-actions { --bs-g: .4rem; gap: var(--bs-g); }
 .bs-sub:empty { margin-top: calc(-1 * var(--bs-g)); }
 @media (min-width: 700px) { .bs-panel { height: min(48rem, 94dvh); } .bs-step { --bs-g: .7rem; } }
+/* ============================================================
+   ROUND C (s137 fix C): motion audit. Hero settles once, print and no-JS show everything,
+   the booking sheet moves, hovers fade, touch gets no sticky hover, nothing loops unseen.
+   ============================================================ */
+/* C1 hero: one 2.4 s settle, then nothing runs (the old 26 s ken-burns zoomed forever) */
+.hero-slide { will-change: auto; }
+body.theme-quiet-luxury .hero-slide.is-active img { animation: none; }
+@media (prefers-reduced-motion: no-preference) {
+  body.theme-quiet-luxury .luxury-hero-media { animation: iv-settle 2.4s var(--iv-ease) both; will-change: auto; }
+}
+/* C8 the headline no longer rises: the photo settle is the only load motion */
+.theme-quiet-luxury .hero-title.gs-quote { animation: none; }
+/* C2 print: no reveal stays hidden, the rules are drawn */
+@media print {
+  .ch-reveal { opacity: 1 !important; transform: none !important; }
+  .iv-rule { animation: none !important; transform: none !important; }
+}
+/* C7 nothing loops where it is not shown (the booking section and the orbs are hidden or display:none) */
+.gs-orb, .gs-tone, #booking .cal-loading-bar, #booking [style*="pulse-dot"] { animation: none !important; }
+/* C3 the booking sheet moves: rises on phone, lifts 16 px on desktop, backdrop fades; exit 180 ms from CSS alone */
+@media (prefers-reduced-motion: no-preference) {
+  dialog.bs { transition: display 180ms allow-discrete, overlay 180ms allow-discrete; }
+  dialog.bs .bs-panel { transition: transform 180ms var(--iv-ease), opacity 180ms var(--iv-ease); }
+  dialog.bs[open] .bs-panel { transition-duration: 240ms; }
+  dialog.bs:not([open]) .bs-panel { transform: translateY(100%); }
+  dialog.bs::backdrop { opacity: 0; transition: opacity 200ms var(--iv-ease), display 200ms allow-discrete, overlay 200ms allow-discrete; }
+  dialog.bs[open]::backdrop { opacity: 1; }
+  @starting-style {
+    dialog.bs[open] .bs-panel { transform: translateY(100%); }
+    dialog.bs[open]::backdrop { opacity: 0; }
+  }
+  @media (min-width: 700px) {
+    dialog.bs:not([open]) .bs-panel { transform: translateY(calc(-50% + 16px)); opacity: 0; }
+    @starting-style { dialog.bs[open] .bs-panel { transform: translateY(calc(-50% + 16px)); opacity: 0; } }
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  dialog.bs { transition: display 120ms allow-discrete, overlay 120ms allow-discrete; }
+  dialog.bs .bs-panel { transition: opacity 120ms linear; }
+  dialog.bs:not([open]) .bs-panel { opacity: 0; }
+  dialog.bs::backdrop { opacity: 0; transition: opacity 120ms linear, display 120ms allow-discrete, overlay 120ms allow-discrete; }
+  dialog.bs[open]::backdrop { opacity: 1; }
+  @starting-style { dialog.bs[open] .bs-panel { opacity: 0; } dialog.bs[open]::backdrop { opacity: 0; } }
+}
+/* C4 colour changes fade instead of snapping; sheet controls get a pressed state */
+.theme-quiet-luxury .hero-bk-cta, .theme-quiet-luxury .sticky-book-cta-btn, .theme-quiet-luxury .site-header .header-cta, .gs-btn,
+.bs-day, .bs-stepper button, .bs-cta, .bs-ghost, .bs-link, .bs-ico {
+  transition: transform 160ms var(--iv-ease), background-color 180ms var(--iv-ease), color 180ms var(--iv-ease), border-color 180ms var(--iv-ease);
+}
+.bs-day:active:not([aria-disabled="true"]):not(:disabled), .bs-stepper button:active:not(:disabled), .bs-cta:active:not(:disabled), .bs-ghost:active:not(:disabled),
+.bs-link:active:not(:disabled), .bs-ico:active:not(:disabled) { transform: scale(.97); }
+/* C6 quicker folds and links; named properties instead of "all" */
+.faq-body-wrap { transition-duration: 220ms; }
+body.theme-quiet-luxury .loc-cta-btn { transition-duration: 200ms; }
+.contact-type-pill { transition: background-color 150ms ease-out, border-color 150ms ease-out, color 150ms ease-out; }
+/* C5 touch gets the resting style: older ungated hover rules are undone where no hover exists */
+@media not all and (hover: hover) and (pointer: fine) {
+  body.theme-quiet-luxury .concierge-trigger:hover { transform: none; }
+  body.theme-quiet-luxury .concierge-trigger:active { transform: scale(.95); }
+  .theme-quiet-luxury .hero-bk-cta:hover { transform: none; filter: none; }
+  .theme-quiet-luxury .hero-bk-cta:active { transform: scale(.97); }
+  .theme-quiet-luxury #heroBookBar .hero-bk-field:hover:not(.is-active) { box-shadow: none; }
+}
+/* V1 phone: the pillow photo already opens "The space", so Spotless keeps the shower photo and drops the repeat */
+@media (max-width: 759px) { body.theme-quiet-luxury #spotless > .iv-fig--bleed { display: none; } }
+/* V2 desktop: the facade is shown 130% wide and anchored right, so the meters and pipes at the left fall outside the frame and the gate and door fill it (frame stays 21:9) */
+@media (min-width: 760px) {
+  body.theme-quiet-luxury #arrival .iv-fig--bleed img { width: 130%; max-width: none; margin-left: -30%; aspect-ratio: 91 / 30; object-position: 100% 68%; }
+}
+/* V3 phone, day: the photo reads brighter. Lighter top wash and lighter scrim behind the headline; text stays at 4.5:1 or better against the lightest pixels behind it (measured, see the lane report) */
+@media (max-width: 759px) {
+  html:not([data-theme="espresso"]) body.theme-quiet-luxury .hero-overlay { background: linear-gradient(180deg, rgb(28 16 6 / .42) 0, rgb(28 16 6 / .16) 10%, rgb(28 16 6 / 0) 22%, rgb(28 16 6 / 0) 100%); }
+  html:not([data-theme="espresso"]) body.theme-quiet-luxury .luxury-hero-grid .luxury-hero-copy::before {
+    background: linear-gradient(180deg, rgb(24 14 6 / 0) 0, rgb(24 14 6 / .17) 18%, rgb(24 14 6 / .44) 31%, rgb(24 14 6 / .53) 50%, rgb(24 14 6 / .56) 100%);
+  }
+}
+/* C8 layout shift: a metric-matched fallback (Georgia scaled to Cormorant's width, 75.7%) so the web-font swap does not rewrap the headline */
+@font-face { font-family: "Cormorant Fallback"; src: local("Georgia"); size-adjust: 75.7%; }
+:root { --gs-display: 'Cormorant Garamond', 'Cormorant Fallback', Georgia, serif; --ch-font-display: 'Cormorant Garamond', 'Cormorant Fallback', Georgia, serif; }
+/* C8 layout shift: the scrim behind the headline has a fixed height from the bottom, so the web-font swap no longer moves it */
+@media (min-width: 1024px) {
+  body.theme-quiet-luxury .luxury-hero-grid .luxury-hero-copy::before { inset-block-start: auto; block-size: 28rem; }
+}
 </style>
+<noscript><style>.ch-reveal{opacity:1!important;transform:none!important}.iv-rule{transform:none!important;animation:none!important}</style></noscript>
 </head>
 
 <body class="theme-quiet-luxury">
