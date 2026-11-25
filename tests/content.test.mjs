@@ -163,7 +163,7 @@ function guestQuotes() {
 
 test('Guest stories: every on-page guest quote is an excerpt of a dated review in the 2026-11-24 fixture, attributed with its month', () => {
   const quotes = guestQuotes();
-  assert.ok(quotes.length >= 15, `found ${quotes.length} quotes; the extractor lost some`);
+  assert.equal(quotes.length, 3, `found ${quotes.length} quotes; the invitation redesign (D2) allows exactly three: hero, between chapters, beside the booking card`);
   const pendingSeen = [];
   for (const { quote, attribution } of quotes) {
     if (PENDING_VERIFICATION.includes(quote)) { pendingSeen.push(quote); continue; }

@@ -43,7 +43,7 @@ test.describe('Guest stories hero', () => {
       expect(r.firstScreenCta, 'a booking CTA is fully visible on the first screen').toBe(true);
       if (DOCK_ON_FIRST_SCREEN.has(`${w}x${h}`)) expect(r.dock.bottom, 'dock CTA above the fold').toBeLessThanOrEqual(h);
       expect(r.dock.h).toBeGreaterThanOrEqual(44);
-      expect(r.proof).toBe('★ 4.97 from 64 reviews·97% gave five stars');
+      expect(r.proof).toBe('97% of guests gave five stars');
       expect(r.hasGreet, '#gsGreet moved out of the hero').toBe(false);
 
       await page.locator('#qbwCiField').click();
@@ -55,54 +55,29 @@ test.describe('Guest stories hero', () => {
 });
 
 test.describe('Guest stories header auto-hide', () => {
-  test('phone 390: hides on scroll down, shows on scroll up, on Tab focus, after the sheet closes, at top', { tag: '@webkit' }, async ({ page }) => {
+  test('phone 390: the wordmark header scrolls away and never returns; the dock is the one persistent CTA', { tag: '@webkit' }, async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto('/index.html');
     await page.mouse.move(200, 400);
-    expect((await header(page)).hidden).toBe(false);
-    await wheel(page, 200);
-    let s = await header(page); expect(s.hidden).toBe(true); await expect.poll(async () => (await header(page)).bottom, { timeout: 1500 }).toBeLessThanOrEqual(0);
+    expect((await header(page)).bottom, 'header visible at the top').toBeGreaterThan(0);
+    await wheel(page, 500, 4);
+    await expect.poll(async () => (await header(page)).bottom, { timeout: 1500 }).toBeLessThanOrEqual(0);
     await wheel(page, -120, 2);
-    s = await header(page); expect(s.hidden).toBe(false); await expect.poll(async () => (await header(page)).bottom, { timeout: 1500 }).toBeGreaterThan(0);
-
-    await wheel(page, 200);
-    expect((await header(page)).hidden).toBe(true);
-    await page.evaluate(() => document.activeElement && document.activeElement.blur());
-    if (page.touchScroll) {
-      /* WebKit (Safari) Tab skips links, and every header control is a link: a key press sets keyboard modality, then focus() lands as :focus-visible */
-      await page.keyboard.press('Shift');
-      await page.evaluate(() => document.querySelector('.site-header a.header-cta').focus());
-      expect(await page.evaluate(() => document.activeElement.matches(':focus-visible')), 'keyboard-modality focus is :focus-visible').toBe(true);
-    } else for (let i = 0; i < 8 && !(await page.evaluate(() => !!document.activeElement.closest('.site-header'))); i++) await page.keyboard.press('Tab');
-    await page.waitForTimeout(400);
-    s = await header(page); expect(s.hidden, 'keyboard focus inside shows the header').toBe(false); await expect.poll(async () => (await header(page)).bottom, { timeout: 1500 }).toBeGreaterThan(0);
-    await wheel(page, 200, 3);
-    expect((await header(page)).hidden, 'a focused header does not hide').toBe(false);
-
-    await page.evaluate(() => document.activeElement.blur());
-    await wheel(page, 200);
-    expect((await header(page)).hidden).toBe(true);
-    await page.evaluate(() => window.CascadeSheet.open({}));
-    await expect.poll(() => page.evaluate(() => document.getElementById('bookSheet').open)).toBe(true);
-    await page.keyboard.press('Escape');
-    await page.waitForTimeout(500);
-    expect((await header(page)).hidden, 'sheet close shows the header').toBe(false);
-
-    await page.evaluate(() => scrollTo(0, 0)); await page.waitForTimeout(400);
-    expect((await header(page)).hidden).toBe(false);
+    expect((await header(page)).bottom, 'scrolling up does not bring the header back').toBeLessThanOrEqual(0);
+    await page.evaluate(() => scrollTo(0, 1200)); /* the dock hides only over the booking section and the hero */
+    await expect(page.locator('#stickyBookCta')).toBeInViewport();
   });
 
   for (const w of [1440, 1024]) {
-    test(`desktop ${w}: the header (the only desktop booking CTA) never hides`, async ({ page }) => {
+    test(`desktop ${w}: the header scrolls away and the bottom dock stays as the booking CTA`, async ({ page }) => {
       await page.setViewportSize({ width: w, height: 900 });
       await page.goto('/index.html');
       await page.mouse.move(400, 400);
       await wheel(page, 350, 6);
       const s = await header(page);
       expect(await page.evaluate(() => scrollY)).toBeGreaterThan(1500);
-      expect(s.bottom).toBeGreaterThan(0);
-      expect(s.opacity).toBe(1);
-      await expect(page.locator('.site-header a.header-cta[data-gs-book]')).toBeInViewport();
+      expect(s.bottom).toBeLessThanOrEqual(0);
+      await expect(page.locator('#stickyBookCta')).toBeInViewport();
     });
   }
 

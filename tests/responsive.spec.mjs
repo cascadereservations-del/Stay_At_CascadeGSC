@@ -62,7 +62,7 @@ test.describe('responsive contract', () => {
 
   test('body background uses the quiet-luxury bone token', async ({ page }) => {
     await page.setViewportSize({ width: 1024, height: 900 });
-    await page.goto('/index.html');
+    await page.goto('/?theme-time=midday');
     await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(245, 240, 231)');
   });
 

@@ -5976,7 +5976,7 @@
     --gs-gold-line: #C9963A;
     --glass-shadow: 0 1px 2px rgb(0 0 0 / .3), 0 16px 34px -18px rgb(0 0 0 / .7);
   }
-  body.theme-quiet-luxury { background: #F5F0E7; }   /* fixed: the legacy sections below the stories stay ivory in both themes */
+  /* round 2: body paper follows the theme (see the round 2 block) */
   .gs-toned > .gs-tone, .gs-orb { display: none !important; }   /* F5: no colour washes or blurred orbs */
 
   /* ---------- Glass: floating layers only (header, dock, hero booking panel, rating band, chips on photos) ---------- */
@@ -6090,6 +6090,238 @@
   .theme-quiet-luxury .desk-sidebar-savings, .theme-quiet-luxury .desk-sidebar-trust { letter-spacing: .06em; }
 
   @media (prefers-reduced-motion: reduce) { .gs-qcard, .gs-trip { transition: none; } }
+
+  /* ============================================================
+     ROUND 2 (s137): "The Invitation". Ivory card stock, mahogany ink, one bronze accent, photographs doing the persuading.
+     Sizes at 375 px: .78 / .875 / 1 / 1.25rem, h2 clamp, display clamp. Dark only as the hero scrim and the footer.
+     ============================================================ */
+  :root {
+    --iv-gap: 5rem; --iv-gut: 24px; --iv-max: 1280px; --iv-prose: 680px; --iv-ease: cubic-bezier(.2, .7, .2, 1);
+    --iv-glass: rgb(252 249 243 / .94);
+    --iv-display: clamp(2rem, 1.4rem + 2.4vw, 3.5rem); --iv-h2: clamp(1.75rem, 1.3rem + 1.6vw, 2.5rem);
+    --iv-grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .11 0 0 0 0 .06 0 0 0 0 .02 0 0 0 .9 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.05'/%3E%3C/svg%3E");
+    --iv-vig: rgb(28 16 6 / .07);
+  }
+  [data-theme="espresso"] { --iv-glass: rgb(31 25 18 / .9); --iv-vig: rgb(0 0 0 / .28); --iv-grain: none; }
+  @media (min-width: 1024px) { :root { --iv-gap: 7.5rem; } }
+
+  /* paper, grain and a soft vignette: one fixed layer, no image request */
+  html, body.theme-quiet-luxury { background-color: var(--gs-bg); color: var(--gs-ink); }
+  body.theme-quiet-luxury::before {
+    content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none;
+    background: radial-gradient(125% 95% at 50% 42%, transparent 60%, var(--iv-vig) 100%), var(--iv-grain);
+  }
+
+  /* ---------- D1 header: a bare wordmark over the hero photo; it scrolls away and never returns ---------- */
+  body.theme-quiet-luxury .site-header.gs-lg, body.theme-quiet-luxury .site-header.gs-lg.is-scrolled, body.theme-quiet-luxury .site-header.gs-lg.is-revealed,
+  body.theme-quiet-luxury .site-header.gs-lg.gs-hdr-hide {
+    position: absolute; top: 0; left: 0; right: 0; inset-inline: 0; width: auto; max-width: none; height: auto; margin: 0;
+    border: 0; border-radius: 0; background: transparent; background-color: transparent; background-image: none; box-shadow: none;
+    -webkit-backdrop-filter: none; backdrop-filter: none; transform: none; opacity: 1; visibility: visible; pointer-events: auto; z-index: 30;
+    transition: none; color: #fff; text-shadow: 0 1px 12px rgb(20 12 6 / .45);
+  }
+  body.theme-quiet-luxury .site-header .header-inner { display: flex; align-items: center; justify-content: space-between; gap: 1rem; max-width: var(--iv-max); margin-inline: auto; padding: 1rem var(--iv-gut) 0; box-sizing: border-box; }
+  body.theme-quiet-luxury .site-header .site-logo { display: inline-flex; align-items: center; min-height: var(--tap); text-decoration: none; }
+  body.theme-quiet-luxury .site-header .logo-name { font-family: var(--gs-display); font-size: 1.25rem; font-weight: 600; letter-spacing: .02em; color: #fff; }
+  body.theme-quiet-luxury .site-header .logo-divider, body.theme-quiet-luxury .site-header .logo-sub, body.theme-quiet-luxury .gs-nav { display: none; }
+  body.theme-quiet-luxury .site-header .header-cta, body.gs-hero-in.theme-quiet-luxury .site-header .header-cta {
+    background: transparent; border: 0; border-bottom: 1px solid rgb(255 255 255 / .55); border-radius: 0; color: #fff; min-height: var(--tap);
+    padding: 0; font-size: .875rem; font-weight: 700; letter-spacing: 0; box-shadow: none;
+  }
+
+  /* ---------- hero: one slow settle, a lighter scrim, one fact of proof ---------- */
+  @keyframes iv-settle { from { scale: 1.06; } to { scale: 1; } }
+  @media (prefers-reduced-motion: no-preference) { .luxury-hero-media { animation: iv-settle 2.4s var(--iv-ease) both; } }
+  .hero-overlay { background: linear-gradient(180deg, rgb(28 16 6 / .5) 0, rgb(28 16 6 / .1) 26%, rgb(28 16 6 / .16) 48%, rgb(28 16 6 / .74) 100%); }
+  .theme-quiet-luxury .hero-title.gs-quote { font-size: var(--iv-display); font-weight: 600; line-height: 1.06; text-wrap: balance; }
+  .theme-quiet-luxury .gs-hero-proof { margin: .75rem 0 0; display: block; font-size: .875rem; }
+  .theme-quiet-luxury .gs-hero-proof a { color: #fff; font-weight: 700; text-decoration: underline; text-underline-offset: .28em; display: inline-block; padding-block: .75rem; }
+
+  /* ---------- D4 the invitation card (hero + book direct) ---------- */
+  .iv-mono {
+    display: grid; place-items: center; width: 2.25rem; height: 2.25rem; margin: 0 auto .5rem; border: 1px solid var(--gs-line2); border-radius: 50%;
+    font-family: var(--gs-display); font-size: .875rem; font-weight: 600; letter-spacing: .08em; color: var(--gs-accent-text); line-height: 1;
+  }
+  body.theme-quiet-luxury .hero-bk.gs-lg.gs-lg--dark, .iv-card {
+    background-color: var(--iv-glass); color: var(--gs-ink); border: 1px solid var(--gs-line2); border-radius: var(--r-card);
+    box-shadow: var(--d-float); text-shadow: none; -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(125%); backdrop-filter: blur(var(--glass-blur)) saturate(125%);
+  }
+  .iv-card { position: relative; }
+  .hero-line-top, .hero-line-bottom { display: none; }
+  [data-theme="espresso"] body.theme-quiet-luxury .hero-bk.gs-lg.gs-lg--dark, [data-theme="espresso"] .iv-card { border-color: var(--gs-rule); box-shadow: var(--glass-shadow); }
+  body.theme-quiet-luxury .hero-bk.gs-lg.gs-lg--dark::after, .iv-card::after {
+    content: ""; display: block !important; position: absolute; inset: 6px; border: 1px solid var(--gs-rule); border-radius: calc(var(--r-card) - 6px);
+    pointer-events: none; background: none; animation: none; transform: none; opacity: 1; width: auto; height: auto;
+  }
+  [data-theme="espresso"] body.theme-quiet-luxury .hero-bk.gs-lg.gs-lg--dark::after, [data-theme="espresso"] .iv-card::after { border-color: var(--gs-line2); }
+  .theme-quiet-luxury .hero-bk-inner { text-align: center; }
+  .theme-quiet-luxury .hero-bk-eyebrow, .iv-card .gs-eb { color: var(--gs-accent-text); }
+  .theme-quiet-luxury #heroBookBar .hero-bk-eyebrow { font-family: var(--gs-display); font-size: 1.25rem; font-weight: 600; letter-spacing: 0; text-transform: none; margin: 0 0 .75rem; color: var(--gs-ink) !important; text-shadow: none; }
+  /* reply lines: small-caps label, serif value, hairline underline, no filled boxes */
+  .theme-quiet-luxury #heroBookBar .hero-bk-fields, .iv-reply { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; background: none !important; background-image: none !important; border-radius: 0; width: auto; border: 0; box-shadow: none; padding: 0; text-align: left; }
+  .theme-quiet-luxury .hero-bk-sep--mid { display: none; }
+  .theme-quiet-luxury #heroBookBar .hero-bk-field, .iv-field {
+    display: block; width: auto; max-width: none; min-width: 0; flex: none; margin: 0; min-height: var(--tap); box-sizing: border-box; background: transparent !important; border: 0; border-bottom: 1px solid var(--gs-line2); border-radius: 0;
+    box-shadow: none; padding: .25rem 0 .4rem; color: var(--gs-ink); text-decoration: none; cursor: pointer;
+  }
+  .theme-quiet-luxury .hero-bk-field::before, .theme-quiet-luxury .hero-bk-field::after { display: none; }
+  .theme-quiet-luxury #heroBookBar .hero-bk-label, .iv-flab { display: block; font-family: var(--gs-body); font-size: .78rem; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--gs-muted) !important; text-shadow: none; }
+  .theme-quiet-luxury #heroBookBar .hero-bk-date-val, .iv-fval { display: block; font-family: var(--gs-display); font-size: 1.25rem; font-weight: 600; line-height: 1.3; color: var(--gs-ink) !important; text-shadow: none; }
+  .theme-quiet-luxury #heroBookBar .hero-bk-date-val.is-placeholder, .iv-fval { color: var(--gs-muted) !important; }
+  .theme-quiet-luxury .hero-bk-field:hover, .iv-field:hover { border-bottom-color: var(--gs-accent-text); background: transparent; }
+  .theme-quiet-luxury .hero-bk-field:focus-visible, .iv-field:focus-visible { outline: 2px solid var(--gs-accent-text); outline-offset: 3px; }
+  .theme-quiet-luxury #heroBookBar .hero-bk-cta, .iv-primary { display: flex; width: 100%; align-items: center; justify-content: center; margin-top: 1.1rem; }
+  .theme-quiet-luxury #heroBookBar .hero-bk-cta { border-color: transparent; }
+  .theme-quiet-luxury .hero-bk .gs-dock-sub, .iv-fine { color: var(--gs-muted); font-size: .875rem; text-align: center; margin: .75rem 0 0; text-shadow: none; }
+  .theme-quiet-luxury .hero-bk-avail, .theme-quiet-luxury .hero-bk-error { color: var(--gs-muted); text-shadow: none; }
+  .iv-card { padding: 2.25rem 1.5rem 1.75rem; text-align: center; box-sizing: border-box; }
+  .iv-card .gs-eb { margin: 0; }
+  .iv-reply { margin: 1.75rem 0 0; }
+  .iv-dot { display: none; }
+  @media (min-width: 600px) { .iv-dot { display: inline; } }
+  .iv-card-h { font-size: var(--iv-h2); font-weight: 600; line-height: 1.08; margin: .5rem 0 0; text-wrap: balance; }
+  .iv-primary.gs-btn { text-decoration: none; }
+
+  /* ---------- D1 bottom bar: ivory glass by day, guide night glass at night, one fact; phone and desktop ---------- */
+  body.theme-quiet-luxury .sticky-book-cta.gs-dock {
+    position: fixed; left: .75rem; right: .75rem; margin-inline: auto; max-width: 34rem; bottom: calc(.875rem + env(safe-area-inset-bottom, 0px)); z-index: 940;
+    display: flex; align-items: center; justify-content: space-between; gap: .75rem; box-sizing: border-box; min-height: 4rem; padding: .5rem .5rem .5rem 1.25rem; border-radius: var(--r-pill);
+    background-color: var(--iv-glass); border: 1px solid var(--gs-rule); box-shadow: var(--d-float); color: var(--gs-ink); text-shadow: none;
+    transition: transform 260ms var(--iv-ease), opacity 200ms var(--iv-ease), visibility 0s;
+  }
+  [data-theme="espresso"] body.theme-quiet-luxury .sticky-book-cta.gs-dock { border-color: var(--gs-line2); box-shadow: var(--glass-shadow); }
+  body.theme-quiet-luxury .sticky-book-cta.gs-dock.is-hidden, body.gs-hero-in.theme-quiet-luxury .sticky-book-cta.gs-dock {
+    transform: translateY(150%); opacity: 0; pointer-events: none; visibility: hidden; transition: transform 200ms var(--iv-ease), opacity 200ms var(--iv-ease), visibility 0s linear 200ms;
+  }
+  body.theme-quiet-luxury .sticky-book-cta-rate { color: var(--gs-ink); font-size: .875rem; line-height: 1.3; display: flex; flex-direction: column; }
+  body.theme-quiet-luxury .sticky-book-cta-rate strong { font-family: var(--gs-display); font-size: 1.25rem; font-weight: 600; }
+  body.theme-quiet-luxury .sticky-book-cta-rate span { color: var(--gs-muted); }
+  body.theme-quiet-luxury .sticky-book-cta-btn { display: inline-flex; align-items: center; justify-content: center; min-height: var(--btn-h); font-size: .875rem; line-height: 1.2; }
+  @media (min-width: 1024px) { body.theme-quiet-luxury .site-footer { padding-bottom: 6rem; } }
+
+  /* ---------- D2 photographs first ---------- */
+  .iv-sec { background: transparent; padding-block: calc(var(--iv-gap) / 2); position: relative; }
+  .iv-wrap { width: 100%; max-width: var(--iv-max); margin-inline: auto; padding-inline: var(--iv-gut); box-sizing: border-box; }
+  .iv-prose { max-width: calc(var(--iv-prose) + 2 * var(--iv-gut)); }
+  .iv-prose > * { margin-block: 0; }
+  .iv-prose > * + * { margin-top: 1rem; }
+  .iv-prose > .gs-bd, .iv-prose > .gs-honest { margin-top: 1.5rem; }
+  .iv-fig { margin: 0; }
+  .iv-fig img, #photos .gs-strip-img { display: block; width: 100%; max-width: none; height: auto; border-radius: 0; box-shadow: none; margin: 0; object-fit: cover; scale: none; }
+  .iv-fig--bleed img { aspect-ratio: 4 / 5; max-height: 82vh; }
+  .iv-fig figcaption { font-family: var(--gs-display); font-style: italic; font-size: 1rem; line-height: 1.4; color: var(--gs-muted); text-align: center; padding: .75rem var(--iv-gut) 0; }
+  .iv-ch > .iv-prose { padding-top: 2.5rem; }
+  .iv-duo { display: grid; gap: 1.5rem; }
+  .iv-duo .iv-fig img { aspect-ratio: 4 / 5; }
+  .iv-ch > .iv-fig--bleed:last-child { margin-top: 2.5rem; }
+  @media (min-width: 760px) {
+    .iv-fig--bleed img { aspect-ratio: 3 / 2; }
+    .iv-duo { grid-template-columns: 1fr 1fr; max-width: var(--iv-max); margin-inline: auto; padding-inline: var(--iv-gut); box-sizing: border-box; gap: 1.5rem; }
+    .iv-duo .iv-fig img { aspect-ratio: 4 / 5; max-height: 76vh; }
+  }
+  .iv-h { font-size: var(--iv-h2); font-weight: 600; line-height: 1.08; margin: 0; text-wrap: balance; color: var(--gs-ink); }
+  .iv-rule { display: block; width: 4.5rem; height: 1px; background: var(--gs-gold-line); margin-top: 1.25rem; transform-origin: left center; }
+  .iv-prose .gs-eb, .iv-sec .gs-eb { color: var(--gs-accent-text); margin: 0; }
+  .iv-prose .gs-meta, .iv-sec .gs-meta { color: var(--gs-muted); font-size: .875rem; }
+  .iv-pull { margin: 0 auto; max-width: calc(var(--iv-prose) + 2 * var(--iv-gut)); padding: calc(var(--iv-gap) / 2) var(--iv-gut); text-align: center; box-sizing: border-box; }
+  .iv-pull blockquote { margin: 0; font-family: var(--gs-display); font-style: italic; font-weight: 500; font-size: var(--iv-display); line-height: 1.12; color: var(--gs-ink); text-wrap: balance; }
+  .iv-pull figcaption { margin-top: 1rem; color: var(--gs-accent-text); font-size: .875rem; font-weight: 700; letter-spacing: .02em; }
+  .iv-pull--side { padding: 0; margin: 2rem 0 0; text-align: left; max-width: none; }
+  .iv-pull--side blockquote { font-size: var(--iv-h2); }
+
+  /* gallery strip: large, near full-bleed, caption beneath */
+  #photos .iv-head { max-width: var(--iv-max); }
+  #photos .gs-strip { gap: 1rem; padding-inline: var(--iv-gut); scroll-padding-inline: var(--iv-gut); margin-top: 2rem; }
+  #photos .gs-strip:not(.gs-strip--trips) > li { overflow: visible; border-radius: 0; flex: 0 0 auto; width: min(88vw, 38rem); scroll-snap-align: center; }
+  #photos .gs-strip-img { aspect-ratio: 4 / 5; width: 100%; }
+  @media (min-width: 760px) { #photos .gs-strip-img { aspect-ratio: 3 / 2; } #photos .gs-strip { scroll-snap-type: x mandatory; } }
+  #photos .gs-strip:not(.gs-strip--trips) > li > .gs-strip-img, #photos .gs-strip:not(.gs-strip--trips) > li > .gs-strip-img:hover, #photos .gs-strip:not(.gs-strip--trips) > li > .gs-strip-img:active { scale: none !important; }
+  #photos .gs-space-info { margin-top: 2rem; }
+  #photos .gs-space-info .gs-meta { color: var(--gs-muted); }
+  .gs-chip { background: transparent; border: 1px solid var(--gs-rule); color: var(--gs-ink); box-shadow: none; }
+
+  /* D3 one proof line */
+  .iv-proof-in { text-align: center; }
+  .iv-proof-line { font-size: var(--iv-display); font-weight: 600; line-height: 1.08; margin: 0; color: var(--gs-ink); text-wrap: balance; }
+  .iv-proof-sub { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 0 .75rem; margin: .75rem 0 0; font-size: .875rem; color: var(--gs-muted); }
+  .iv-proof-sub a { color: var(--gs-accent-text); font-weight: 700; text-decoration: underline; text-underline-offset: .25em; display: inline-block; padding-block: .75rem; }
+  .iv-proof .gs-proof-embed:has(.airbnb-proof-embed-slot:empty) { display: none; }
+
+  /* step lists: serif numerals on hairlines */
+  .iv-steps { list-style: none; margin: 1.5rem 0 0; padding: 0; }
+  .iv-steps li { display: grid; grid-template-columns: 2rem 1fr; gap: 1rem; align-items: baseline; padding: 1rem 0; border-top: 1px solid var(--gs-rule); }
+  .iv-steps li:last-child { border-bottom: 1px solid var(--gs-rule); }
+  .iv-num { font-size: var(--iv-h2); font-weight: 500; line-height: 1; color: var(--gs-accent-text); }
+  .iv-steps strong { display: block; font-family: var(--gs-display); font-size: 1.25rem; font-weight: 600; line-height: 1.25; color: var(--gs-ink); }
+  .iv-steps .gs-meta { display: block; margin-top: .25rem; }
+
+  /* location extras */
+  #location .gs-rows { margin-top: 1.5rem; }
+  #location .gs-honest { background: transparent; border: 0; border-top: 1px solid var(--gs-rule); border-radius: 0; padding: 1.25rem 0 0; margin-top: 1.5rem; }
+  #location .gs-maps { margin-top: 1.5rem; }
+  #location .gs-trip, #location .gs-trip-img { border-radius: 0; }
+  .iv-wrap.gs-trips-head { margin-top: 3rem; }
+
+  /* the invitation, book direct */
+  .iv-bd-grid { display: grid; gap: 2.5rem; }
+  .iv-card--bd { max-width: 34rem; margin-inline: auto; width: 100%; }
+  .iv-bd-side { max-width: 34rem; margin-inline: auto; width: 100%; }
+  .iv-bd-side .iv-steps { margin-top: 0; }
+  .iv-note { color: var(--gs-muted); font-size: .875rem; margin: 0 0 1.5rem; }
+  @media (min-width: 1024px) {
+    .iv-bd-grid { grid-template-columns: minmax(0, 34rem) minmax(0, 1fr); gap: 5rem; align-items: center; justify-content: center; }
+    .iv-card--bd, .iv-bd-side { margin-inline: 0; }
+    .iv-card { padding: 2.5rem 2.25rem 2rem; }
+  }
+  .iv-bd-side .gs-ladder div { background: transparent; border: 0; border-top: 1px solid var(--gs-rule); border-radius: 0; }
+
+  /* ---------- FAQ, contact, footer: paper, hairlines and tokens in both themes ---------- */
+  body.theme-quiet-luxury .faq-section, body.theme-quiet-luxury .location-section { background: transparent; }
+  body.theme-quiet-luxury .faq-section, body.theme-quiet-luxury .location-section { border-top: 1px solid var(--gs-rule); }
+  .theme-quiet-luxury .faq-heading, .theme-quiet-luxury .faq-item summary { color: var(--gs-ink); }
+  .theme-quiet-luxury .faq-subhead, .theme-quiet-luxury .faq-answer { color: var(--gs-muted); }
+  .theme-quiet-luxury .section-label-text { color: var(--gs-accent-text); }
+  .theme-quiet-luxury .section-label-line { background: var(--gs-gold-line); opacity: .5; }
+  .theme-quiet-luxury .faq-item { background: transparent; border: 0; border-bottom: 1px solid var(--gs-rule); border-radius: 0; box-shadow: none; }
+  .theme-quiet-luxury .faq-chevron { border-color: var(--gs-gold-line); }
+  .theme-quiet-luxury .faq-chevron svg { stroke: var(--gs-accent-text); }
+  .theme-quiet-luxury .location-contact { background: var(--gs-paper); border: 1px solid var(--gs-rule); border-radius: var(--r-card); box-shadow: none; color: var(--gs-ink); }
+  .theme-quiet-luxury .loc-eyebrow, .theme-quiet-luxury .loc-item-icon, .theme-quiet-luxury .loc-item-icon svg, .theme-quiet-luxury .loc-signature, .theme-quiet-luxury .nearby-label,
+  .theme-quiet-luxury .nearby-cat-label, .theme-quiet-luxury .location-contact .loc-item-body + p, .theme-quiet-luxury .loc-heading em { color: var(--gs-accent-text); }
+  .theme-quiet-luxury .loc-heading, .theme-quiet-luxury .loc-item-value, .theme-quiet-luxury .loc-item-value a, .theme-quiet-luxury .location-contact strong { color: var(--gs-ink); }
+  .theme-quiet-luxury .loc-item-label, .theme-quiet-luxury .nearby-chip, .theme-quiet-luxury .loc-cta-btn, .theme-quiet-luxury .loc-cta-label { color: var(--gs-muted); }
+  .theme-quiet-luxury .nearby-chip, .theme-quiet-luxury .loc-cta-btn, .theme-quiet-luxury .loc-cta-btn.is-messenger, .theme-quiet-luxury .nearby-strip, .theme-quiet-luxury .loc-signature { border-color: var(--gs-rule); }
+  .theme-quiet-luxury .loc-cta-btn { background: transparent; }
+  .theme-quiet-luxury .nearby-chip-dot { background: var(--gs-gold-line); }
+  .theme-quiet-luxury .site-footer a { display: inline-flex; align-items: center; min-height: var(--tap); }
+  .theme-quiet-luxury .footer-legal-links a { padding-inline: .25rem; }
+  .theme-quiet-luxury .footer-sections { margin-bottom: .25rem; }
+
+  /* ---------- D6 motion: slow, once, nothing loops; off under reduced motion ---------- */
+  @keyframes gs-zoomout { from { scale: 1.06; } to { scale: 1; } }
+  @keyframes iv-draw { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+  .gs-stage-img, .gs-bleed-img, .gs-toned > .gs-tone { animation: none; }
+  @media (prefers-reduced-motion: no-preference) {
+    main .ch-reveal { transform: translateY(12px); transition: opacity .8s var(--iv-ease), transform .8s var(--iv-ease); }
+    main .ch-reveal.ch-revealed { transform: none; }
+    main .ch-reveal.gs-rv { transition-duration: .8s; }
+  }
+  @supports (animation-timeline: view()) {
+    @media (prefers-reduced-motion: no-preference) {
+      html.gs-sda .iv-fig--bleed img { animation: gs-zoomout linear both; animation-timeline: view(); animation-range: cover 0% cover 70%; }
+      html.gs-sda .iv-rule { animation: iv-draw linear both; animation-timeline: view(); animation-range: entry 10% entry 90%; }
+    }
+  }
+  @media (prefers-reduced-motion: reduce) { .luxury-hero-media, .iv-rule, .iv-fig img { animation: none; } main .ch-reveal { transform: none; } }
+body.theme-quiet-luxury .iv-fig, body.theme-quiet-luxury .luxury-hero, body.theme-quiet-luxury main { overflow-x: clip; }
+/* r2 type scale: 12.5 / 14 / 16 / 20 / 28 / 36 */
+body.theme-quiet-luxury .gs-btn, body.theme-quiet-luxury .gs-cta { font-size: 14px; min-height: 44px; }
+body.theme-quiet-luxury figcaption { font-size: 14px; }
+body.theme-quiet-luxury .gs-railbtn { font-size: 20px; }
+body.theme-quiet-luxury .loc-heading { font-size: 20px; }
+body.theme-quiet-luxury .loc-heading em { font-size: inherit; }
+body.theme-quiet-luxury .faq-heading, body.theme-quiet-luxury .iv-proof-line, body.theme-quiet-luxury .iv-proof-line span, body.theme-quiet-luxury .iv-pull, body.theme-quiet-luxury blockquote.gs-disp { font-size: 28px; }
+body.theme-quiet-luxury .skip-link { min-height: 44px; display: inline-flex; align-items: center; }
 </style>
 </head>
 
@@ -6124,10 +6356,6 @@
         <span class="logo-divider" aria-hidden="true"></span>
         <span class="logo-sub" aria-hidden="true">Cascade Reservations</span>
       </a>
-
-      <nav class="gs-nav" aria-label="Page sections">
-        <a href="#spotless">Guest stories</a><a href="#photos">Photos</a><a href="#location">Location</a>
-      </nav>
       <a href="#contact" class="btn btn-outline-gold header-cta" data-gs-book>Book direct</a>
 
     </div>
@@ -6167,13 +6395,14 @@
       <p class="gs-eb gs-eb--hero">Guest Favorite &middot; General Santos City</p>
       <h1 class="hero-title gs-quote" id="hero-heading">“Our home away from home in <em>Gensan.</em>”</h1>
       <p class="gs-attrib">Bianca, November 2026, back for another stay</p>
-      <p class="gs-hero-proof" role="group" data-rating-label="{score} out of 5 from {count} reviews on Airbnb, verified {verified}"><span><span class="gs-star" aria-hidden="true">&#9733;</span> <span data-rating="score">4.97</span> from <span data-rating="count">64</span> reviews</span><span aria-hidden="true">&middot;</span><a href="#spotless"><span data-rating="fiveStar"></span> gave five stars</a></p>
+      <p class="gs-hero-proof" role="group" data-rating-label="{score} out of 5 from {count} reviews on Airbnb, verified {verified}"><a href="#proof"><span data-rating="fiveStar"></span> of guests gave five stars</a></p>
     </div>
 
     <!-- Hero Booking Card — airline-style glass morphism widget -->
     <div class="hero-bk gs-lg gs-lg--dark" id="heroBookBar" role="region" aria-label="Book your stay">
 
       <div class="hero-bk-inner">
+        <span class="iv-mono" aria-hidden="true">CH</span>
         <p class="hero-bk-eyebrow">Select your dates</p>
 
         <div class="hero-bk-fields">
@@ -6237,159 +6466,126 @@
        GUEST STORIES — proof, chapters I to V, the space
   ============================================================ -->
 
-  <section class="gs-sec gs-toned gs-spot" id="spotless" aria-labelledby="gs-spot-h">
-    <div class="gs-tone gs-tone-c" aria-hidden="true"></div>
-    <div class="gs-wrap">
-      <div class="gs-spot-grid">
-        <div class="gs-spot-head">
-          <p class="gs-eb">Spotless &middot; Cleanliness rated 5.0</p>
-          <h2 class="gs-disp gs-h2" id="gs-spot-h">Spotless, every single arrival.</h2>
-          <p class="gs-bd">Fresh, pressed linens and a full reset before every guest. Second only to hospitality in what guests mention on Airbnb: 25 of 64 reviews.</p>
-        </div>
-        <div class="gs-duo gs-spot-media">
-          <img class="gs-photo gs-duo-a" src="assets/images/stay/shower.webp" srcset="assets/images/stay/shower-480.webp 480w, assets/images/stay/shower-960.webp 960w, assets/images/stay/shower.webp 1199w" sizes="(min-width:1024px) 34rem, 100vw" alt="Rain shower against a light stone wall" width="1199" height="1600" loading="lazy" decoding="async">
-          <div class="gs-duo-b">
-            <img class="gs-photo gs-duo-img" src="assets/images/stay/bathroom-960.webp" srcset="assets/images/stay/bathroom-480.webp 480w, assets/images/stay/bathroom-960.webp 960w" sizes="(min-width:1024px) 20rem, 45vw" alt="Bright, clean bathroom with a stone wall" width="960" height="720" loading="lazy" decoding="async">
-            <figure class="gs-minicard gs-lg gs-lg--light"><blockquote class="gs-disp">“The bathroom was spotlessly clean.”</blockquote><figcaption class="gs-meta">Bianca, August 2026</figcaption></figure>
-          </div>
-        </div>
-        <div class="gs-spot-quotes">
-          <figure class="gs-pq gs-spot-feature"><blockquote class="gs-disp">“…its the tidiest place we’ve stayed.”</blockquote><figcaption class="gs-meta">Shasha, November 2026, second stay</figcaption></figure>
-          <figure class="gs-pq"><blockquote class="gs-disp">“Stayed for 2 weeks, and they even offered general cleaning every couple of days…”</blockquote><figcaption class="gs-meta">Hirofumi, May 2026</figcaption></figure>
-        </div>
-      </div>
-      <div class="gs-stage">
-        <img class="gs-stage-img" src="assets/images/stay/bed-bright-960.webp" srcset="assets/images/stay/bed-bright-480.webp 480w, assets/images/stay/bed-bright-960.webp 960w, assets/images/stay/bed-bright.webp 1600w" sizes="(min-width:1024px) 72rem, 100vw" alt="" width="1600" height="1067" loading="lazy" decoding="async">
-      <div class="gs-band gs-lg gs-lg--dark" role="group" aria-label="Airbnb rating" data-rating-label="{score} out of 5 from {count} reviews on Airbnb, verified {verified}">
-        <div class="gs-band-score"><span class="gs-disp gs-band-num" data-rating="score">4.97</span><span class="gs-meta"><span class="gs-star" aria-hidden="true">&#9733;</span> from <span data-rating="count">64</span> reviews &middot; <span data-rating="fiveStar"></span> five-star &middot; Guest Favorite</span></div>
-        <ul class="gs-scores gs-band-cats" aria-label="Airbnb category ratings out of 5"><li class="is-lead"><span class="gs-catl"><svg class="gs-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#gi-sparkle"/></svg>Cleanliness</span><span class="gs-disp gs-score">5.0</span></li><li><span class="gs-catl"><svg class="gs-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#gi-target"/></svg>Accuracy</span><span class="gs-disp gs-score">5.0</span></li><li><span class="gs-catl"><svg class="gs-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#gi-key"/></svg>Check-in</span><span class="gs-disp gs-score">5.0</span></li><li><span class="gs-catl"><svg class="gs-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#gi-chat"/></svg>Communication</span><span class="gs-disp gs-score">5.0</span></li><li><span class="gs-catl"><svg class="gs-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#gi-coin"/></svg>Value</span><span class="gs-disp gs-score">4.9</span></li><li><span class="gs-catl"><svg class="gs-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#gi-pin"/></svg>Location</span><span class="gs-disp gs-score">4.8</span></li></ul>
-        <div class="gs-band-links">
-          <a class="gs-link" id="airbnbOutboundLink" href="https://www.airbnb.com/rooms/1523827999359515793#reviews" target="_blank" rel="noopener noreferrer" data-track-event="airbnb_outbound">Read all <span data-rating="count">64</span> on Airbnb &#x2197;</a>
-          <p class="gs-meta gs-verified"><span class="gs-seal" aria-hidden="true">CH</span><span id="airbnbProofVerifiedNote">Verified on <span data-rating="verified">24 Nov 2026</span> &middot; not a live feed</span></p>
-        </div>
-        <div class="airbnb-proof-embed gs-proof-embed" id="airbnbProofEmbed" data-state="pending" role="group" aria-label="Live Airbnb listing">
-          <div class="airbnb-proof-embed-loading" id="airbnbProofLoading" hidden aria-hidden="true">Loading live Airbnb reviews&hellip;</div>
-          <!-- TODO(lloyd): paste official Airbnb embed HTML here -->
-          <div class="airbnb-proof-embed-slot" id="airbnbProofSlot"></div>
-          <div class="airbnb-proof-embed-fallback" id="airbnbProofFallback" hidden></div>
-        </div>
-      </div>
-      </div>
-    </div>
-  </section>
+  <!-- ============================================================
+       THE INVITATION (s137 round 2): photographs first, one proof line, three quotes on the page
+  ============================================================ -->
 
-  <section class="gs-sec gs-quotes-sec" aria-labelledby="gs-more-h">
-    <div class="gs-wrap gs-rail-head"><h2 class="gs-eb" id="gs-more-h">In their words</h2><p class="gs-meta"><span class="gs-touch">Swipe &middot; </span>quoted as written</p></div>
-    <ul class="gs-quotes" tabindex="0" aria-labelledby="gs-more-h"><li class="gs-qcard"><q class="gs-disp">…for me, it was beyond hotel quality.</q><span class="gs-meta">Carissa, July 2026</span></li><li class="gs-qcard"><q class="gs-disp">Even the remote had a guide.</q><span class="gs-meta">Angelica, January 2026</span></li><li class="gs-qcard"><q class="gs-disp">…they even left us a small treat since it was our 3rd stay…</q><span class="gs-meta">Tel, August 2026</span></li><li class="gs-qcard"><q class="gs-disp">Malinis, comfortable, and perfect for relaxing.</q><span class="gs-meta">Abe, October 2026</span></li><li class="gs-qcard"><q class="gs-disp">…felt right at home, especially we have an infant with us.</q><span class="gs-meta">Queenie, September 2026</span></li></ul>
-  </section>
-
-  <div class="gs-waverule" aria-hidden="true"><svg viewBox="0 0 120 12" focusable="false"><path d="M0 6 Q10 0 20 6 T40 6 T60 6 T80 6 T100 6 T120 6"/></svg></div>
-  <section class="gs-sec gs-toned gs-ch" id="hospitality" aria-labelledby="gs-ch1-h">
-    <div class="gs-tone gs-tone-b" aria-hidden="true"></div>
-    <div class="gs-wrap gs-ch-grid">
-      <div class="gs-ch-head"><span class="gs-disp gs-num" aria-hidden="true">I</span><div><p class="gs-eb">Malasakit</p><p class="gs-meta">Hospitality, the #1 thing guests mention &middot; 29 reviews</p></div></div>
-      <h2 class="gs-disp gs-h2 gs-ch-title" id="gs-ch1-h">Cared for as if you were our own.</h2>
-      <div class="gs-ch-media">
-        <img class="gs-photo gs-photo--tall" src="assets/images/stay/living-corner-960.webp" srcset="assets/images/stay/living-corner-480.webp 480w, assets/images/stay/living-corner-960.webp 960w, assets/images/stay/living-corner.webp 1400w" sizes="(min-width:1024px) 40rem, (min-width:641px) 46vw, 100vw" alt="Living corner with a lit lamp, a sofa and a made bed" width="1400" height="934" loading="lazy" decoding="async">
-        <figure class="gs-floatq"><blockquote class="gs-disp">“I cannot emphasize enough how above and beyond these hosts went for me.”</blockquote><figcaption>A guest from San Diego, January 2026</figcaption></figure>
-      </div>
-      <div class="gs-ch-body">
-        <p class="gs-bd">Treats on the table when you arrive, replies right away, and a note inviting you back. Bianca, Dale Anwen, Tel and Hirofumi have each stayed three times or more.</p>
-        <figure class="gs-pq"><blockquote class="gs-disp">“…genuinely concerned about the comfort and needs of their guests.”</blockquote><figcaption class="gs-meta">Christopher, August 2026, second stay</figcaption></figure>
-        <figure class="gs-aside"><img class="gs-photo gs-aside-img" src="assets/images/stay/living-bright-960.webp" srcset="assets/images/stay/living-bright-480.webp 480w, assets/images/stay/living-bright-960.webp 960w, assets/images/stay/living-bright.webp 1600w" sizes="(min-width:1024px) 24rem, 46vw" alt="Bright studio with a floor lamp, a sofa and the kitchen counter beyond" width="1600" height="1067" loading="lazy" decoding="async"></figure>
-      </div>
-    </div>
-  </section>
-
-  <section class="gs-bleed" id="comfort" aria-labelledby="gs-ch3-q">
-    <img class="gs-bleed-img" src="assets/images/stay/coffee-on-bed.webp" srcset="assets/images/stay/coffee-on-bed-480.webp 480w, assets/images/stay/coffee-on-bed-960.webp 960w, assets/images/stay/coffee-on-bed.webp 1400w" sizes="100vw" alt="Coffee cup resting on crisp white bed linen" width="1400" height="934" loading="lazy" decoding="async">
-    <div class="gs-bleed-scrim" aria-hidden="true"></div>
-    <div class="gs-wrap gs-bleed-copy">
-      <div class="gs-ch-head gs-ch-head--light"><span class="gs-disp gs-num" aria-hidden="true">II</span><div><p class="gs-eb">Comfort</p><p class="gs-meta">18 reviews</p></div></div>
-      <figure><blockquote class="gs-disp gs-bleed-q" id="gs-ch3-q">“…so cozy, comfortable, and relaxing that we didn’t even bother going out to explore!”</blockquote><figcaption class="gs-meta">Sandra Nicole, Nov 2026</figcaption></figure>
-    </div>
-  </section>
-  <section class="gs-sec gs-toned gs-comfort-body" aria-label="Comfort details">
-    <div class="gs-tone gs-tone-c" aria-hidden="true"></div>
-    <div class="gs-wrap gs-comfort-grid">
-      <p class="gs-bd">Queen bed, hotel-grade linens, blackout curtains, strong aircon, Netflix on a large smart TV, and fiber Wi-Fi for work.</p>
-      <figure class="gs-chip-card">
-        <img class="gs-chip-img" src="assets/images/stay/studio-tv.webp" srcset="assets/images/stay/studio-tv-480.webp 480w, assets/images/stay/studio-tv-960.webp 960w, assets/images/stay/studio-tv.webp 1400w" sizes="6rem" alt="Studio with TV and sofa" width="1400" height="1050" loading="lazy" decoding="async">
-        <figcaption><span class="gs-disp gs-chip-q">“…the quality was even better than I expected and, for me, it was beyond hotel quality.”</span><span class="gs-meta">Carissa, July 2026</span></figcaption>
-      </figure>
-    </div>
-  </section>
-
-  <section class="gs-sec gs-space" id="photos" aria-labelledby="gs-space-h">
-    <div class="gs-wrap"><h2 class="gs-disp gs-h3" id="gs-space-h">The space</h2></div>
-    <ul class="gs-strip" tabindex="0" aria-labelledby="gs-space-h"><li><img class="gs-strip-img" src="assets/images/stay/bed-bright.webp" srcset="assets/images/stay/bed-bright-480.webp 480w, assets/images/stay/bed-bright-960.webp 960w, assets/images/stay/bed-bright.webp 1600w" sizes="(min-width:1024px) 26rem, 78vw" alt="Queen bed" width="1600" height="1067" loading="lazy" decoding="async"></li><li><img class="gs-strip-img" src="assets/images/stay/living-bright.webp" srcset="assets/images/stay/living-bright-480.webp 480w, assets/images/stay/living-bright-960.webp 960w, assets/images/stay/living-bright.webp 1600w" sizes="(min-width:1024px) 26rem, 78vw" alt="Living area with sofa" width="1600" height="1067" loading="lazy" decoding="async"></li><li><img class="gs-strip-img" src="assets/images/stay/kitchen.webp" srcset="assets/images/stay/kitchen-480.webp 480w, assets/images/stay/kitchen-960.webp 960w, assets/images/stay/kitchen.webp 1400w" sizes="(min-width:1024px) 26rem, 78vw" alt="White kitchenette" width="1400" height="934" loading="lazy" decoding="async"></li><li><img class="gs-strip-img" src="assets/images/stay/bathroom.webp" srcset="assets/images/stay/bathroom-480.webp 480w, assets/images/stay/bathroom-960.webp 960w, assets/images/stay/bathroom.webp 1050w" sizes="(min-width:1024px) 26rem, 78vw" alt="Bathroom" width="1050" height="1400" loading="lazy" decoding="async"></li><li><img class="gs-strip-img" src="assets/images/stay/dining.webp" srcset="assets/images/stay/dining-480.webp 480w, assets/images/stay/dining-960.webp 960w, assets/images/stay/dining.webp 1600w" sizes="(min-width:1024px) 26rem, 78vw" alt="Dining counter" width="1600" height="1200" loading="lazy" decoding="async"></li></ul>
-    <div class="gs-wrap gs-space-info">
+  <section class="iv-sec iv-gallery gs-space" id="photos" aria-labelledby="gs-space-h">
+    <div class="iv-wrap iv-head"><h2 class="gs-disp iv-h" id="gs-space-h">The space</h2><span class="iv-rule" aria-hidden="true"></span></div>
+    <ul class="gs-strip" tabindex="0" aria-labelledby="gs-space-h"><li><figure class="iv-fig"><img class="gs-strip-img" src="assets/images/stay/bed-bright.webp" srcset="assets/images/stay/bed-bright-480.webp 480w, assets/images/stay/bed-bright-960.webp 960w, assets/images/stay/bed-bright.webp 1600w" sizes="(min-width:1024px) 38rem, 86vw" alt="Queen bed" width="1600" height="1067" loading="lazy" decoding="async"><figcaption>Queen bed</figcaption></figure></li><li><figure class="iv-fig"><img class="gs-strip-img" src="assets/images/stay/living-bright.webp" srcset="assets/images/stay/living-bright-480.webp 480w, assets/images/stay/living-bright-960.webp 960w, assets/images/stay/living-bright.webp 1600w" sizes="(min-width:1024px) 38rem, 86vw" alt="Living area with sofa" width="1600" height="1067" loading="lazy" decoding="async"><figcaption>Living area with sofa</figcaption></figure></li><li><figure class="iv-fig"><img class="gs-strip-img" src="assets/images/stay/kitchen.webp" srcset="assets/images/stay/kitchen-480.webp 480w, assets/images/stay/kitchen-960.webp 960w, assets/images/stay/kitchen.webp 1400w" sizes="(min-width:1024px) 38rem, 86vw" alt="White kitchenette" width="1400" height="934" loading="lazy" decoding="async"><figcaption>White kitchenette</figcaption></figure></li><li><figure class="iv-fig"><img class="gs-strip-img" src="assets/images/stay/bathroom.webp" srcset="assets/images/stay/bathroom-480.webp 480w, assets/images/stay/bathroom-960.webp 960w, assets/images/stay/bathroom.webp 1050w" sizes="(min-width:1024px) 38rem, 86vw" alt="Bathroom" width="1050" height="1400" loading="lazy" decoding="async"><figcaption>Bathroom</figcaption></figure></li><li><figure class="iv-fig"><img class="gs-strip-img" src="assets/images/stay/dining.webp" srcset="assets/images/stay/dining-480.webp 480w, assets/images/stay/dining-960.webp 960w, assets/images/stay/dining.webp 1600w" sizes="(min-width:1024px) 38rem, 86vw" alt="Dining counter" width="1600" height="1200" loading="lazy" decoding="async"><figcaption>Dining counter</figcaption></figure></li></ul>
+    <div class="iv-wrap gs-space-info">
       <ul class="gs-chips" aria-label="Included with your stay"><li class="gs-chip">Fiber Wi-Fi</li><li class="gs-chip">Strong aircon</li><li class="gs-chip">Netflix TV</li><li class="gs-chip">Full kitchen</li><li class="gs-chip">Hot shower</li><li class="gs-chip">Workspace</li><li class="gs-chip">Free parking</li><li class="gs-chip">Laundry-ready</li><li class="gs-chip">Backup power</li><li class="gs-chip">Self check-in</li></ul>
       <p class="gs-meta">Up to 3 guests &middot; 1 queen bed + floor mattress</p>
       <a class="gs-btn gs-btn--deep gs-cta" href="#contact" data-gs-book>See dates and price</a>
     </div>
   </section>
 
-  <section class="gs-sec gs-toned gs-ch" id="arrival" aria-labelledby="gs-ch4-h">
-    <div class="gs-tone gs-tone-d" aria-hidden="true"></div>
-    <div class="gs-wrap gs-ch-grid">
-      <div class="gs-ch-head"><span class="gs-disp gs-num" aria-hidden="true">III</span><div><p class="gs-eb">Easy arrival</p><p class="gs-meta">Check-in 5.0 &middot; Communication 5.0</p></div></div>
-      <div class="gs-ch-title">
-        <h2 class="gs-disp gs-h2" id="gs-ch4-h">“Check-in was a breeze.”</h2>
-        <p class="gs-meta">A guest from Illinois, October 2025</p>
-      </div>
-      <div class="gs-ch-media"><img class="gs-photo gs-photo--wide" src="assets/images/stay/facade.webp" srcset="assets/images/stay/facade-480.webp 480w, assets/images/stay/facade-960.webp 960w, assets/images/stay/facade.webp 1600w" sizes="(min-width:1024px) 34rem, (min-width:641px) 46vw, 90vw" alt="The unit’s front gate and entrance in Bria Homes" width="1600" height="1067" loading="lazy" decoding="async"></div>
-      <ol class="gs-ch-body gs-steps">
-        <li><span class="gs-disp gs-stepnum" aria-hidden="true">01</span><div><strong>Let yourself in from 2 PM</strong><span class="gs-meta">Smart-lock code sent before you arrive. No key hand-off.</span></div></li>
-        <li><span class="gs-disp gs-stepnum" aria-hidden="true">02</span><div><strong>“Super easy to locate”</strong><span class="gs-meta">Janine, August 2026. Clear directions and a guide with local tips.</span></div></li>
-        <li><span class="gs-disp gs-stepnum" aria-hidden="true">03</span><div><strong>Brownout? Still on.</strong><span class="gs-meta">Backup power keeps Wi-Fi, lights and fans running.</span></div></li>
+  <section class="iv-sec iv-proof" id="proof" aria-label="Guest rating">
+    <div class="iv-wrap iv-proof-in" role="group" aria-label="Airbnb rating" data-rating-label="{score} out of 5 from {count} reviews on Airbnb, verified {verified}">
+      <p class="gs-disp iv-proof-line"><span data-rating="fiveStar"></span> of guests gave five stars</p>
+      <p class="iv-proof-sub"><a class="gs-link" id="airbnbOutboundLink" href="https://www.airbnb.com/rooms/1523827999359515793#reviews" target="_blank" rel="noopener noreferrer" data-track-event="airbnb_outbound"><span data-rating="count">64</span> reviews on Airbnb &#x2197;</a><span class="iv-dot" aria-hidden="true">&middot;</span><span id="airbnbProofVerifiedNote">Verified on <span data-rating="verified">24 Nov 2026</span> &middot; not a live feed</span></p>
+      <div class="airbnb-proof-embed gs-proof-embed" id="airbnbProofEmbed" data-state="pending" role="group" aria-label="Live Airbnb listing">
+          <div class="airbnb-proof-embed-loading" id="airbnbProofLoading" hidden aria-hidden="true">Loading live Airbnb reviews&hellip;</div>
+          <!-- TODO(lloyd): paste official Airbnb embed HTML here -->
+          <div class="airbnb-proof-embed-slot" id="airbnbProofSlot"></div>
+          <div class="airbnb-proof-embed-fallback" id="airbnbProofFallback" hidden></div>
+        </div>
+    </div>
+  </section>
+
+  <section class="iv-sec iv-ch" id="hospitality" aria-labelledby="gs-ch1-h">
+    <figure class="iv-fig iv-fig--bleed"><img class="gs-photo" src="assets/images/stay/living-corner-960.webp" srcset="assets/images/stay/living-corner-480.webp 480w, assets/images/stay/living-corner-960.webp 960w, assets/images/stay/living-corner.webp 1400w" sizes="(min-width:1024px) 1280px, 100vw" alt="Living corner with a lit lamp, a sofa and a made bed" width="1400" height="934" loading="lazy" decoding="async"><figcaption>Living corner with a lit lamp, a sofa and a made bed</figcaption></figure>
+    <div class="iv-wrap iv-prose">
+      <p class="gs-eb">Malasakit</p>
+      <h2 class="gs-disp iv-h" id="gs-ch1-h">Cared for as if you were our own.</h2>
+      <span class="iv-rule" aria-hidden="true"></span>
+      <p class="gs-bd">Treats on the table when you arrive, replies right away, and a note inviting you back. Bianca, Dale Anwen, Tel and Hirofumi have each stayed three times or more.</p>
+      <p class="gs-meta">Hospitality, the #1 thing guests mention &middot; 29 reviews</p>
+    </div>
+  </section>
+
+  <figure class="iv-pull"><blockquote class="gs-disp">“…for me, it was beyond hotel quality.”</blockquote><figcaption class="gs-meta">Carissa, July 2026</figcaption></figure>
+
+  <section class="iv-sec iv-ch" id="comfort" aria-labelledby="gs-ch3-h">
+    <figure class="iv-fig iv-fig--bleed"><img class="gs-photo" src="assets/images/stay/coffee-on-bed.webp" srcset="assets/images/stay/coffee-on-bed-480.webp 480w, assets/images/stay/coffee-on-bed-960.webp 960w, assets/images/stay/coffee-on-bed.webp 1400w" sizes="(min-width:1024px) 1280px, 100vw" alt="Coffee cup resting on crisp white bed linen" width="1400" height="934" loading="lazy" decoding="async"><figcaption>Coffee cup resting on crisp white bed linen</figcaption></figure>
+    <div class="iv-wrap iv-prose">
+      <p class="gs-eb">Comfort &middot; 18 reviews</p>
+      <h2 class="gs-disp iv-h" id="gs-ch3-h">Rest, properly.</h2>
+      <span class="iv-rule" aria-hidden="true"></span>
+      <p class="gs-bd">Queen bed, hotel-grade linens, blackout curtains, strong aircon, Netflix on a large smart TV, and fiber Wi-Fi for work.</p>
+    </div>
+  </section>
+
+  <section class="iv-sec iv-ch" id="spotless" aria-labelledby="gs-spot-h">
+    <div class="iv-duo">
+      <figure class="iv-fig"><img class="gs-photo" src="assets/images/stay/shower.webp" srcset="assets/images/stay/shower-480.webp 480w, assets/images/stay/shower-960.webp 960w, assets/images/stay/shower.webp 1199w" sizes="(min-width:1024px) 38rem, 100vw" alt="Rain shower against a light stone wall" width="1199" height="1600" loading="lazy" decoding="async"><figcaption>Rain shower against a light stone wall</figcaption></figure>
+      <figure class="iv-fig"><img class="gs-photo" src="assets/images/stay/bathroom-960.webp" srcset="assets/images/stay/bathroom-480.webp 480w, assets/images/stay/bathroom-960.webp 960w" sizes="(min-width:1024px) 38rem, 100vw" alt="Bright, clean bathroom with a stone wall" width="960" height="720" loading="lazy" decoding="async"><figcaption>Bright, clean bathroom with a stone wall</figcaption></figure>
+    </div>
+    <div class="iv-wrap iv-prose">
+      <p class="gs-eb">Spotless &middot; Cleanliness rated 5.0</p>
+      <h2 class="gs-disp iv-h" id="gs-spot-h">Spotless, every single arrival.</h2>
+      <span class="iv-rule" aria-hidden="true"></span>
+      <p class="gs-bd">Fresh, pressed linens and a full reset before every guest. Second only to hospitality in what guests mention on Airbnb: 25 of 64 reviews.</p>
+    </div>
+    <figure class="iv-fig iv-fig--bleed"><img class="gs-stage-img" src="assets/images/stay/bed-bright-960.webp" srcset="assets/images/stay/bed-bright-480.webp 480w, assets/images/stay/bed-bright-960.webp 960w, assets/images/stay/bed-bright.webp 1600w" sizes="(min-width:1024px) 1280px, 100vw" alt="" width="1600" height="1067" loading="lazy" decoding="async"><figcaption>Pressed linens, made fresh for every guest</figcaption></figure>
+  </section>
+
+  <section class="iv-sec iv-ch" id="arrival" aria-labelledby="gs-ch4-h">
+    <figure class="iv-fig iv-fig--bleed"><img class="gs-photo" src="assets/images/stay/facade.webp" srcset="assets/images/stay/facade-480.webp 480w, assets/images/stay/facade-960.webp 960w, assets/images/stay/facade.webp 1600w" sizes="(min-width:1024px) 1280px, 100vw" alt="The unit’s front gate and entrance in Bria Homes" width="1600" height="1067" loading="lazy" decoding="async"><figcaption>The unit’s front gate and entrance in Bria Homes</figcaption></figure>
+    <div class="iv-wrap iv-prose">
+      <p class="gs-eb">Check-in 5.0 &middot; Communication 5.0</p>
+      <h2 class="gs-disp iv-h" id="gs-ch4-h">Easy arrival.</h2>
+      <span class="iv-rule" aria-hidden="true"></span>
+      <ol class="iv-steps">
+        <li><span class="gs-disp iv-num" aria-hidden="true">1</span><div><strong>Let yourself in from 2 PM</strong><span class="gs-meta">Smart-lock code sent before you arrive. No key hand-off.</span></div></li>
+        <li><span class="gs-disp iv-num" aria-hidden="true">2</span><div><strong>Easy to find</strong><span class="gs-meta">Clear directions and a guide with local tips.</span></div></li>
+        <li><span class="gs-disp iv-num" aria-hidden="true">3</span><div><strong>Brownout? Still on.</strong><span class="gs-meta">Backup power keeps Wi-Fi, lights and fans running.</span></div></li>
       </ol>
     </div>
   </section>
 
-  <section class="gs-sec gs-toned gs-ch gs-ch--rev gs-loc" id="location" aria-labelledby="gs-ch5-h">
-    <div class="gs-tone gs-tone-e" aria-hidden="true"></div>
-    <div class="gs-wrap gs-ch-grid">
-      <div class="gs-ch-head gs-ch-head--end"><span class="gs-disp gs-num" aria-hidden="true">IV</span><div><p class="gs-eb">Quiet GenSan</p><p class="gs-meta">Location 4.8</p></div></div>
-      <div class="gs-ch-title">
-        <h2 class="gs-disp gs-h2" id="gs-ch5-h">“If you are looking for a quiet place this is the place to be.”</h2>
-        <p class="gs-meta">Ermann, October 2026</p>
-      </div>
-      <div class="gs-ch-media"><img class="gs-photo gs-photo--wide" src="assets/images/stay/gensan-coast.webp" srcset="assets/images/stay/gensan-coast-480.webp 480w, assets/images/stay/gensan-coast-960.webp 960w, assets/images/stay/gensan-coast.webp 1200w" sizes="(min-width:1024px) 34rem, (min-width:641px) 46vw, 100vw" alt="General Santos coastline from above" width="1200" height="680" loading="lazy" decoding="async"><p class="gs-greet gs-greet--loc gs-lg gs-lg--dark" id="gsGreet">Welcome to GenSan</p></div>
-      <div class="gs-ch-body">
-        <ul class="gs-rows">
+  <section class="iv-sec iv-ch" id="location" aria-labelledby="gs-ch5-h">
+    <figure class="iv-fig iv-fig--bleed"><img class="gs-photo" src="assets/images/stay/gensan-coast.webp" srcset="assets/images/stay/gensan-coast-480.webp 480w, assets/images/stay/gensan-coast-960.webp 960w, assets/images/stay/gensan-coast.webp 1200w" sizes="(min-width:1024px) 1280px, 100vw" alt="General Santos coastline from above" width="1200" height="680" loading="lazy" decoding="async"><figcaption><span id="gsGreet">Welcome to GenSan</span></figcaption></figure>
+    <div class="iv-wrap iv-prose">
+      <p class="gs-eb">Quiet GenSan &middot; Location 4.8</p>
+      <h2 class="gs-disp iv-h" id="gs-ch5-h">A quiet place to be.</h2>
+      <span class="iv-rule" aria-hidden="true"></span>
+      <ul class="gs-rows">
           <li><span class="gs-rowl"><svg class="gs-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#gi-key"/></svg>Gated Bria Homes, 24/7 guards</span><span class="gs-meta">on site</span></li>
           <li><span class="gs-rowl"><svg class="gs-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#gi-pin"/></svg>Robinsons &middot; KCC &middot; SM</span><span class="gs-meta">10 to 15 min</span></li>
           <li><span class="gs-rowl"><svg class="gs-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#gi-plane"/></svg>GenSan Airport</span><span class="gs-meta">~28 min</span></li>
         </ul>
-        <div class="gs-honest"><p class="gs-eb">Good to know</p><p class="gs-bd">A gated village away from the city centre, about 10 to 15 minutes by car to the malls. Grab and Foodpanda both deliver here.</p><p class="gs-meta">“…far from the centre but nothing Grab can’t handle.” Sean, January 2026</p></div>
-        <div class="gs-maps"><a class="gs-btn gs-btn--paper" href="https://www.google.com/maps/search/?api=1&amp;query=6.1545469,125.1852321" target="_blank" rel="noopener noreferrer">Google Maps</a><a class="gs-btn gs-btn--paper" href="https://waze.com/ul?ll=6.1545469,125.1852321&amp;navigate=yes" target="_blank" rel="noopener noreferrer">Waze</a></div>
-        <p class="gs-copyrow"><button type="button" class="gs-link gs-copy" data-copy="Cascade Hideaway, Bria Homes, General Santos City">Copy address</button><span class="gs-sr" aria-live="polite"></span></p>
-      </div>
+      <div class="gs-honest"><p class="gs-eb">Good to know</p><p class="gs-bd">A gated village away from the city centre, about 10 to 15 minutes by car to the malls. Grab and Foodpanda both deliver here.</p></div>
+      <div class="gs-maps"><a class="gs-btn gs-btn--paper" href="https://www.google.com/maps/search/?api=1&amp;query=6.1545469,125.1852321" target="_blank" rel="noopener noreferrer">Google Maps</a><a class="gs-btn gs-btn--paper" href="https://waze.com/ul?ll=6.1545469,125.1852321&amp;navigate=yes" target="_blank" rel="noopener noreferrer">Waze</a></div>
+      <p class="gs-copyrow"><button type="button" class="gs-link gs-copy" data-copy="Cascade Hideaway, Bria Homes, General Santos City">Copy address</button><span class="gs-sr" aria-live="polite"></span></p>
     </div>
-    <div class="gs-wrap gs-trips-head"><p class="gs-eb">Day trips (not on site)</p><span class="gs-meta">Swipe &rarr;</span></div>
+    <div class="iv-wrap gs-trips-head"><p class="gs-eb">Day trips (not on site)</p><span class="gs-meta">Swipe &rarr;</span></div>
     <ul class="gs-strip gs-strip--trips" tabindex="0" aria-label="Day trips, not on site"><li><figure class="gs-trip"><img class="gs-trip-img" src="assets/images/stay/beach.webp" srcset="assets/images/stay/beach-480.webp 480w, assets/images/stay/beach-960.webp 960w, assets/images/stay/beach.webp 1600w" sizes="(min-width:1024px) 20rem, 14.5rem" alt="Turquoise sea under a palm frond" width="1600" height="1067" loading="lazy" decoding="async"><figcaption>Sea and sand</figcaption></figure></li><li><figure class="gs-trip"><img class="gs-trip-img" src="assets/images/stay/paraglide.webp" srcset="assets/images/stay/paraglide-480.webp 480w, assets/images/stay/paraglide-960.webp 960w, assets/images/stay/paraglide.webp 1200w" sizes="(min-width:1024px) 20rem, 14.5rem" alt="Paraglider over green hills and the sea" width="1200" height="675" loading="lazy" decoding="async"><figcaption>Sky and hills</figcaption></figure></li><li><figure class="gs-trip"><img class="gs-trip-img" src="assets/images/stay/cabins.webp" srcset="assets/images/stay/cabins-480.webp 480w, assets/images/stay/cabins-960.webp 960w, assets/images/stay/cabins.webp 1024w" sizes="(min-width:1024px) 20rem, 14.5rem" alt="Colourful cabins beneath a mountain" width="1024" height="684" loading="lazy" decoding="async"><figcaption>Highlands</figcaption></figure></li></ul>
   </section>
 
-  <div class="gs-waverule" aria-hidden="true"><svg viewBox="0 0 120 12" focusable="false"><path d="M0 6 Q10 0 20 6 T40 6 T60 6 T80 6 T100 6 T120 6"/></svg></div>
-  <section class="gs-sec gs-bookdirect" id="book-direct" aria-labelledby="gs-bd-h">
-    <div class="gs-card">
-      <div class="gs-card-main">
-        <p class="gs-eb gs-eb--light">Book direct and save</p>
-        <h2 class="gs-disp gs-h2" id="gs-bd-h">The longer you stay, the more you save.</h2>
-        <p class="gs-card-note">No platform fees. Rates can change by date. Your exact total shows the moment you pick dates, before you pay anything.</p>
+  <section class="iv-sec iv-bookdirect" id="book-direct" aria-labelledby="gs-bd-h">
+    <div class="iv-wrap iv-bd-grid">
+      <article class="iv-card iv-card--bd">
+        <span class="iv-mono" aria-hidden="true">CH</span>
+        <p class="gs-eb">Book direct and save</p>
+        <h2 class="gs-disp iv-card-h" id="gs-bd-h">The longer you stay, the more you save.</h2>
+        <div class="iv-reply">
+          <a class="iv-field" href="#contact" data-gs-book><span class="iv-flab">Check-in</span><span class="iv-fval">Add date</span></a>
+          <a class="iv-field" href="#contact" data-gs-book><span class="iv-flab">Check-out</span><span class="iv-fval">Add date</span></a>
+        </div>
+        <a class="gs-btn gs-btn--accent gs-btn--lg gs-cta iv-primary" href="#contact" data-gs-book>Reserve your stay</a>
+        <p class="gs-meta iv-fine">No charge yet. Book direct, no platform fees.</p>
+      </article>
+      <div class="iv-bd-side">
+        <p class="gs-card-note iv-note">Rates can change by date. Your exact total shows the moment you pick dates, before you pay anything. Free cancellation up to 5 days before check-in.</p>
         <p class="gs-card-from" data-price-only="from-line"></p>
         <div class="gs-ladder" data-price-only="ladder"></div>
-      </div>
-      <div class="gs-card-side">
-        <ol class="gs-card-steps">
-          <li><span class="gs-step" aria-hidden="true">1</span><span>Pick dates. See your discount and total.</span></li>
-          <li><span class="gs-step" aria-hidden="true">2</span><span>Add your name and mobile.</span></li>
-          <li><span class="gs-step" aria-hidden="true">3</span><span>Settle your reservation fee by GCash or bank transfer. We confirm every booking personally.</span></li>
+        <ol class="gs-card-steps iv-steps iv-steps--bd">
+          <li><span class="gs-disp iv-num" aria-hidden="true">1</span><span>Pick dates. See your discount and total.</span></li>
+          <li><span class="gs-disp iv-num" aria-hidden="true">2</span><span>Add your name and mobile.</span></li>
+          <li><span class="gs-disp iv-num" aria-hidden="true">3</span><span>Settle your reservation fee by GCash or bank transfer. We confirm every booking personally.</span></li>
         </ol>
-        <a class="gs-btn gs-btn--accent gs-btn--lg gs-cta" href="#contact" data-gs-book>Reserve your stay</a>
-        <figure class="gs-card-quote"><blockquote class="gs-disp">“I would definitely recommend this Airbnb to anyone looking for a comfortable, beautiful place to stay.”</blockquote><figcaption class="gs-meta">Babes Aubrey, Jan 2026</figcaption></figure>
-        <p class="gs-meta gs-card-terms">Free cancellation up to 5 days before check-in</p>
+        <figure class="iv-pull iv-pull--side"><blockquote class="gs-disp">“I would definitely recommend this Airbnb to anyone looking for a comfortable, beautiful place to stay.”</blockquote><figcaption class="gs-meta">Babes Aubrey, Jan 2026</figcaption></figure>
       </div>
     </div>
   </section>
@@ -7475,6 +7671,7 @@
           &copy; <span id="footerYear"></span> Cascade Reservations. All rights reserved.
         </p>
         <p class="footer-brand">Cascade Hideaway &middot; General Santos City</p>
+        <nav class="footer-legal-links footer-sections" aria-label="Page sections"><a href="#spotless">Guest stories</a><span aria-hidden="true">&middot;</span><a href="#photos">Photos</a><span aria-hidden="true">&middot;</span><a href="#location">Location</a></nav>
         <nav class="footer-legal-links" aria-label="Legal and listing links">
           <a href="privacy.html">Privacy</a>
           <span aria-hidden="true">&middot;</span>
@@ -10432,7 +10629,7 @@
   ============================================================ -->
   <!-- Persistent bottom booking CTA — mobile only, hidden once #booking is in view -->
   <div class="sticky-book-cta gs-dock" id="stickyBookCta" role="region" aria-label="Book direct" aria-hidden="true">
-    <span class="sticky-book-cta-rate"><strong>Book direct</strong><span>No platform fees &middot; <span aria-hidden="true">&#9733;</span> <span data-rating="score">4.97</span><span data-price-only="from"></span></span></span>
+    <span class="sticky-book-cta-rate"><strong>Book direct</strong><span>No platform fees<span data-price-only="from"></span></span></span>
     <a class="sticky-book-cta-btn gs-cta" href="#contact" id="stickyBookCtaBtn" data-gs-book>Reserve</a>
   </div>
 
