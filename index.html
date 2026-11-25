@@ -81,6 +81,7 @@
   <meta property="og:image"        content="https://cascadereservations-del.github.io/Stay_At_CascadeGSC/og-image.jpg">
   <meta property="og:image:width"  content="1200">
   <meta property="og:image:height" content="630">
+  <meta property="og:image:type"   content="image/jpeg">
   <meta property="og:image:alt"    content="Cascade Hideaway — boutique studio accommodation in General Santos City">
   <meta property="og:locale"       content="en_PH">
 
@@ -106,7 +107,6 @@
       "postalCode": "9500",
       "addressCountry": "PH"
     },
-    "priceRange": "₱₱",
     "checkinTime": "14:00",
     "checkoutTime": "12:00",
     "amenityFeature": [
@@ -228,7 +228,7 @@
   <link rel="preload" as="image"
         href="assets/images/stay/studio-wide.webp"
         imagesrcset="assets/images/stay/studio-wide-480.webp 480w, assets/images/stay/studio-wide-960.webp 960w, assets/images/stay/studio-wide.webp 1400w"
-        imagesizes="(max-width: 600px) 300vw, 100vw"
+        imagesizes="100vw"
         fetchpriority="high">
 
   <style>
@@ -6744,6 +6744,82 @@ body.theme-quiet-luxury #conciergePanel, body.theme-quiet-luxury #conciergeTrigg
 
 /* N3 the concierge primary is upright like every other primary */
 :root body.theme-quiet-luxury .concierge-reserve-btn { font-style: normal; }
+
+/* ============================================================
+   ROUND R3 (s137): more of the photograph shows through the glass, and the page answers calmly.
+   T  transparency: the glass tokens below replace the round G, round N2 and night values (same selectors, new numbers).
+   N  nudges: finite, 150 to 250 ms (the two sweeps 600 ms), one at a time, only where motion is allowed. The classes are toggled by #gs-nudge-v1.
+   Fallbacks: no blur support, reduced transparency and more contrast get solid surfaces (day #F9F6F0, night #1F1912).
+   ============================================================ */
+:root {
+  --iv-glass: rgb(252 249 243 / .42);                 /* day hero card (was .58) */
+  --iv-glass-float: rgb(252 249 243 / .60);           /* day dock and concierge button (was .74) */
+  --iv-glass-filter: blur(22px) saturate(130%) brightness(1.3);   /* was blur(18px) saturate(125%); the lift keeps dark ink readable over the darker parts of the photo */
+  --iv-primary-glass: rgb(28 16 6 / .82); --iv-primary-glass-h: rgb(51 35 15 / .88); --iv-primary-hair: rgb(244 233 210 / .14);
+  --iv-sweep: rgb(244 233 210 / .30);
+}
+[data-theme="espresso"] {
+  --iv-glass: rgb(44 33 21 / .60);
+  --iv-glass-photo: rgb(44 33 21 / .60);              /* night hero card, dock, concierge button (was .78) */
+  --iv-glass-float: var(--iv-glass-photo);
+  --iv-glass-strong: rgb(22 17 11 / .80);             /* night sheet and concierge panel (was .86) */
+  --iv-glass-filter: blur(22px) saturate(150%) brightness(.7);   /* the dimming layer HIG asks for under light text over bright content, done in the backdrop so the fill stays at .60 */
+  --iv-sweep: rgb(255 255 255 / .38);
+}
+/* day primaries (hero Reserve, dock Reserve; #qbwSubmit is the hero button): smoked glass, no blur of its own, one inner hairline; the text stays #F4E9D2. Night keeps the solid gold. */
+:root:not([data-theme="espresso"]) body.theme-quiet-luxury .hero-bk-cta, :root:not([data-theme="espresso"]) body.theme-quiet-luxury #heroBookBar #qbwSubmit,
+:root:not([data-theme="espresso"]) body.theme-quiet-luxury .sticky-book-cta-btn {
+  background-color: var(--iv-primary-glass); border-color: transparent; box-shadow: inset 0 0 0 1px var(--iv-primary-hair);
+  -webkit-backdrop-filter: none; backdrop-filter: none;
+}
+@media (hover: hover) and (pointer: fine) {
+  :root:not([data-theme="espresso"]) body.theme-quiet-luxury .hero-bk-cta:hover, :root:not([data-theme="espresso"]) body.theme-quiet-luxury .sticky-book-cta-btn:hover { background-color: var(--iv-primary-glass-h); }
+}
+/* day hero card: a soft local scrim (radial, 32 percent at its centre) lifts the lowest text where the photo behind is dark, instead of raising the fill */
+:root:not([data-theme="espresso"]) body.theme-quiet-luxury .hero-bk.gs-lg.gs-lg--dark { background-image: radial-gradient(ellipse 100% 62% at 50% 80%, rgb(252 249 243 / .32), rgb(252 249 243 / 0) 100%); }
+/* fallbacks: solid surfaces, a stronger border, solid primaries */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  :root { --iv-glass: #F9F6F0; --iv-glass-photo: #F9F6F0; --iv-glass-float: #F9F6F0; --iv-glass-strong: #F9F6F0; --iv-glass-filter: none; }
+  :root:not([data-theme="espresso"]) body.theme-quiet-luxury .hero-bk.gs-lg.gs-lg--dark { background-image: none; }
+  [data-theme="espresso"] { --iv-glass: #1F1912; --iv-glass-photo: #1F1912; --iv-glass-float: #1F1912; --iv-glass-strong: #1F1912; --iv-glass-filter: none; }
+  :root:not([data-theme="espresso"]) body.theme-quiet-luxury .hero-bk-cta, :root:not([data-theme="espresso"]) body.theme-quiet-luxury #heroBookBar #qbwSubmit,
+  :root:not([data-theme="espresso"]) body.theme-quiet-luxury .sticky-book-cta-btn { background-color: #1C1006; }
+}
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+  :root { --iv-glass: #F9F6F0; --iv-glass-photo: #F9F6F0; --iv-glass-float: #F9F6F0; --iv-glass-strong: #F9F6F0; --iv-glass-filter: none; --iv-glass-line: rgb(28 16 6 / .45); }
+  :root:not([data-theme="espresso"]) body.theme-quiet-luxury .hero-bk.gs-lg.gs-lg--dark { background-image: none; }
+  [data-theme="espresso"] { --iv-glass: #1F1912; --iv-glass-photo: #1F1912; --iv-glass-float: #1F1912; --iv-glass-strong: #1F1912; --iv-glass-filter: none; --iv-glass-line: rgb(255 240 215 / .45); }
+  :root:not([data-theme="espresso"]) body.theme-quiet-luxury .hero-bk-cta, :root:not([data-theme="espresso"]) body.theme-quiet-luxury #heroBookBar #qbwSubmit,
+  :root:not([data-theme="espresso"]) body.theme-quiet-luxury .sticky-book-cta-btn { background-color: #1C1006; }
+}
+
+/* N nudges. Keyframes are inert until a class from #gs-nudge-v1 is set, and the script sets none under reduced motion. */
+@keyframes gs-n1-pop { 0% { transform: scale(1); } 50% { transform: scale(1.02); } 100% { transform: scale(1); } }
+@keyframes gs-n1-sweep { from { background-position: 100% 0; } to { background-position: 0 0; } }
+@keyframes gs-n1-fade { from { opacity: .35; } to { opacity: 1; } }
+@keyframes gs-n2-draw { 0% { transform: scaleX(0); opacity: 1; } 60% { transform: scaleX(1); opacity: 1; } 100% { transform: scaleX(1); opacity: 0; } }
+@media (prefers-reduced-motion: no-preference) {
+  /* N3 press feedback on primaries and the dock button */
+  :root body.theme-quiet-luxury .hero-bk-cta, :root body.theme-quiet-luxury .sticky-book-cta-btn, :root .bs-cta {
+    transition: transform 120ms var(--iv-ease), background-color 180ms var(--iv-ease), color 180ms var(--iv-ease), border-color 180ms var(--iv-ease);
+  }
+  :root body.theme-quiet-luxury .hero-bk-cta:active, :root body.theme-quiet-luxury .sticky-book-cta-btn:active, :root .bs-cta:active:not(:disabled) { transform: scale(.98); }
+  /* N1 ready cue (both dates set): one 220 ms press-out and one 600 ms light sweep across the pill; N2 idle hint: the sweep alone */
+  :root body.theme-quiet-luxury .hero-bk-cta.gs-n1, :root body.theme-quiet-luxury .sticky-book-cta-btn.gs-n1,
+  :root body.theme-quiet-luxury .hero-bk-cta.gs-n2 {
+    background-image: linear-gradient(100deg, transparent 38%, var(--iv-sweep) 50%, transparent 62%); background-size: 260% 100%; background-repeat: no-repeat;
+  }
+  :root body.theme-quiet-luxury .hero-bk-cta.gs-n1, :root body.theme-quiet-luxury .sticky-book-cta-btn.gs-n1 { animation: gs-n1-pop 220ms var(--iv-ease) 1, gs-n1-sweep 600ms ease-out 1; }
+  :root body.theme-quiet-luxury .hero-bk-cta.gs-n2 { animation: gs-n1-sweep 600ms ease-out 1; }
+  /* the dates and price line in the dock cross-fades once */
+  :root body.theme-quiet-luxury .sticky-book-cta-rate.gs-n1-fade { animation: gs-n1-fade 200ms ease-out 1; }
+  /* N2 the hairline under Check-in draws once and fades */
+  :root body.theme-quiet-luxury #heroBookBar #qbwCiField.gs-n2 { position: relative; }
+  :root body.theme-quiet-luxury #heroBookBar #qbwCiField.gs-n2::after {
+    content: ""; display: block; position: absolute; left: 0; right: 0; bottom: -1px; height: 1px; background: var(--gs-accent-text);
+    transform-origin: left center; animation: gs-n2-draw 600ms ease-out 1 both; pointer-events: none;
+  }
+}
 </style>
 <noscript><style>.ch-reveal{opacity:1!important;transform:none!important}.iv-rule{transform:none!important;animation:none!important}</style></noscript>
 </head>
@@ -6800,7 +6876,7 @@ body.theme-quiet-luxury #conciergePanel, body.theme-quiet-luxury #conciergeTrigg
       <div class="hero-slide is-active" aria-hidden="true">
         <img
           src="assets/images/stay/studio-wide.webp" srcset="assets/images/stay/studio-wide-480.webp 480w, assets/images/stay/studio-wide-960.webp 960w, assets/images/stay/studio-wide.webp 1400w"
-          sizes="(max-width: 600px) 300vw, 100vw"
+          sizes="100vw"
           alt=""
           width="1400" height="1050"
           loading="eager" fetchpriority="high" decoding="auto"
@@ -6895,7 +6971,7 @@ body.theme-quiet-luxury #conciergePanel, body.theme-quiet-luxury #conciergeTrigg
 
   <section class="iv-sec iv-gallery gs-space" id="photos" aria-labelledby="gs-space-h">
     <div class="iv-wrap iv-head"><h2 class="gs-disp iv-h" id="gs-space-h">The space</h2><span class="iv-rule" aria-hidden="true"></span></div>
-    <ul class="gs-strip" tabindex="0" aria-labelledby="gs-space-h"><li><figure class="iv-fig"><img class="gs-strip-img" src="assets/images/stay/bed-bright.webp" srcset="assets/images/stay/bed-bright-480.webp 480w, assets/images/stay/bed-bright-960.webp 960w, assets/images/stay/bed-bright.webp 1600w" sizes="(min-width:1024px) 38rem, 86vw" alt="" width="1600" height="1067" loading="lazy" decoding="async"><figcaption>Queen bed</figcaption></figure></li><li><figure class="iv-fig"><img class="gs-strip-img" src="assets/images/stay/living-bright.webp" srcset="assets/images/stay/living-bright-480.webp 480w, assets/images/stay/living-bright-960.webp 960w, assets/images/stay/living-bright.webp 1600w" sizes="(min-width:1024px) 38rem, 86vw" alt="" width="1600" height="1067" loading="lazy" decoding="async"><figcaption>Living area with sofa</figcaption></figure></li><li><figure class="iv-fig"><img class="gs-strip-img" src="assets/images/stay/kitchen.webp" srcset="assets/images/stay/kitchen-480.webp 480w, assets/images/stay/kitchen-960.webp 960w, assets/images/stay/kitchen.webp 1400w" sizes="(min-width:1024px) 38rem, 86vw" alt="" width="1400" height="934" loading="lazy" decoding="async"><figcaption>White kitchenette</figcaption></figure></li><li><figure class="iv-fig"><img class="gs-strip-img" src="assets/images/stay/bathroom.webp" srcset="assets/images/stay/bathroom-480.webp 480w, assets/images/stay/bathroom-960.webp 960w, assets/images/stay/bathroom.webp 1050w" sizes="(min-width:1024px) 38rem, 86vw" alt="" width="1050" height="1400" loading="lazy" decoding="async"><figcaption>Bathroom</figcaption></figure></li><li><figure class="iv-fig"><img class="gs-strip-img" src="assets/images/stay/dining.webp" srcset="assets/images/stay/dining-480.webp 480w, assets/images/stay/dining-960.webp 960w, assets/images/stay/dining.webp 1600w" sizes="(min-width:1024px) 38rem, 86vw" alt="" width="1600" height="1200" loading="lazy" decoding="async"><figcaption>Dining counter</figcaption></figure></li></ul>
+    <ul class="gs-strip" tabindex="0" aria-labelledby="gs-space-h"><li><figure class="iv-fig"><img class="gs-strip-img" src="assets/images/stay/bed-bright.webp" srcset="assets/images/stay/bed-bright-480.webp 480w, assets/images/stay/bed-bright-960.webp 960w, assets/images/stay/bed-bright.webp 1600w" sizes="(min-width:1024px) 38rem, 86vw" alt="Queen bed with crisp white linens" width="1600" height="1067" loading="lazy" decoding="async"><figcaption>Queen bed</figcaption></figure></li><li><figure class="iv-fig"><img class="gs-strip-img" src="assets/images/stay/living-bright.webp" srcset="assets/images/stay/living-bright-480.webp 480w, assets/images/stay/living-bright-960.webp 960w, assets/images/stay/living-bright.webp 1600w" sizes="(min-width:1024px) 38rem, 86vw" alt="Sunlit living area with a sofa" width="1600" height="1067" loading="lazy" decoding="async"><figcaption>Living area with sofa</figcaption></figure></li><li><figure class="iv-fig"><img class="gs-strip-img" src="assets/images/stay/kitchen.webp" srcset="assets/images/stay/kitchen-480.webp 480w, assets/images/stay/kitchen-960.webp 960w, assets/images/stay/kitchen.webp 1400w" sizes="(min-width:1024px) 38rem, 86vw" alt="White kitchenette" width="1400" height="934" loading="lazy" decoding="async"><figcaption>White kitchenette</figcaption></figure></li><li><figure class="iv-fig"><img class="gs-strip-img" src="assets/images/stay/bathroom.webp" srcset="assets/images/stay/bathroom-480.webp 480w, assets/images/stay/bathroom-960.webp 960w, assets/images/stay/bathroom.webp 1050w" sizes="(min-width:1024px) 38rem, 86vw" alt="Bright, clean bathroom" width="1050" height="1400" loading="lazy" decoding="async"><figcaption>Bathroom</figcaption></figure></li><li><figure class="iv-fig"><img class="gs-strip-img" src="assets/images/stay/dining.webp" srcset="assets/images/stay/dining-480.webp 480w, assets/images/stay/dining-960.webp 960w, assets/images/stay/dining.webp 1600w" sizes="(min-width:1024px) 38rem, 86vw" alt="Dining counter" width="1600" height="1200" loading="lazy" decoding="async"><figcaption>Dining counter</figcaption></figure></li></ul>
     <div class="iv-wrap gs-space-info">
       <ul class="gs-chips" aria-label="Included with your stay"><li class="gs-chip">Fiber Wi-Fi</li><li class="gs-chip">Strong aircon</li><li class="gs-chip">Netflix TV</li><li class="gs-chip">Full kitchen</li><li class="gs-chip">Hot shower</li><li class="gs-chip">Workspace</li><li class="gs-chip">Free parking</li><li class="gs-chip">Laundry-ready</li><li class="gs-chip">Backup power</li><li class="gs-chip">Self check-in</li></ul>
       <p class="gs-meta">Up to 3 guests &middot; 1 queen bed + floor mattress</p>
@@ -6917,7 +6993,7 @@ body.theme-quiet-luxury #conciergePanel, body.theme-quiet-luxury #conciergeTrigg
   </section>
 
   <section class="iv-sec iv-ch" id="hospitality" aria-labelledby="gs-ch1-h">
-    <figure class="iv-fig iv-fig--bleed"><img class="gs-photo" src="assets/images/stay/living-corner-960.webp" srcset="assets/images/stay/living-corner-480.webp 480w, assets/images/stay/living-corner-960.webp 960w, assets/images/stay/living-corner.webp 1400w" sizes="(min-width:1024px) 1280px, 100vw" alt="" width="1400" height="934" loading="lazy" decoding="async"><figcaption>Living corner with a lit lamp, a sofa and a made bed</figcaption></figure>
+    <figure class="iv-fig iv-fig--bleed"><img class="gs-photo" src="assets/images/stay/living-corner-960.webp" srcset="assets/images/stay/living-corner-480.webp 480w, assets/images/stay/living-corner-960.webp 960w, assets/images/stay/living-corner.webp 1400w" sizes="(min-width:1024px) 1280px, 100vw" alt="Sofa, lit lamp and a made bed in the living corner" width="1400" height="934" loading="lazy" decoding="async"><figcaption>Living corner with a lit lamp, a sofa and a made bed</figcaption></figure>
     <div class="iv-wrap iv-prose">
       <p class="gs-eb">Malasakit</p>
       <h2 class="gs-disp iv-h" id="gs-ch1-h">Cared for as if you were our own.</h2>
@@ -6930,7 +7006,7 @@ body.theme-quiet-luxury #conciergePanel, body.theme-quiet-luxury #conciergeTrigg
   <figure class="iv-pull"><blockquote class="gs-disp">“…for me, it was beyond hotel quality.”</blockquote><figcaption class="gs-meta">Carissa, July 2026</figcaption></figure>
 
   <section class="iv-sec iv-ch" id="comfort" aria-labelledby="gs-ch3-h">
-    <figure class="iv-fig iv-fig--bleed"><img class="gs-photo" src="assets/images/stay/coffee-on-bed.webp" srcset="assets/images/stay/coffee-on-bed-480.webp 480w, assets/images/stay/coffee-on-bed-960.webp 960w, assets/images/stay/coffee-on-bed.webp 1400w" sizes="(min-width:1024px) 1280px, 100vw" alt="" width="1400" height="934" loading="lazy" decoding="async"><figcaption>Coffee cup resting on crisp white bed linen</figcaption></figure>
+    <figure class="iv-fig iv-fig--bleed"><img class="gs-photo" src="assets/images/stay/coffee-on-bed.webp" srcset="assets/images/stay/coffee-on-bed-480.webp 480w, assets/images/stay/coffee-on-bed-960.webp 960w, assets/images/stay/coffee-on-bed.webp 1400w" sizes="(min-width:1024px) 1280px, 100vw" alt="Coffee cup on white bed linen" width="1400" height="934" loading="lazy" decoding="async"><figcaption>Coffee cup resting on crisp white bed linen</figcaption></figure>
     <div class="iv-wrap iv-prose">
       <p class="gs-eb">Comfort &middot; 18 reviews</p>
       <h2 class="gs-disp iv-h" id="gs-ch3-h">Rest, properly.</h2>
@@ -6941,8 +7017,8 @@ body.theme-quiet-luxury #conciergePanel, body.theme-quiet-luxury #conciergeTrigg
 
   <section class="iv-sec iv-ch" id="spotless" aria-labelledby="gs-spot-h">
     <div class="iv-duo">
-      <figure class="iv-fig"><img class="gs-photo" src="assets/images/stay/shower.webp" srcset="assets/images/stay/shower-480.webp 480w, assets/images/stay/shower-960.webp 960w, assets/images/stay/shower.webp 1199w" sizes="(min-width:1024px) 38rem, 100vw" alt="" width="1199" height="1600" loading="lazy" decoding="async"><figcaption>Rain shower against a light stone wall</figcaption></figure>
-      <figure class="iv-fig"><img class="gs-photo" src="assets/images/stay/bathroom-960.webp" srcset="assets/images/stay/bathroom-480.webp 480w, assets/images/stay/bathroom-960.webp 960w" sizes="(min-width:1024px) 38rem, 100vw" alt="" width="960" height="720" loading="lazy" decoding="async"><figcaption>Bright, clean bathroom with a stone wall</figcaption></figure>
+      <figure class="iv-fig"><img class="gs-photo" src="assets/images/stay/shower.webp" srcset="assets/images/stay/shower-480.webp 480w, assets/images/stay/shower-960.webp 960w, assets/images/stay/shower.webp 1199w" sizes="(min-width:1024px) 38rem, 100vw" alt="Rain shower against a light stone wall" width="1199" height="1600" loading="lazy" decoding="async"><figcaption>Rain shower against a light stone wall</figcaption></figure>
+      <figure class="iv-fig"><img class="gs-photo" src="assets/images/stay/bathroom-960.webp" srcset="assets/images/stay/bathroom-480.webp 480w, assets/images/stay/bathroom-960.webp 960w" sizes="(min-width:1024px) 38rem, 100vw" alt="Bathroom with a stone wall" width="960" height="720" loading="lazy" decoding="async"><figcaption>Bright, clean bathroom with a stone wall</figcaption></figure>
     </div>
     <div class="iv-wrap iv-prose">
       <p class="gs-eb">Spotless &middot; Cleanliness rated 5.0</p>
@@ -6950,11 +7026,11 @@ body.theme-quiet-luxury #conciergePanel, body.theme-quiet-luxury #conciergeTrigg
       <span class="iv-rule" aria-hidden="true"></span>
       <p class="gs-bd">Fresh, pressed linens and a full reset before every guest. Second only to hospitality in what guests mention on Airbnb: 25 of 64 reviews.</p>
     </div>
-    <figure class="iv-fig iv-fig--bleed"><img class="gs-stage-img" src="assets/images/stay/bed-bright-960.webp" srcset="assets/images/stay/bed-bright-480.webp 480w, assets/images/stay/bed-bright-960.webp 960w, assets/images/stay/bed-bright.webp 1600w" sizes="(min-width:1024px) 1280px, 100vw" alt="" width="1600" height="1067" loading="lazy" decoding="async"><figcaption>Pressed linens, made fresh for every guest</figcaption></figure>
+    <figure class="iv-fig iv-fig--bleed"><img class="gs-stage-img" src="assets/images/stay/bed-bright-960.webp" srcset="assets/images/stay/bed-bright-480.webp 480w, assets/images/stay/bed-bright-960.webp 960w, assets/images/stay/bed-bright.webp 1600w" sizes="(min-width:1024px) 1280px, 100vw" alt="Made bed with pressed white linens" width="1600" height="1067" loading="lazy" decoding="async"><figcaption>Pressed linens, made fresh for every guest</figcaption></figure>
   </section>
 
   <section class="iv-sec iv-ch" id="arrival" aria-labelledby="gs-ch4-h">
-    <figure class="iv-fig iv-fig--bleed"><img class="gs-photo" src="assets/images/stay/facade.webp" srcset="assets/images/stay/facade-480.webp 480w, assets/images/stay/facade-960.webp 960w, assets/images/stay/facade.webp 1600w" sizes="(min-width:1024px) 1280px, 100vw" alt="" width="1600" height="1067" loading="lazy" decoding="async"><figcaption>The unit’s front gate and entrance in Bria Homes</figcaption></figure>
+    <figure class="iv-fig iv-fig--bleed"><img class="gs-photo" src="assets/images/stay/facade.webp" srcset="assets/images/stay/facade-480.webp 480w, assets/images/stay/facade-960.webp 960w, assets/images/stay/facade.webp 1600w" sizes="(min-width:1024px) 1280px, 100vw" alt="Front gate and entrance of the unit in Bria Homes" width="1600" height="1067" loading="lazy" decoding="async"><figcaption>The unit’s front gate and entrance in Bria Homes</figcaption></figure>
     <div class="iv-wrap iv-prose">
       <p class="gs-eb">Check-in 5.0 &middot; Communication 5.0</p>
       <h2 class="gs-disp iv-h" id="gs-ch4-h">Easy arrival.</h2>
@@ -8281,9 +8357,9 @@ body.theme-quiet-luxury #conciergePanel, body.theme-quiet-luxury #conciergeTrigg
           <p class="bs-sub" id="bsFileName" role="status"></p>
           <div class="bs-actions">
             <p class="bs-err" id="bsErr3" role="alert"></p>
+            <p class="bs-sub" id="bsCancelLine">Free cancellation up to 5 days before check-in; after that the reservation fee is kept. <a href="booking-terms.html#cancellation-and-refunds" target="_blank" rel="noopener">Cancellation terms</a></p>
             <button type="button" class="bs-cta" id="bsNext3">I&#8217;ve sent the payment</button>
           </div>
-          <p class="bs-sub" style="text-align:center">Free cancellation up to 5 days before check-in</p>
           <p class="bs-legal" style="padding-bottom:calc(1rem + env(safe-area-inset-bottom))">We use your details only to process and manage this stay. <a href="privacy.html" target="_blank" rel="noopener">Privacy notice</a> &middot; <a href="booking-terms.html" target="_blank" rel="noopener">Booking terms</a></p>
         </section>
 
@@ -8316,7 +8392,7 @@ body.theme-quiet-luxury #conciergePanel, body.theme-quiet-luxury #conciergeTrigg
     </div>
   </dialog>
 
-  <script src="assets/js/analytics.js"></script>
+  <script src="assets/js/analytics.js" defer></script>
   <script>
     /* ── Sticky mobile CTA bar — removed; rate integrated into concierge ── */
     (function () {
@@ -11759,6 +11835,114 @@ body.theme-quiet-luxury #conciergePanel, body.theme-quiet-luxury #conciergeTrigg
   }());
 }());
 
+</script>
+<!-- gs-nudge-v1 (s137 R3): calm nudges and the marketing event layer. It only listens: it reads the sheet's own `cascade:sheet` event, the sheet's dialog and step
+     attributes and the hero's visibility, then toggles classes (CSS in the R3 part of gs-style-v9) and calls window.cascadeTrack (assets/js/analytics.js).
+     It changes, wraps and re-orders no handler, id or booking logic, runs no scroll handler and sets no class when motion is reduced. -->
+<script id="gs-nudge-v1">
+(function () {
+  'use strict';
+  var KEY = 'cascade.sheet.v1', N2KEY = 'cascade.nudge.n2', EVKEY = 'cascade.evt.v1', IDLE_MS = 8000;
+  function $(id) { return document.getElementById(id); }
+  function read(k) { try { return JSON.parse(sessionStorage.getItem(k)) || {}; } catch (e) { return {}; } }
+  function write(k, v) { try { sessionStorage.setItem(k, typeof v === 'string' ? v : JSON.stringify(v)); } catch (e) { /* private mode */ } }
+  function track(n, p) { try { if (typeof window.cascadeTrack === 'function') window.cascadeTrack(n, p); } catch (e) { /* never break the page */ } }
+  function digits(el) { var s = el ? String(el.textContent).replace(/[^\d]/g, '') : ''; return s ? Number(s) : undefined; }
+  function motionOk() { try { return window.matchMedia('(prefers-reduced-motion: no-preference)').matches; } catch (e) { return false; } }
+  function ready(s) { return !!(s && s.ci && s.co && s.ci < s.co); }
+  function nightsOf(s) { return Math.round((Date.parse(s.co) - Date.parse(s.ci)) / 864e5); }
+
+  var dlg, heroIn = false, busy = false, pending = '', lastKey = '';
+
+  /* ---------- nudges: one at a time, finite, only where motion is allowed ---------- */
+  function play(el, cls, ms, done) {
+    if (!el || busy || !motionOk()) return false;
+    busy = true; el.classList.remove(cls); void el.offsetWidth; el.classList.add(cls);
+    var ended = false;
+    function end() { if (ended) return; ended = true; el.classList.remove(cls); busy = false; if (done) done(); }
+    el.addEventListener('animationend', function h(e) { if (e.target === el && e.animationName === 'gs-n1-sweep') { el.removeEventListener('animationend', h); end(); } });
+    setTimeout(end, ms + 300);
+    return true;
+  }
+  /* N1: both dates set. The pill in view plays once (the hero Reserve, else the dock Reserve); the dock summary cross-fades. Replays only when the dates change. */
+  function n1() {
+    if (!pending || (dlg && dlg.open)) return;
+    var hero = $('qbwSubmit'), dockBtn = $('stickyBookCtaBtn'), rate = document.querySelector('#stickyBookCta .sticky-book-cta-rate');
+    var played = heroIn ? play(hero, 'gs-n1', 600) : play(dockBtn, 'gs-n1', 600);
+    if (played) {
+      pending = '';
+      if (!heroIn && rate) { rate.classList.remove('gs-n1-fade'); void rate.offsetWidth; rate.classList.add('gs-n1-fade'); setTimeout(function () { rate.classList.remove('gs-n1-fade'); }, 500); }
+    }
+  }
+  /* N2: hero in view, no dates, nothing focused, sheet closed, 8 s: one sweep and one hairline, once per visit, never after any interaction. */
+  var idleTimer = 0, interacted = false;
+  function n2Done() { return sessionStorage.getItem(N2KEY) === '1'; }
+  function stopIdle() { clearTimeout(idleTimer); idleTimer = 0; }
+  function armIdle() {
+    stopIdle();
+    try { if (interacted || n2Done() || !motionOk()) return; } catch (e) { return; }
+    idleTimer = setTimeout(function () {
+      idleTimer = 0;
+      var bar = $('heroBookBar');
+      if (!heroIn || interacted || ready(read(KEY)) || read(KEY).ci || (dlg && dlg.open) || (bar && bar.contains(document.activeElement))) return;
+      if (busy) { armIdle(); return; }
+      write(N2KEY, '1');
+      play($('qbwSubmit'), 'gs-n2', 600);
+      var f = $('qbwCiField'); if (f) { f.classList.add('gs-n2'); setTimeout(function () { f.classList.remove('gs-n2'); }, 700); }
+    }, IDLE_MS);
+  }
+  function interact() { interacted = true; write(N2KEY, '1'); stopIdle(); }
+
+  /* ---------- events: UI state only; no names, phone, e-mail, token or reference ever reaches cascadeTrack ---------- */
+  function params() { var p = { currency: 'PHP' }, g = digits($('bsGuests')); if (g) p.guests = g; return p; }
+  function marker(name) { return read(EVKEY)[name] || ''; }
+  function mark(name, key) { var m = read(EVKEY); m[name] = key; write(EVKEY, m); }
+  function stepSeen(id, name, valueId, vis) {
+    var el = $(id); if (!el) return;
+    var shown = !el.hidden, key = (read(KEY).ci || '') + '|' + (read(KEY).co || '');
+    if (shown && !vis[id]) {
+      if (marker(name) !== key) { var p = params(), n = ready(read(KEY)) ? nightsOf(read(KEY)) : 0, v = digits($(valueId)); if (n) p.nights = n; if (v) p.value = v; mark(name, key); track(name, p); }
+    }
+    vis[id] = shown;
+  }
+
+  function boot() {
+    dlg = $('bookSheet');
+    var bar = $('heroBookBar');
+    var s0 = read(KEY); lastKey = ready(s0) ? s0.ci + '|' + s0.co : '';
+    track('view_item', { currency: 'PHP' });
+
+    if (bar && 'IntersectionObserver' in window) {
+      new IntersectionObserver(function (es) {
+        heroIn = es[es.length - 1].isIntersecting;
+        if (heroIn) armIdle(); else stopIdle();
+        n1();
+      }, { threshold: 0.5 }).observe(bar);
+    }
+    ['pointerdown', 'keydown', 'touchstart', 'focusin'].forEach(function (t) { document.addEventListener(t, interact, { capture: true, passive: true }); });
+
+    document.addEventListener('cascade:sheet', function (e) {
+      var d = e.detail || {}, s = { ci: d.ci, co: d.co };
+      if (!ready(s)) { lastKey = ''; return; }
+      var key = s.ci + '|' + s.co;
+      if (key === lastKey) return;
+      lastKey = key; pending = key;
+      var p = params(); p.nights = nightsOf(s); track('select_dates', p);
+      n1();
+    });
+    if (!dlg) return;
+    dlg.addEventListener('close', n1);
+    var wasOpen = dlg.open, vis = {};
+    ['bsS3', 'bsS4'].forEach(function (id) { var el = $(id); vis[id] = el ? !el.hidden : false; });
+    new MutationObserver(function () {
+      if (dlg.open && !wasOpen) { var p = params(), s = read(KEY); if (ready(s)) p.nights = nightsOf(s); track('begin_checkout', p); }
+      wasOpen = dlg.open;
+      stepSeen('bsS3', 'add_payment_info', 'bsSumTotal2', vis);
+      stepSeen('bsS4', 'generate_lead', 'bsDoneTotal', vis);
+    }).observe(dlg, { attributes: true, attributeFilter: ['open', 'hidden'], subtree: true });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();
+}());
 </script>
 </body>
 </html>
