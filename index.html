@@ -6318,9 +6318,7 @@ body.theme-quiet-luxury .iv-fig, body.theme-quiet-luxury .luxury-hero, body.them
 body.theme-quiet-luxury .gs-btn, body.theme-quiet-luxury .gs-cta { font-size: 14px; min-height: 44px; }
 body.theme-quiet-luxury figcaption { font-size: 14px; }
 body.theme-quiet-luxury .gs-railbtn { font-size: 20px; }
-body.theme-quiet-luxury .loc-heading { font-size: 20px; }
-body.theme-quiet-luxury .loc-heading em { font-size: inherit; }
-body.theme-quiet-luxury .faq-heading, body.theme-quiet-luxury .iv-proof-line, body.theme-quiet-luxury .iv-proof-line span, body.theme-quiet-luxury .iv-pull, body.theme-quiet-luxury blockquote.gs-disp { font-size: 28px; }
+body.theme-quiet-luxury .faq-heading { font-size: 28px; }
 body.theme-quiet-luxury .skip-link { min-height: 44px; display: inline-flex; align-items: center; }
 
 /* ---------- round A fixes (s137): invitation grid, contact ink, calm footer, light hero, dock room, gallery size ---------- */
@@ -6399,6 +6397,157 @@ body.theme-quiet-luxury .site-footer .footer-copy { order: 6; margin: 1rem 0 0; 
 #photos .gs-strip:not(.gs-strip--trips) > li { width: calc(100vw - 2 * var(--iv-gut)); max-width: none; }
 @media (min-width: 760px) { #photos .gs-strip:not(.gs-strip--trips) > li { width: min(68vw, 56rem); } }
 #photos .iv-fig figcaption { text-align: center; font-family: var(--gs-display); font-style: italic; font-size: .9375rem; line-height: 1.4; color: var(--gs-muted); padding: .75rem 0 0; }
+/* ---------- round B fixes (s137): photos paint, contact as a chapter, quotes, sheet as paper, one wrap, quiet extras ---------- */
+:root { --iv-quote: clamp(2.125rem, 1.4rem + 3vw, 3.5rem); --iv-edge: max(var(--iv-gut), calc((100% - var(--iv-max)) / 2 + var(--iv-gut))); --iv-lead: max(0px, calc((100% - var(--iv-max)) / 2)); }
+
+/* B1 every figure image is a normal block image (the old stage rule pinned one behind the page) */
+body.theme-quiet-luxury .iv-fig .gs-stage-img { position: static; inset: auto; z-index: auto; height: auto; width: 100%; max-width: none; transform: none; display: block; }
+
+/* B3 the proof line and both pull quotes are the largest serif moments after the hero headline */
+body.theme-quiet-luxury .iv-proof-line, body.theme-quiet-luxury .iv-proof-line span, body.theme-quiet-luxury .iv-pull blockquote, body.theme-quiet-luxury .iv-pull--side blockquote { font-size: var(--iv-quote); line-height: 1.1; }
+
+/* B9 one wrap, one prose column: every left edge sits on the wrap gutter */
+body.theme-quiet-luxury .iv-prose { margin-inline: var(--iv-lead) auto; }
+body.theme-quiet-luxury .gs-strip--trips { padding-inline: var(--iv-edge); scroll-padding-inline: var(--iv-edge); }
+body.theme-quiet-luxury #photos .gs-strip { padding-inline: var(--iv-edge); scroll-padding-inline: var(--iv-edge); }
+body.theme-quiet-luxury .faq-section .container { width: 100%; max-width: var(--iv-max); margin-inline: auto; padding-inline: var(--iv-gut); box-sizing: border-box; }
+
+/* B2 contact: a paper chapter (eyebrow, one-line serif heading, rule, hairline rows), no card */
+body.theme-quiet-luxury .location-section { padding-block: calc(var(--iv-gap) / 2); }
+body.theme-quiet-luxury .location-section .location-inner { display: block; min-height: 0; }
+body.theme-quiet-luxury .location-contact {
+  display: block; width: 100%; max-width: var(--iv-max); margin-inline: auto; padding: 0 var(--iv-gut); box-sizing: border-box;
+  background: transparent; border: 0; border-radius: 0; box-shadow: none; position: static;
+}
+body.theme-quiet-luxury .location-contact::before { display: none !important; }
+body.theme-quiet-luxury .location-contact > * { max-width: var(--iv-prose); }
+body.theme-quiet-luxury .loc-eyebrow { margin: 0; color: var(--gs-accent-text); }
+body.theme-quiet-luxury .loc-heading { font-family: var(--gs-display); font-size: var(--iv-h2); font-weight: 600; line-height: 1.08; margin: .5rem 0 0; color: var(--gs-ink); text-wrap: balance; }
+body.theme-quiet-luxury .location-contact .iv-rule { margin-top: 1.25rem; }
+body.theme-quiet-luxury .location-contact .loc-items { margin-top: 1.75rem !important; gap: 0; }
+body.theme-quiet-luxury .loc-item { padding: 1rem 0; border-top: 1px solid var(--gs-rule); gap: 0; }
+body.theme-quiet-luxury .loc-item:last-child { border-bottom: 1px solid var(--gs-rule); }
+body.theme-quiet-luxury .loc-item-icon { display: none; }
+body.theme-quiet-luxury .loc-item-label { margin: 0 0 .25rem; color: var(--gs-muted); }
+body.theme-quiet-luxury .loc-item-value { font-family: var(--gs-display); font-size: 1.25rem; font-weight: 500; line-height: 1.35; color: var(--gs-ink); }
+body.theme-quiet-luxury .loc-item-value a { min-height: var(--tap); text-decoration: underline; text-underline-offset: .25em; text-decoration-color: var(--gs-gold-line); }
+body.theme-quiet-luxury .loc-note { margin: .35rem 0 0; font-size: .875rem; line-height: 1.5; letter-spacing: 0; text-transform: none; color: var(--gs-muted); }
+body.theme-quiet-luxury .loc-signature { margin-top: 1.5rem; padding-top: 0; border: 0; font-size: 1.25rem; color: var(--gs-muted); }
+body.theme-quiet-luxury .nearby-strip { margin-top: 2rem; padding-top: 0; border: 0; }
+body.theme-quiet-luxury .nearby-label { margin: 0 0 .5rem; color: var(--gs-accent-text); }
+body.theme-quiet-luxury .nearby-categories { gap: 0; }
+body.theme-quiet-luxury .nearby-category { display: grid; grid-template-columns: 5.5rem minmax(0, 1fr); gap: .75rem; padding: 0; border-top: 1px solid var(--gs-rule); align-items: start; }
+body.theme-quiet-luxury .nearby-category:last-child { border-bottom: 1px solid var(--gs-rule); }
+body.theme-quiet-luxury .nearby-cat-label { width: auto; padding-top: .8rem; color: var(--gs-muted); }
+body.theme-quiet-luxury .nearby-chips { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 0; }
+body.theme-quiet-luxury .nearby-chip { display: flex; align-items: center; gap: .5rem; width: 100%; box-sizing: border-box; padding: .5rem 0; border: 0; background: transparent; font-size: .875rem; letter-spacing: 0; }
+body.theme-quiet-luxury .nearby-chip + .nearby-chip { border-top: 1px solid var(--gs-rule); }
+body.theme-quiet-luxury .nearby-chip:hover { background: transparent; color: var(--gs-ink); text-decoration: underline; text-underline-offset: .25em; }
+body.theme-quiet-luxury .nearby-chip-dot { display: none; }
+body.theme-quiet-luxury .nearby-chip strong { margin-left: auto; font-weight: 600; white-space: nowrap; }
+body.theme-quiet-luxury .loc-cta-group { margin-top: 2rem; gap: 0; }
+body.theme-quiet-luxury .loc-cta-btn, body.theme-quiet-luxury .loc-cta-btn.is-messenger { border: 0; border-top: 1px solid var(--gs-rule); border-radius: 0; background: transparent; padding: .75rem 0; }
+body.theme-quiet-luxury .loc-cta-group > :last-child { border-bottom: 1px solid var(--gs-rule); }
+body.theme-quiet-luxury .loc-cta-btn:hover, body.theme-quiet-luxury .loc-cta-btn.is-messenger:hover { background: transparent; border-color: var(--gs-rule); }
+body.theme-quiet-luxury .loc-cta-btn:hover .loc-cta-label strong { text-decoration: underline; text-underline-offset: .25em; }
+
+/* B10 FAQ header: a chapter (eyebrow, sentence-case serif heading, rule) */
+body.theme-quiet-luxury .faq-section { padding-block: calc(var(--iv-gap) / 2); }
+body.theme-quiet-luxury .faq-header { text-align: left; max-width: var(--iv-prose); margin: 0 0 2rem; }
+body.theme-quiet-luxury .faq-header .section-label { justify-content: flex-start; margin: 0; }
+body.theme-quiet-luxury .faq-header .section-label::before, body.theme-quiet-luxury .faq-header .section-label::after, body.theme-quiet-luxury .section-label-line { display: none; }
+body.theme-quiet-luxury .faq-heading { font-size: var(--iv-h2); font-weight: 600; line-height: 1.08; margin: .5rem 0 0; text-wrap: balance; }
+body.theme-quiet-luxury .faq-heading::after { content: ""; display: block; width: 4.5rem; height: 1px; background: var(--gs-gold-line); margin-top: 1.25rem; }
+body.theme-quiet-luxury .faq-subhead { max-width: none; margin: 1rem 0 0; }
+body.theme-quiet-luxury .faq-list { max-width: var(--iv-prose); margin: 0; }
+body.theme-quiet-luxury .faq-item:first-child { border-top: 1px solid var(--gs-rule); }
+body.theme-quiet-luxury .faq-item summary { padding-inline: 0; }
+body.theme-quiet-luxury .faq-answer, body.theme-quiet-luxury .faq-body-wrap > * { padding-inline: 0; }
+
+/* B8 arrival and spotless: calmer crops (CSS only) */
+body.theme-quiet-luxury #arrival .iv-fig--bleed img { aspect-ratio: 1 / 1; object-position: 80% 55%; max-height: none; }
+@media (min-width: 760px) { body.theme-quiet-luxury #arrival .iv-fig--bleed img { aspect-ratio: 21 / 9; object-position: 50% 64%; } }
+@media (max-width: 759px) { body.theme-quiet-luxury #spotless .iv-duo > .iv-fig:nth-child(n + 2) { display: none; } }
+
+/* B7 the gallery button is a hairline secondary; the dock holds the one dark primary */
+html body.theme-quiet-luxury .gs-btn.gs-btn--deep { background: transparent; color: var(--gs-ink); border: 1px solid var(--gs-line2); }
+@media (hover: hover) and (pointer: fine) { html body.theme-quiet-luxury .gs-btn.gs-btn--deep:hover { background: var(--gs-soft); color: var(--gs-ink); } }
+
+/* B11 amenities as quiet text: five to a row with a middle dot, two columns on a phone; no pills, no dangling separator */
+body.theme-quiet-luxury .gs-chips { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0; justify-items: center; text-align: center; }
+body.theme-quiet-luxury .gs-chip { position: relative; width: 100%; box-sizing: border-box; padding: .5rem .25rem; border: 0; border-top: 1px solid var(--gs-rule); border-radius: 0; background: transparent; color: var(--gs-ink); font-size: .875rem; }
+body.theme-quiet-luxury .gs-chip:last-child, body.theme-quiet-luxury .gs-chip:nth-last-child(2) { border-bottom: 1px solid var(--gs-rule); }
+@media (min-width: 760px) {
+  body.theme-quiet-luxury .gs-chips { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+  body.theme-quiet-luxury .gs-chip, body.theme-quiet-luxury .gs-chip:last-child, body.theme-quiet-luxury .gs-chip:nth-last-child(2) { border: 0; padding: .5rem .25rem; }
+  body.theme-quiet-luxury .gs-chip:not(:nth-child(5n))::after { content: "·"; position: absolute; right: 0; top: 50%; translate: 50% -50%; color: var(--gs-accent-text); font-weight: 700; }
+}
+
+body.theme-quiet-luxury .gs-space-info { display: flex; flex-direction: column; align-items: center; gap: 1rem; text-align: center; }
+body.theme-quiet-luxury .gs-space-info .gs-chips, body.theme-quiet-luxury .gs-space-info .gs-meta, body.theme-quiet-luxury .gs-space-info .gs-btn { grid-column: auto; grid-row: auto; margin: 0; }
+body.theme-quiet-luxury .gs-space-info .gs-chips { width: 100%; max-width: 46rem; }
+
+/* B12 header link: a real underline with a calm offset; the 44px box is for the tap only */
+body.theme-quiet-luxury .site-header .header-cta, body.gs-hero-in.theme-quiet-luxury .site-header .header-cta {
+  display: inline-flex; align-items: center; border: 0; text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: .3em; text-decoration-color: rgb(255 255 255 / .6);
+}
+
+/* B13 phone hero: the crop lands on the sofa and bed, and the invitation card takes less of the screen */
+@media (max-width: 759px) {
+  body.theme-quiet-luxury .hero-slide img { object-position: 64% 50%; }
+  body.theme-quiet-luxury #heroBookBar .iv-mono { display: none; }
+  body.theme-quiet-luxury #heroBookBar .hero-bk-inner { padding: 1.25rem 1.5rem 1.125rem; }
+  body.theme-quiet-luxury #heroBookBar .hero-bk-eyebrow { margin-bottom: .5rem; }
+  body.theme-quiet-luxury #heroBookBar .hero-bk-cta { margin-top: .75rem; }
+  body.theme-quiet-luxury .hero-bk .gs-dock-sub { margin-top: .5rem; }
+}
+
+/* B14 concierge button: paper, hairline, soft float shadow, ink icon (auto-hide logic untouched) */
+body.theme-quiet-luxury .concierge-trigger {
+  background: var(--gs-paper); color: var(--gs-ink); border: 1px solid var(--gs-line2); box-shadow: var(--d-float);
+  -webkit-backdrop-filter: none; backdrop-filter: none;
+}
+[data-theme="espresso"] body.theme-quiet-luxury .concierge-trigger { box-shadow: var(--glass-shadow); }
+body.theme-quiet-luxury .concierge-trigger:hover { background: var(--gs-soft); box-shadow: var(--d-float); }
+body.theme-quiet-luxury .concierge-trigger:focus-visible { outline: 2px solid var(--gs-accent-text); outline-offset: 3px; }
+
+/* B4 to B6 the booking sheet is the invitation: solid card stock, double hairline, reply lines */
+:root { --bs-pad: 1.25rem; }
+@media (max-width: 374px) { :root { --bs-pad: .75rem; } }
+dialog.bs::backdrop { background: rgb(18 10 4 / .74); }
+.bs-panel { background: var(--gs-paper); -webkit-backdrop-filter: none; backdrop-filter: none; border: 1px solid var(--gs-line2); box-shadow: 0 -14px 44px rgb(18 10 4 / .35); padding-inline: var(--bs-pad); }
+.bs-panel::after { content: ""; position: absolute; inset: 6px 6px 0; border: 1px solid var(--gs-rule); border-bottom: 0; border-radius: calc(var(--r-sheet) - 6px) calc(var(--r-sheet) - 6px) 0 0; pointer-events: none; z-index: 5; }
+@media (min-width: 700px) { .bs-panel::after { inset: 6px; border-bottom: 1px solid var(--gs-rule); border-radius: calc(var(--r-sheet) - 6px); } }
+.bs-top { position: relative; z-index: 3; background: var(--gs-paper); padding-bottom: .5rem; }
+.bs-grab { background: var(--gs-line2); }
+.bs-scroll { margin-inline: calc(-1 * var(--bs-pad)); padding-inline: var(--bs-pad); }
+.bs-actions { margin-inline: calc(-1 * var(--bs-pad)); padding: .75rem var(--bs-pad) calc(1rem + env(safe-area-inset-bottom)); background: var(--gs-paper); border-top: 1px solid var(--gs-rule); }
+#bsS3 .bs-actions { border-top: 0; padding-inline: 0; margin-inline: 0; }
+.bs-h { font-weight: 600; }
+.bs-lbl { font-size: .78rem; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--gs-muted); }
+.bs-lbl .bs-sub { text-transform: none; letter-spacing: 0; font-weight: 400; }
+.bs-in { height: 3rem; min-height: var(--tap); border: 0; border-bottom: 1px solid var(--gs-line2); border-radius: 0; padding: 0 .125rem; background: transparent; font-family: var(--gs-display); font-size: 1.25rem; font-weight: 500; color: var(--gs-ink); }
+.bs-in::placeholder { color: var(--gs-muted); opacity: 1; }
+.bs-in:hover { border-bottom-color: var(--gs-accent-text); }
+.bs-in:focus { outline: none; border-bottom-color: var(--gs-accent-text); box-shadow: 0 1px 0 0 var(--gs-accent-text); }
+.bs-in:focus-visible { outline: 2px solid var(--gs-accent-text); outline-offset: 3px; border-radius: 2px; }
+.bs-in[aria-invalid="true"] { border-bottom-color: #9C3A1E; box-shadow: 0 1px 0 0 #9C3A1E; }
+[data-theme="espresso"] .bs-in[aria-invalid="true"] { border-bottom-color: #F0A58E; box-shadow: 0 1px 0 0 #F0A58E; }
+.bs-phone select.bs-in { padding-inline: 0; }
+.bs-refrow label.bs-up, .bs-copy button { background: transparent; border-color: var(--gs-line2); border-radius: var(--r-pill); }
+.bs-pay { background: transparent; color: var(--gs-ink); border: 1px solid var(--gs-line2); border-radius: var(--r-card); }
+.bs-pay small { color: var(--gs-muted); }
+.bs-seg { background: transparent; border: 1px solid var(--gs-rule); border-radius: var(--r-pill); }
+.bs-seg button { border: 2px solid transparent; border-radius: var(--r-pill); }
+.bs-seg button[aria-pressed="true"] { background: var(--gs-soft); color: var(--gs-ink); border-color: var(--gs-gold-line); box-shadow: none; font-weight: 700; }
+.bs-dots li[aria-current="step"] { background: var(--gs-accent); color: var(--gs-on-accent); box-shadow: 0 0 0 2px var(--gs-paper), 0 0 0 3px var(--gs-gold-line); }
+.bs-day.is-end { background: var(--gs-accent); color: var(--gs-on-accent); }
+.bs-ghost { background: transparent; }
+/* an empty status line keeps its place in the accessibility tree but takes no room */
+.bs-step { --bs-g: .9rem; gap: var(--bs-g); }
+.bs-actions { --bs-g: .4rem; gap: var(--bs-g); }
+.bs-sub:empty { margin-top: calc(-1 * var(--bs-g)); }
+@media (min-width: 700px) { .bs-panel { height: min(48rem, 94dvh); } .bs-step { --bs-g: .7rem; } }
 </style>
 </head>
 
@@ -7285,10 +7434,10 @@ body.theme-quiet-luxury .site-footer .footer-copy { order: 6; margin: 1rem 0 0; 
       <header class="faq-header">
         <div class="section-label ch-reveal" aria-hidden="true">
           <span class="section-label-line"></span>
-          <span class="section-label-text">Good to Know</span>
+          <span class="section-label-text">Questions</span>
           <span class="section-label-line"></span>
         </div>
-        <h2 class="faq-heading ch-reveal" id="faq-heading">Frequently Asked Questions</h2>
+        <h2 class="faq-heading ch-reveal" id="faq-heading">Frequently asked questions</h2>
         <p class="faq-subhead ch-reveal">Everything you need to know before booking direct.</p>
       </header>
 
@@ -7495,11 +7644,9 @@ body.theme-quiet-luxury .site-footer .footer-copy { order: 6; margin: 1rem 0 0; 
       <div class="location-contact ch-reveal">
 
         <div>
-          <p class="loc-eyebrow">Find Us</p>
-          <h2 class="loc-heading">
-            General Santos
-            <em>City</em>
-          </h2>
+          <p class="loc-eyebrow">Find us</p>
+          <h2 class="loc-heading">General Santos City</h2>
+          <span class="iv-rule" aria-hidden="true"></span>
         </div>
 
         <ul class="loc-items" style="list-style:none; padding:0; margin:0;">
@@ -7515,21 +7662,7 @@ body.theme-quiet-luxury .site-footer .footer-copy { order: 6; margin: 1rem 0 0; 
                 Brgy. San Isidro<br>
                 General Santos City, 9500
               </p>
-              <p style="font-size:var(--step--2); color:rgb(201 150 58 / 0.85); font-family:var(--ch-font-body); letter-spacing:0.09em; text-transform:uppercase; margin-top:0.4em;">
-                Exact address sent after booking confirmed
-              </p>
-            </div>
-          </li>
-
-          <li class="loc-item">
-            <div class="loc-item-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
-            </div>
-            <div class="loc-item-body">
-              <p class="loc-item-label">Email</p>
-              <p class="loc-item-value">
-                <a href="mailto:cascadereservations@gmail.com?subject=Booking%20Enquiry%20%E2%80%94%20Cascade%20Hideaway">cascadereservations@gmail.com</a>
-              </p>
+              <p class="loc-note">Exact address sent after booking confirmed</p>
             </div>
           </li>
 
@@ -7750,7 +7883,6 @@ body.theme-quiet-luxury .site-footer .footer-copy { order: 6; margin: 1rem 0 0; 
         <nav class="footer-legal-links footer-legal" aria-label="Legal and listing links">
           <a href="privacy.html">Privacy</a>
           <a href="booking-terms.html">Booking terms</a>
-          <a href="#contact">Contact</a>
           <a href="https://www.airbnb.com/rooms/1523827999359515793" target="_blank" rel="noopener noreferrer">Airbnb listing</a>
         </nav>
         <p class="footer-copy">
