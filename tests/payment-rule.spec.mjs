@@ -7,18 +7,22 @@ const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0
 const plus = (n) => { const d = new Date(); d.setHours(12, 0, 0, 0); d.setDate(d.getDate() + n); return iso(d); };
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64');
 
-async function mock(page) {
+/* opts.hold: 'granted' (default: hold true + 24 h expiry), 'refused' (hold false, no expiry: the server's real answer for a check-in under 5 days, or an older server), 'noExpiry' (hold true but no expiry).
+   opts.rate: extra top-level fields on the rate-card answer (security_deposit, long_stay). */
+async function mock(page, opts = {}) {
   const posts = [], uploads = [];
   await page.route('**/*.supabase.co/**', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }));
   await page.route('**/functions/v1/availability**', (route) => route.fulfill({ contentType: 'application/json', body: '[]' }));
   await page.route('**/functions/v1/rate-card**', (route) => {
     const u = new URL(route.request().url()); const n = Math.round((new Date(u.searchParams.get('checkout')) - new Date(u.searchParams.get('checkin'))) / 86400000);
     const total = 1691 * n;
-    route.fulfill({ contentType: 'application/json', body: JSON.stringify({ card: { base: 1780, deposit_pct: 50, tiers: [], promotions: [] }, quote: { n, total, deposit: Math.ceil(total / 2), last_minute: false } }) });
+    route.fulfill({ contentType: 'application/json', body: JSON.stringify({ card: { base: 1780, deposit_pct: 50, tiers: [], promotions: [] }, quote: { n, total, deposit: Math.ceil(total / 2), last_minute: false }, ...(opts.rate || {}) }) });
   });
   await page.route('**/functions/v1/submit-booking', (route) => {
     posts.push(route.request().postDataJSON());
-    route.fulfill({ contentType: 'application/json', body: JSON.stringify({ ok: true, ref: 'CH-RULE1', hold: true, hold_expires_at: new Date(Date.now() + 86400000).toISOString(), receipt_upload_token: 'tok' }) });
+    const mode = opts.hold || 'granted';
+    const ans = mode === 'granted' ? { hold: true, hold_expires_at: new Date(Date.now() + 86400000).toISOString() } : mode === 'refused' ? { hold: false, hold_expires_at: null } : { hold: true };
+    route.fulfill({ contentType: 'application/json', body: JSON.stringify({ ok: true, ref: 'CH-RULE' + posts.length, ...ans, receipt_upload_token: 'tok' + posts.length }) });
   });
   await page.route('**/functions/v1/upload-booking-receipt', (route) => { uploads.push(route.request().headers()); route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' }); });
   return { posts, uploads };
@@ -102,4 +106,156 @@ test('27 nights is still quoted on the sheet (control for the 28-night rule)', a
   await expect(page.locator('#bsRange')).toContainText('27 nights');
   await expect(page.locator('#bsTotal')).toHaveText('₱45,657');             /* 27 x 1,691 */
   await expect(page.locator('#bsNext1')).toBeEnabled();
+});
+
+/* ---- fix round 1: the FLOW split (hold-first from 5 days out, pay-first under 5) is independent of the amount ---- */
+const HELD_WORDS = /\bheld\b|holding|hold my|24 hours/i;
+async function toContact(page, ci, co) {
+  await toStep1(page, ci, co);
+  await expect(page.locator('#bsTotal')).toContainText('₱');
+  await expect(page.locator('#bsNext1')).toBeEnabled();
+  await page.locator('#bsNext1').click();
+  await expect(page.locator('#bsH2')).toBeVisible();
+  await page.locator('#bsName').fill('Demo Guest'); await page.locator('#bsPhone').fill('917 123 4567');
+}
+
+test('2 days out is pay-first: no request is posted before the guest pays, nothing says the dates are held, the amount is still the full stay + the same P800 line', async ({ page }) => {
+  const { posts, uploads } = await mock(page);
+  await toContact(page, plus(2), plus(4));
+  await expect(page.locator('#bsNext2')).toHaveText('Continue to payment');
+  await page.locator('#bsNext2').click();
+  await expect(page.locator('#bsH3')).toHaveText('Pay and confirm');
+  await expect(page.locator('#bsFee')).toHaveText('₱3,382');
+  await expect(page.locator('#bsPayTotal')).toHaveText('Security deposit ₱800');
+  await expect(page.locator('#bsHeld')).toBeHidden();
+  expect(await page.locator('#bookSheet').innerText()).not.toMatch(HELD_WORDS);
+  expect(posts.length).toBe(0);                                              /* no hold POST before payment */
+  /* a bare tap asks for a reference or a screenshot, and the reference path is open (no mandatory screenshot) */
+  await page.locator('#bsNext3').click();
+  await expect(page.locator('#bsErr3')).toContainText('reference number');
+  expect(posts.length).toBe(0);
+  await page.locator('#bsRef').fill('1234567890');
+  await page.locator('#bsNext3').click();
+  await expect(page.locator('#bsH4')).toBeVisible();
+  expect(posts.length).toBe(1);
+  expect(posts[0].hold).toBeUndefined();                                     /* the POST carries no hold */
+  expect(posts[0].total_amount).toBe(3382); expect(posts[0].deposit_amount).toBe(3382); expect(posts[0].pay_full).toBe(true);
+  expect(uploads.length).toBe(0);
+});
+
+test('2 days out with a screenshot: the request is posted after payment, with no hold, and the receipt uploads', async ({ page }) => {
+  const { posts, uploads } = await mock(page);
+  await toContact(page, plus(2), plus(3));
+  await page.locator('#bsNext2').click();
+  await expect(page.locator('#bsH3')).toHaveText('Pay and confirm');
+  expect(posts.length).toBe(0);
+  await page.locator('#bsFile').setInputFiles({ name: 'receipt.png', mimeType: 'image/png', buffer: PNG });
+  await page.locator('#bsNext3').click();
+  await expect(page.locator('#bsH4')).toBeVisible();
+  expect(posts.length).toBe(1); expect(posts[0].hold).toBeUndefined();
+  expect(uploads.length).toBe(1); expect(uploads[0]['x-pay-full']).toBe('true');
+});
+
+test('10 days out is hold-first: the request is posted with hold:true at Continue, the dates are shown as held with the timer, then the receipt reuses that hold (one POST)', async ({ page }) => {
+  const { posts, uploads } = await mock(page);
+  await toContact(page, plus(10), plus(12));
+  await page.locator('#bsNext2').click();
+  await expect(page.locator('#bsH3')).toHaveText('Your dates are held');
+  expect(posts.length).toBe(1); expect(posts[0].hold).toBe(true);
+  expect(posts[0].deposit_amount).toBe(3382);
+  await expect(page.locator('#bsHeld')).toBeVisible();
+  await expect(page.locator('#bsFee')).toHaveText('₱3,382');
+  await expect(page.locator('#bsHoldLine')).toContainText('24 hours');
+  await page.locator('#bsFile').setInputFiles({ name: 'receipt.png', mimeType: 'image/png', buffer: PNG });
+  await page.locator('#bsNext3').click();
+  await expect(page.locator('#bsH4')).toBeVisible();
+  expect(posts.length).toBe(1); expect(uploads.length).toBe(1);
+});
+
+test('the boundary: 4 days out is pay-first (HOLD_MIN_DAYS_OUT = 5)', async ({ page }) => {
+  const a = await mock(page);
+  await toContact(page, plus(4), plus(5));
+  await page.locator('#bsNext2').click();
+  await expect(page.locator('#bsH3')).toHaveText('Pay and confirm'); expect(a.posts.length).toBe(0);
+});
+test('the boundary: 5 days out is hold-first', async ({ page }) => {
+  const a = await mock(page);
+  await toContact(page, plus(5), plus(6));
+  await page.locator('#bsNext2').click();
+  await expect(page.locator('#bsH3')).toHaveText('Your dates are held'); expect(a.posts.length).toBe(1); expect(a.posts[0].hold).toBe(true);
+});
+
+for (const mode of ['refused', 'noExpiry']) {
+  test(`server answer without a hold (${mode}): no "held" wording anywhere and the reference-number fallback works`, async ({ page }) => {
+    const { posts, uploads } = await mock(page, { hold: mode });
+    await toContact(page, plus(10), plus(11));
+    await page.locator('#bsNext2').click();
+    await expect(page.locator('#bsH3')).toHaveText('Pay and confirm');
+    expect(posts.length).toBe(1);                                            /* the hold-first POST was made once */
+    await expect(page.locator('#bsHeld')).toBeHidden();
+    /* editing a contact field must not produce "Your dates are held under ..." */
+    await page.locator('#bsBack').click(); await page.locator('#bsName').fill('Another Guest'); await page.locator('#bsNext2').click();
+    await expect(page.locator('#bsH3')).toHaveText('Pay and confirm');
+    await expect(page.locator('#bsHeldNote')).toBeHidden();
+    expect(await page.locator('#bookSheet').innerText()).not.toMatch(/\bheld\b|holding|hold my/i);
+    /* reference fallback: no screenshot is demanded */
+    await page.locator('#bsRef').fill('9876543210');
+    await page.locator('#bsNext3').click();
+    await expect(page.locator('#bsH4')).toBeVisible();
+    expect(posts[posts.length - 1].hold).toBeUndefined();
+    expect(uploads.length).toBe(0);
+  });
+  test(`server answer without a hold (${mode}): the screenshot upload uses the fresh request's token, never the earlier short-lived one`, async ({ page }) => {
+    const { posts, uploads } = await mock(page, { hold: mode });
+    await toContact(page, plus(10), plus(11));
+    await page.locator('#bsNext2').click();
+    await expect(page.locator('#bsH3')).toHaveText('Pay and confirm');
+    await page.locator('#bsFile').setInputFiles({ name: 'receipt.png', mimeType: 'image/png', buffer: PNG });
+    await page.locator('#bsNext3').click();
+    await expect(page.locator('#bsH4')).toBeVisible();
+    expect(posts.length).toBe(2); expect(posts[1].hold).toBeUndefined();
+    expect(uploads.length).toBe(1);
+    expect(uploads[0].authorization).toBe('Bearer tok2');                    /* the second request's token (the mock numbers them), not tok1 */
+  });
+}
+
+test('rate-card carrying security_deposit: the page uses the server figure', async ({ page }) => {
+  await mock(page, { rate: { security_deposit: 900 } });
+  await toPayment(page, plus(30), plus(32));
+  await expect(page.locator('#bsPayTotal')).toHaveText('Security deposit ₱900');
+  await expect(page.locator('#bsDepLine')).toContainText('₱900');
+  await expect(page.locator('#bsDepLine')).not.toContainText('₱800');
+});
+test('rate-card long_stay:true on a 10-night stay: Continue stays off and the host note shows', async ({ page }) => {
+  await mock(page, { rate: { long_stay: true } });
+  await toStep1(page, plus(40), plus(50));
+  await expect(page.locator('#bsQuoteNote')).toContainText('arranged with the host');
+  await expect(page.locator('#bsNext1')).toBeDisabled();
+});
+test('rate-card without security_deposit or long_stay: the local P800 constant applies (the 28-night fallback is the existing 28 and 27 night tests)', async ({ page }) => {
+  await mock(page);
+  await toPayment(page, plus(30), plus(32));
+  await expect(page.locator('#bsPayTotal')).toHaveText('Security deposit ₱800');
+  await expect(page.locator('#bsDepLine')).toContainText('₱800');
+});
+
+test('at 375 px the amount due comes before the deposit text, and the deposit text is short (at most 4 lines)', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 812 });
+  await mock(page);
+  await toPayment(page, plus(30), plus(32));
+  const fee = await page.locator('#bsFee').boundingBox(), dep = await page.locator('#bsDepLine').boundingBox();
+  expect(fee.y).toBeLessThan(dep.y);
+  const lh = await page.locator('#bsDepLine').evaluate((el) => parseFloat(getComputedStyle(el).lineHeight) || parseFloat(getComputedStyle(el).fontSize) * 1.4);
+  expect(Math.round(dep.height / lh)).toBeLessThanOrEqual(4);
+  expect(fee.y).toBeLessThan(500);                                           /* the amount is above the fold on a phone */
+});
+
+test('the done card promises the door code only on the payment + IDs + P800 condition', async ({ page }) => {
+  await mock(page);
+  await toPayment(page, plus(30), plus(31));
+  await page.locator('#bsFile').setInputFiles({ name: 'receipt.png', mimeType: 'image/png', buffer: PNG }); await page.locator('#bsNext3').click();
+  await expect(page.locator('#bsH4')).toBeVisible();
+  const t = await page.locator('#bsS4').innerText();
+  expect(t).toContain('Your door code is sent by the host once your payment, your IDs and the ₱800 deposit are in.');
+  expect(t).not.toContain('arrive before check-in');
 });

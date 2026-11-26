@@ -191,10 +191,10 @@ test.describe('booking sheet', () => {
   /* payment rule D-428/D-429/D-430 (s138). The mock server still answers like the deployed one: a deposit of half and last_minute false;
      the page must show and send the full stay amount anyway. 2 nights x 1,691 = 3,382; plus the 800 deposit = 4,182. */
   const DEP_RETURN = 'It is returned as soon as possible, within 3 business days of check-out, to the same account or payment mode it came from.';
-  const DEP_LINE = `The refundable security deposit of ₱800 is separate from your stay. Send it with your payment (₱4,182 in all) or by the day before check-in. Your door PIN is sent once your payment, IDs and the deposit are in. ${DEP_RETURN}`;
+  const DEP_LINE = 'Refundable deposit ₱800, separate: send it with your payment or by the day before check-in. Returned as soon as possible, within 3 business days of check-out, to the same account.';   /* shorter on step 3 (M9); the full wording stays in the terms and FAQ */
   const DEP_DONE = `Security deposit ₱800, refundable: send it by the day before check-in if you have not already. ${DEP_RETURN}`;
 
-  test('payment rule: the stay total is due now, the deposit is its own line with the PIN rule and the return wording (step 3 and success)', async ({ page }) => {
+  test('payment rule: the stay total is due now, the deposit is its own short line after the amount (step 3), with the PIN rule and the full return wording on success', async ({ page }) => {
     await mock(page); await openHeader(page);
     await step1(page, plus(6), plus(8)); await step2(page);
     await expect(page.locator('#bsFee')).toHaveText('₱3,382');
@@ -205,10 +205,11 @@ test.describe('booking sheet', () => {
     await page.locator('#bsNext3').click();
     await expect(page.locator('#bsH4')).toBeVisible();
     await expect(page.locator('#bsDoneDep')).toHaveText(DEP_DONE);
+    await expect(page.locator('#bsS4')).toContainText('Your door code is sent by the host once your payment, your IDs and the ₱800 deposit are in.');
     await expect(page.locator('#bsDoneTotal')).toHaveText('₱3,382');
   });
 
-  test('payment rule: check-in 3 days out has no separate last-minute branch (same amount, same deposit wording, same hold request)', async ({ page }) => {
+  test('payment rule: check-in 3 days out is pay-first (the flow, not the amount: same total, same deposit wording, one request posted after payment with no hold)', async ({ page }) => {
     const posts = await mock(page); await openHeader(page);
     await step1(page, plus(3), plus(5)); await step2(page);
     await expect(page.locator('#bsFee')).toHaveText('₱3,382');
@@ -220,6 +221,7 @@ test.describe('booking sheet', () => {
     await expect(page.locator('#bsDoneDep')).toHaveText(DEP_DONE);
     expect(posts.length).toBe(1);
     expect(posts[0].deposit_amount).toBe(3382);
+    expect(posts[0].hold).toBeUndefined();
   });
 
   test('late in the month the calendar jumps ahead, and a this-month check-in is still reachable with the previous-month button', async ({ page }) => {

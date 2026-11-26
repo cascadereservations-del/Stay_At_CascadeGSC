@@ -24,7 +24,9 @@ test('the figures live in one constant each, and the guest wording states the sa
   assert.ok(plain(terms).includes(`security deposit of ${peso}`), 'booking-terms.html names the deposit amount');
   assert.ok(plain(stay.slice(stay.indexOf('id="stPolicy"'))).includes(`security deposit of ${peso}`), 'stay.html names the deposit amount');
   const sheet = plain(index.slice(index.indexOf('id="bsDepLine"'), index.indexOf('id="bsDepLine"') + 700));
-  assert.ok(sheet.includes(peso) && sheet.includes(RETURN_LINE), 'the sheet default deposit line');
+  assert.ok(sheet.includes(peso) && sheet.toLowerCase().includes(RETURN_LINE.replace(' or payment mode it came from', '')), 'the sheet default deposit line (short: amount, timing, return within N days to the same account; the full wording is in the terms and FAQ)');
+  const para = index.slice(index.indexOf('id="bsDepLine">'), index.indexOf('</p>', index.indexOf('id="bsDepLine">')));
+  assert.ok(para.length < 260, 'the sheet deposit line stays short (M9)');
   for (const [name, text] of [['index.html', plain(index)], ['booking-terms.html', plain(terms)], ['stay.html', plain(stay)]]) {
     assert.ok(text.includes(RETURN_LINE), `${name} states the return wording`);
   }
@@ -61,6 +63,13 @@ test('the old rule is gone from guest-facing text and from the page logic', () =
   assert.doesNotMatch(index.match(/<script type="application\/ld\+json">[\s\S]*?<\/script>/g).join(''), OLD);
   assert.doesNotMatch(index, /isLastMinute|last_minute|daysOut\s*<=\s*4|_payMode|payModeFull|applyPayFirst|lmBanner/);
   assert.doesNotMatch(index, /deposit_pct:\s*50\b/);
+});
+
+test('the flow split (hold-first from 5 days out, pay-first under 5) is a named constant, separate from the amount', () => {
+  assert.match(index, /HOLD_MIN_DAYS_OUT:\s*5\b/);
+  assert.match(index, /canHold = daysOut >= RULE\.HOLD_MIN_DAYS_OUT/);
+  assert.match(index, /function holdLive\(\) \{[^}]*h\.hold_expires_at/);    /* no expiry = no hold */
+  assert.match(index, /if \(!mn\.canHold\) \{ S\.hold = null; go\(3\); return; \}/);
 });
 
 test('the booking sheet sends the stay total as the amount due and says pay_full on both the booking and the receipt', () => {
