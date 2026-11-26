@@ -29,6 +29,8 @@
   }
   function track(eventName, properties) {
     try {
+    /* Local and test runs (Playwright, a dev server) must not write to the live funnel table. */
+    if (/^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname)) return;
     var payload = Object.assign({
       session_id: sessionId(), event_name: eventName, occurred_at: new Date().toISOString(),
       page_version: document.documentElement.dataset.version || '2026-08-24',

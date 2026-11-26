@@ -199,13 +199,25 @@ test('Guest stories: rating facts and refresh copy (fiveStar from RATING, deposi
   assert.equal(reviews.rating.score, 4.97); assert.equal(reviews.rating.count, 64);
   assert.match(html, new RegExp(`fiveStar: ${reviews.rating.fiveStarPct}, verifiedOn: '${reviews.rating.verifiedOn}'`));
   const noScript = html.replace(/<script[\s\S]*?<\/script>/g, '');
-  assert.equal((noScript.match(/data-rating="fiveStar"/g) || []).length, 2, 'hero proof line and rating band render the five-star share from RATING');
+  assert.equal((noScript.match(/data-rating="fiveStar"/g) || []).length, 1, 'R4: only the rating band renders the five-star share (the hero line was removed); it reads RATING');
   /* round D (D4): each span carries the RATING value as a no-JS fallback that the script overwrites; the number lives nowhere else in markup */
   const fallbacks = [...noScript.matchAll(/<span data-rating="fiveStar">([^<]*)<\/span>/g)].map((m) => m[1]);
-  assert.deepEqual(fallbacks, [`${reviews.rating.fiveStarPct}%`, `${reviews.rating.fiveStarPct}%`], 'the no-JS fallback is the RATING share');
+  assert.deepEqual(fallbacks, [`${reviews.rating.fiveStarPct}%`], 'the no-JS fallback is the RATING share');
   assert.doesNotMatch(noScript.replace(/<span data-rating="fiveStar">[^<]*<\/span>/g, ''), /\b97\s?%/, 'the five-star share is never hard-coded in markup outside the fallback');
   assert.match(html, /<span>Settle your reservation fee by GCash or bank transfer\. We confirm every booking personally\.<\/span>/);
   assert.doesNotMatch(html, /Check today(’|&rsquo;|')s price|>Check price<|>Check my price</);
   assert.match(html, /id="stickyBookCtaBtn" data-gs-book>Reserve<\/a>/);
   assert.match(html, /<span class="hero-bk-cta-label">Reserve your stay<\/span>|>Reserve your stay</);
+});
+
+test('R4: the hero has no five-star line; the proof section keeps it; the wordmark is a script face with a one-line swap', () => {
+  const noScript = html.replace(/<script[\s\S]*?<\/script>/g, '');
+  const hero = noScript.slice(noScript.indexOf('<section class="hero luxury-hero-grid"'), noScript.indexOf('</section>', noScript.indexOf('<section class="hero luxury-hero-grid"')));
+  assert.ok(hero.length > 500, 'hero section found');
+  assert.doesNotMatch(hero, /97\s?%|gave five stars|gs-hero-proof/, 'no five-star line in the hero');
+  assert.match(noScript, /<p class="gs-disp iv-proof-line"><span data-rating="fiveStar">97%<\/span> of guests gave five stars<\/p>/, 'the lower proof line stays');
+  assert.doesNotMatch(html, /gs-hero-proof/, 'no dead CSS or JS left for the removed line');
+  assert.match(html, /family=Pinyon\+Script&display=swap/, 'Pinyon Script loads through the existing fonts request');
+  assert.match(html, /--gs-wordmark-font:\s*'Pinyon Script', 'Snell Roundhand', 'Apple Chancery', 'Cormorant Garamond', serif;/);
+  assert.match(html, /\.site-header \.logo-name \{\s*font-family: var\(--gs-wordmark-font\);/);
 });

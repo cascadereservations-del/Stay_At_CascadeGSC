@@ -222,7 +222,7 @@
   <!-- ── FONTS, PRECONNECTS, LCP PRELOAD, STYLES ──────────────── -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400&family=Raleway:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400&family=Raleway:wght@400;500;600;700&family=Pinyon+Script&display=swap" rel="stylesheet">
 
   <!-- Hero LCP preload — the same studio-wide image the hero img below uses -->
   <link rel="preload" as="image"
@@ -5604,7 +5604,7 @@
     --lg-shadow: inset 0 1px 0 rgb(255 255 255 / .35), inset 0 -1px 0 rgb(255 255 255 / .06), 0 1px 2px rgb(30 18 8 / .10), 0 22px 48px -18px rgb(30 18 8 / .40);
   }
   .theme-quiet-luxury { --gs-scrim-solid: #2E241B; --gs-scrim-rgb: 46 36 27; --gs-scrim-top: 30 22 15; }
-  .gs-meta, .gs-attrib, .gs-hero-proof, .gs-score, .gs-band, .gs-rows li { font-variant-numeric: lining-nums tabular-nums; }
+  .gs-meta, .gs-attrib, .gs-score, .gs-band, .gs-rows li { font-variant-numeric: lining-nums tabular-nums; }
   #spotless, #location, #hospitality, [id^="gs-ch"] { scroll-margin-top: 6rem; }
 
   /* ---------- One liquid-glass recipe: tint + masked specular rim + inset highlight ---------- */
@@ -5635,8 +5635,6 @@
   .gs-eb--hero { color: #fff; font-size: 0.8125rem; text-shadow: none; }
   .theme-quiet-luxury .luxury-hero-copy .hero-title.gs-quote { font-size: clamp(2.25rem, 1.3rem + 3.9vw, 5rem); line-height: 1.02; text-shadow: none; }
   .gs-attrib { font-size: 0.9375rem; color: #F1E8DC; }
-  .gs-hero-proof { margin: 0; display: flex; flex-wrap: wrap; align-items: center; column-gap: 0.5rem; font-size: 0.9375rem; color: #fff; }
-  .gs-hero-proof a { display: inline-block; padding-block: 12px; line-height: 20px; color: #fff; font-weight: 600; text-decoration: underline; text-decoration-color: rgb(255 255 255 / 0.55); text-underline-offset: 0.25em; }
   @media (max-width: 600px) {
     .theme-quiet-luxury .luxury-hero-media img, .theme-quiet-luxury .luxury-hero-media .hero-slide img { object-position: 44% 62%; }
   }
@@ -5795,7 +5793,7 @@
     html { scroll-padding-bottom: calc(6.5rem + env(safe-area-inset-bottom, 0px)); }
   }
   .theme-quiet-luxury .sticky-book-cta-rate span[hidden] { display: none; }
-  .theme-quiet-luxury .hero-bk-field:focus-visible, .theme-quiet-luxury .hero-bk-cta:focus-visible, .gs-hero-proof a:focus-visible,
+  .theme-quiet-luxury .hero-bk-field:focus-visible, .theme-quiet-luxury .hero-bk-cta:focus-visible, 
   .theme-quiet-luxury .sticky-book-cta-btn:focus-visible, .theme-quiet-luxury .site-header .header-cta:focus-visible, .theme-quiet-luxury .site-header a:focus-visible { outline: 2px solid #fff; outline-offset: 3px; }
   .theme-quiet-luxury .hero-bk-field:active { background: rgb(46 36 27 / 0.10); }
   @media (hover: hover) and (pointer: fine) {
@@ -6072,7 +6070,7 @@
   [data-theme="espresso"] .gs-eb { letter-spacing: .1em; }
   .gs-h2, .gs-h3, .bs-h, .faq-heading, .theme-quiet-luxury .luxury-hero-copy .hero-title.gs-quote { font-weight: 600; }
   .theme-quiet-luxury :where(h1, h2, h3) { font-weight: 600; }
-  .gs-attrib, .gs-hero-proof, .gs-dock-sub, .gs-dock-meta, .gs-greet--loc, .gs-lb-cap, .gs-card-note, .gs-card-from { font-size: .875rem; }
+  .gs-attrib, .gs-dock-sub, .gs-dock-meta, .gs-greet--loc, .gs-lb-cap, .gs-card-note, .gs-card-from { font-size: .875rem; }
   .gs-link, .gs-space .gs-meta { font-size: .875rem; }
   .gs-bd { font-size: 1rem; }
   .theme-quiet-luxury .faq-item summary, .theme-quiet-luxury .site-header .logo-name { font-size: 1.25rem; }
@@ -6131,8 +6129,6 @@
   @media (prefers-reduced-motion: no-preference) { .luxury-hero-media { animation: iv-settle 2.4s var(--iv-ease) both; } }
   .hero-overlay { background: linear-gradient(180deg, rgb(28 16 6 / .5) 0, rgb(28 16 6 / .1) 26%, rgb(28 16 6 / .16) 48%, rgb(28 16 6 / .74) 100%); }
   .theme-quiet-luxury .hero-title.gs-quote { font-size: var(--iv-display); font-weight: 600; line-height: 1.06; text-wrap: balance; }
-  .theme-quiet-luxury .gs-hero-proof { margin: .75rem 0 0; display: block; font-size: .875rem; }
-  .theme-quiet-luxury .gs-hero-proof a { color: #fff; font-weight: 700; text-decoration: underline; text-underline-offset: .28em; display: inline-block; padding-block: .75rem; }
 
   /* ---------- D4 the invitation card (hero + book direct) ---------- */
   .iv-mono {
@@ -6341,7 +6337,7 @@ body.theme-quiet-luxury .luxury-hero-grid .luxury-hero-copy::before {
   inset: -9rem -100vw -2.5rem -100vw;
   background: linear-gradient(180deg, rgb(24 14 6 / 0) 0, rgb(24 14 6 / .2) 18%, rgb(24 14 6 / .52) 31%, rgb(24 14 6 / .62) 50%, rgb(24 14 6 / .66) 100%);
 }
-body.theme-quiet-luxury .luxury-hero-copy .hero-title.gs-quote, body.theme-quiet-luxury .luxury-hero-copy .gs-eb--hero, body.theme-quiet-luxury .luxury-hero-copy .gs-attrib, body.theme-quiet-luxury .luxury-hero-copy .gs-hero-proof a { text-shadow: 0 1px 14px rgb(20 12 6 / .5); }
+body.theme-quiet-luxury .luxury-hero-copy .hero-title.gs-quote, body.theme-quiet-luxury .luxury-hero-copy .gs-eb--hero, body.theme-quiet-luxury .luxury-hero-copy .gs-attrib { text-shadow: 0 1px 14px rgb(20 12 6 / .5); }
 @media (min-width: 1024px) {
   body.theme-quiet-luxury .luxury-hero-grid .luxury-hero-copy::before {
     inset: -9rem -100vw -2.5rem -100vw;
@@ -6891,6 +6887,44 @@ body.theme-quiet-luxury #conciergePanel, body.theme-quiet-luxury #conciergeTrigg
   :root body.theme-quiet-luxury #heroBookBar.hero-bk.gs-lg::before { display: none !important; }
   :root:not([data-theme="espresso"]) body.theme-quiet-luxury .hero-bk-cta, :root:not([data-theme="espresso"]) body.theme-quiet-luxury #heroBookBar #qbwSubmit { background-color: #F4E9D2; }
 }
+/* ============================================================
+   ROUND R4 (s137): owner request 2026-11-26.
+   R4.1 the hero 97 percent line is gone (the proof section lower down says it once).
+   R4.2 the hero text group sits directly above the "Select your dates" card.
+   R4.3 the wordmark is a script face; swap it in one line with --gs-wordmark-font.
+   ============================================================ */
+:root { --gs-wordmark-font: 'Pinyon Script', 'Snell Roundhand', 'Apple Chancery', 'Cormorant Garamond', serif; }
+/* R4.3 wordmark (R4b: sized as a peer of the "Book direct" link, not a headline): script faces run small, so the size is raised a little above the link's; normal case and spacing; the tap target and link stay as they were */
+:root body.theme-quiet-luxury .site-header .logo-name {
+  font-family: var(--gs-wordmark-font); font-weight: 400; font-size: 1.6rem; line-height: 1.3; letter-spacing: normal; text-transform: none; font-variant: normal;
+  padding-block: .1em; overflow: visible; text-shadow: 0 1px 10px rgb(20 12 6 / .45);
+}
+@media (min-width: 1024px) { :root body.theme-quiet-luxury .site-header .logo-name { font-size: 1.85rem; } }
+/* R4b: at 359 px and below the brand column is under 200 px wide and its parent clips: a smaller size keeps the full name inside it */
+@media (max-width: 359px) { :root body.theme-quiet-luxury .site-header .logo-name { font-size: 1.4rem; } }
+/* R4.3 the wordmark sits on the brightest part of the photo at the top left: a slightly deeper top wash keeps the script above 4.5:1 (measured in both themes) */
+:root:not([data-theme="espresso"]) body.theme-quiet-luxury .hero-overlay { background: linear-gradient(180deg, rgb(28 16 6 / .6) 0, rgb(28 16 6 / .3) 9%, rgb(28 16 6 / .1) 16%, rgb(28 16 6 / 0) 24%, rgb(28 16 6 / 0) 100%); }
+:root[data-theme="espresso"] body.theme-quiet-luxury .hero-overlay { background: linear-gradient(180deg, rgb(8 5 2 / .58) 0, rgb(8 5 2 / .28) 10%, rgb(8 5 2 / .1) 18%, rgb(8 5 2 / .06) 50%, rgb(8 5 2 / .2) 100%); }
+/* R4.2 phone and tablet: the attribution box ends 16 px above the card (R4b: it was 12); the card is the next grid row */
+:root body.theme-quiet-luxury .luxury-hero-grid .hero-bk { margin-top: 16px; }
+:root body.theme-quiet-luxury .luxury-hero-grid .luxury-hero-copy { padding-bottom: 0; }
+/* R4.2 desktop: copy and card stack in one column (card under the text, 24 px between the attribution box and the card) instead of sitting side by side */
+@media (min-width: 1024px) {
+  :root body.theme-quiet-luxury .luxury-hero-grid { grid-template-columns: minmax(0, 1fr); }
+  :root body.theme-quiet-luxury .luxury-hero-grid .luxury-hero-copy { grid-row: 1; grid-column: 1; }
+  :root body.theme-quiet-luxury .luxury-hero-grid .hero-bk { grid-row: 2; grid-column: 1; align-self: end; justify-self: start; width: 100%; max-width: 30rem; margin: 24px 0 0; }
+  /* R4b: the photograph is the persuader. The copy block's own scrim is off on desktop; the dimming is a left-column gradient on .hero-overlay
+     (dark behind the eyebrow, quote and attribution, fully clear by 58 percent of the width) plus a shallow top wash (112 px) behind the header row */
+  :root body.theme-quiet-luxury .luxury-hero-grid .luxury-hero-copy::before { background: none; }
+  :root:not([data-theme="espresso"]) body.theme-quiet-luxury .hero-overlay {
+    background: linear-gradient(180deg, rgb(28 16 6 / .6) 0, rgb(28 16 6 / .3) 45px, rgb(28 16 6 / 0) 112px),
+                linear-gradient(90deg, rgb(24 14 6 / .66) 0, rgb(24 14 6 / .66) 30%, rgb(24 14 6 / .3) 44%, rgb(24 14 6 / 0) 58%);
+  }
+  :root[data-theme="espresso"] body.theme-quiet-luxury .hero-overlay {
+    background: linear-gradient(180deg, rgb(8 5 2 / .58) 0, rgb(8 5 2 / .28) 45px, rgb(8 5 2 / 0) 112px),
+                linear-gradient(90deg, rgb(10 6 2 / .78) 0, rgb(10 6 2 / .78) 30%, rgb(10 6 2 / .36) 44%, rgb(10 6 2 / 0) 58%);
+  }
+}
 </style>
 <noscript><style>.ch-reveal{opacity:1!important;transform:none!important}.iv-rule{transform:none!important;animation:none!important}</style></noscript>
 </head>
@@ -6965,7 +6999,6 @@ body.theme-quiet-luxury #conciergePanel, body.theme-quiet-luxury #conciergeTrigg
       <p class="gs-eb gs-eb--hero">Guest Favorite &middot; General Santos City</p>
       <h1 class="hero-title gs-quote" id="hero-heading">“Our home away from home in <em>Gensan.</em>”</h1>
       <p class="gs-attrib">A returning guest, November 2026</p>
-      <p class="gs-hero-proof" role="group" data-rating-label="{score} out of 5 from {count} reviews on Airbnb, verified {verified}"><a href="#proof"><span data-rating="fiveStar">97%</span> of guests gave five stars</a></p>
     </div>
 
     <!-- Hero Booking Card — airline-style glass morphism widget -->
@@ -11653,7 +11686,6 @@ body.theme-quiet-luxury #conciergePanel, body.theme-quiet-luxury #conciergeTrigg
     if (o.guests) S.guests = Math.min(MAX_GUESTS, Math.max(MIN_GUESTS, o.guests));
     if (!dlg.open) { dlg.showModal(); document.body.classList.add('bs-open'); }
     S.open = true; autoAdvance(); save(); ensureQuote(); show(S.step);
-    track('booking_sheet_opened', { step: S.step });
   }
   function close() { if (dlg.open) dlg.close(); }
   dlg.addEventListener('close', function () {
