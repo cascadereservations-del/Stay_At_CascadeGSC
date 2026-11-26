@@ -3,7 +3,8 @@ select plan(13);
 
 select is((select count(*)::int from pg_policies where schemaname='public' and tablename='app_settings' and policyname='auth all'), 0, 'the open staff policy is gone');
 -- s127 (20261128000000_s127_bill_reminders.sql) added two restrictive policies that close the bill_schedule key to anon and to staff.
-select is((select count(*)::int from pg_policies where schemaname='public' and tablename='app_settings'), 5, 'five policies: anon read, staff read, admin write, plus the two restrictive bill_schedule closers (s127)');
+-- s141 (20261209000000_s141_wifi_password_closed_anon.sql) added one restrictive policy that closes the wifi_password key to anon.
+select is((select count(*)::int from pg_policies where schemaname='public' and tablename='app_settings'), 6, 'six policies: anon read, staff read, admin write, the two restrictive bill_schedule closers (s127) and the restrictive wifi_password closer for anon (s141)');
 
 -- Fixtures: an admin with the property, a cleaner with the property, two settings rows of our own.
 insert into auth.users(id) values('f3000000-0000-4000-8000-0000000000a1'),('f3000000-0000-4000-8000-0000000000a2');

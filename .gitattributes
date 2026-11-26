@@ -8,3 +8,5 @@ supabase/migrations/20261207*.sql text eol=lf
 supabase/rollbacks/20261207_*.sql text eol=lf
 supabase/migrations/20261208*.sql text eol=lf
 supabase/rollbacks/20261208_*.sql text eol=lf
+supabase/migrations/20261209*.sql text eol=lf
+supabase/rollbacks/20261209_*.sql text eol=lf
