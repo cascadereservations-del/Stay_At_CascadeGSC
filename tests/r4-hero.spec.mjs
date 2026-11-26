@@ -7,10 +7,10 @@ test.beforeEach(async ({ page }) => {
   await page.route('**/*.supabase.co/**', (route) => (route.request().method() !== 'GET' ? route.abort() : route.fulfill({ status: 200, contentType: 'application/json', body: '[]' })));
 });
 
-const SIZES = [{ name: 'phone', w: 390, h: 844, gap: 28 }, { name: 'desktop', w: 1280, h: 800, gap: 28 }];
+const SIZES = [{ name: 'phone', w: 390, h: 844, gap: 16 }, { name: 'desktop', w: 1280, h: 800, gap: 24 }];
 
 for (const sz of SIZES) {
-  test(`R4 hero at ${sz.name}: no 97% line, text group within ${sz.gap}px of the card, Reserve visible, no overlap, no page error`, async ({ page }) => {
+  test(`R4 hero at ${sz.name}: no 97% line, attribution box ${sz.gap}px above the card, Reserve visible, no overlap, no page error`, async ({ page }) => {
     const errors = []; page.on('pageerror', (e) => errors.push(String(e)));
     await page.setViewportSize({ width: sz.w, height: sz.h });
     await page.goto('/?theme-time=midday', { waitUntil: 'load' });
@@ -31,8 +31,7 @@ for (const sz of SIZES) {
     expect(m.heroProof).toBe(false);
     expect(m.proofText).toMatch(/97%/); /* the lower proof line stays */
     const gap = m.card.top - m.attrib.bottom;
-    expect(gap, 'attribution bottom to card top').toBeGreaterThanOrEqual(8);
-    expect(gap, 'attribution bottom to card top').toBeLessThanOrEqual(sz.gap);
+    expect(Math.abs(gap - sz.gap), `attribution bottom to card top is ${gap}`).toBeLessThanOrEqual(0.5);
     expect(m.copy.bottom).toBeLessThanOrEqual(m.card.top + 1);
     expect(m.eyebrow.top, 'group clears the wordmark').toBeGreaterThan(m.logo.bottom);
     expect(m.card.bottom).toBeLessThanOrEqual(sz.h);
@@ -40,6 +39,24 @@ for (const sz of SIZES) {
     expect(visibleReserve.length, 'Reserve pill in the first viewport').toBeGreaterThanOrEqual(1);
     expect(m.sw).toBeLessThanOrEqual(m.cw);
     expect(errors).toEqual([]);
+  });
+}
+
+/* R4b: the brand link clips (overflow hidden) on small phones: the whole name must sit inside it at every phone width */
+for (const w of [320, 340, 360, 390]) {
+  test(`R4b wordmark is not clipped at ${w}px`, async ({ page }) => {
+    await page.setViewportSize({ width: w, height: 700 });
+    await page.goto('/?theme-time=midday', { waitUntil: 'load' });
+    await page.evaluate(() => document.fonts.ready);
+    const r = await page.evaluate(() => {
+      const e = document.querySelector('.site-header .logo-name'), rg = document.createRange(); rg.selectNodeContents(e);
+      const t = rg.getBoundingClientRect(), box = e.getBoundingClientRect(); let clip = Infinity;
+      for (let a = e; a && a !== document.body; a = a.parentElement) { const o = getComputedStyle(a).overflowX; if (o !== 'visible') clip = Math.min(clip, a.getBoundingClientRect().right); }
+      return { textR: t.right, boxR: box.right, clipR: clip, sw: e.scrollWidth, cw: e.clientWidth, cta: document.querySelector('.header-cta').getBoundingClientRect().left };
+    });
+    expect(r.sw, 'name text fits its own box').toBeLessThanOrEqual(r.cw);
+    expect(r.textR, 'right edge of the text inside every clipping ancestor').toBeLessThanOrEqual(r.clipR + 0.5);
+    expect(r.textR, 'name ends before the Book direct link').toBeLessThanOrEqual(r.cta);
   });
 }
 
@@ -53,10 +70,11 @@ test('R4 wordmark: computed family starts with Pinyon Script, normal case, tap t
     return { fam: cs.fontFamily, tt: cs.textTransform, ls: cs.letterSpacing, fs: parseFloat(cs.fontSize), logoH: logo.height, token: getComputedStyle(document.documentElement).getPropertyValue('--gs-wordmark-font').trim(), footFam: foot.fontFamily };
   });
   expect(r.fam.replace(/["']/g, '')).toMatch(/^Pinyon Script,/);
-  expect(r.token.replace(/["']/g, '')).toBe('Pinyon Script, Snell Roundhand, Apple Chancery, cursive'); /* engines differ on quote style */
+  expect(r.token.replace(/["']/g, '')).toBe('Pinyon Script, Snell Roundhand, Apple Chancery, Cormorant Garamond, serif'); /* engines differ on quote style */
   expect(r.tt).toBe('none');
   expect(r.ls).toBe('normal');
-  expect(r.fs).toBeGreaterThanOrEqual(32);
+  expect(r.fs, 'wordmark is a peer of Book direct, not a headline').toBeGreaterThanOrEqual(24);
+  expect(r.fs).toBeLessThanOrEqual(30);
   expect(r.logoH).toBeGreaterThanOrEqual(44);
   expect(r.footFam).not.toMatch(/Pinyon/);
 });
@@ -73,14 +91,14 @@ for (const sz of SIZES) for (const time of ['midday', 'night']) {
     await page.waitForFunction(() => document.getAnimations().every((an) => an.playState !== 'running' || an.effect?.getComputedTiming().iterations === Infinity) && getComputedStyle(document.getElementById('heroPhoto')).opacity === '1'); /* the photo and the page reveals have finished */
     const info = await page.evaluate(() => {
       const o = {};
-      for (const [k, s] of [['eyebrow', '.gs-eb--hero'], ['quote', '.hero-title'], ['attrib', '.gs-attrib'], ['wordmark', '.logo-name']]) {
+      for (const [k, s] of [['eyebrow', '.gs-eb--hero'], ['quote', '.hero-title'], ['attrib', '.gs-attrib'], ['wordmark', '.logo-name'], ['bookdirect', '.header-cta']]) {
         const e = document.querySelector(s), rg = document.createRange(); rg.selectNodeContents(e);
         o[k] = { rects: [...rg.getClientRects()].filter((r) => r.width > 2 && r.height > 2).map((r) => ({ x: r.left, y: r.top, w: r.width, h: r.height })), color: getComputedStyle(e).color.match(/\d+/g).map(Number) };
       }
       return o;
     });
     /* hide the glyphs (boxes keep their place, rects were read above); the scrim is a pseudo-element of the copy block, so hide only its text children */
-    await page.evaluate(() => document.querySelectorAll('.luxury-hero-copy *, .logo-name').forEach((e) => { e.style.setProperty('visibility', 'hidden', 'important'); }));
+    await page.evaluate(() => document.querySelectorAll('.luxury-hero-copy *, .logo-name, .header-cta').forEach((e) => { e.style.setProperty('visibility', 'hidden', 'important'); }));
     await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))); /* let the hidden glyphs paint out before the shot (the first shot after a style change can show the old frame) */
     const lum = ([r, g, b]) => { const f = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }; return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b); };
     const b64 = (await page.screenshot()).toString('base64'); /* one shot of the viewport, cropped in the page (WebKit is slow per clipped shot) */
@@ -101,6 +119,7 @@ for (const sz of SIZES) for (const time of ['midday', 'night']) {
       }
       return out;
     }, { data: b64, info, w: sz.w, h: sz.h });
+    console.log(`CONTRAST ${sz.name} ${time} ` + JSON.stringify(Object.fromEntries(Object.entries(res).map(([k, v]) => [k, +v.toFixed(2)]))));
     for (const [k, worst] of Object.entries(res)) {
       expect(worst, `${k} contrast at ${sz.name} ${time}`).toBeGreaterThanOrEqual(k === 'quote' ? 3 : 4.5);
     }

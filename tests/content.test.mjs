@@ -218,6 +218,6 @@ test('R4: the hero has no five-star line; the proof section keeps it; the wordma
   assert.match(noScript, /<p class="gs-disp iv-proof-line"><span data-rating="fiveStar">97%<\/span> of guests gave five stars<\/p>/, 'the lower proof line stays');
   assert.doesNotMatch(html, /gs-hero-proof/, 'no dead CSS or JS left for the removed line');
   assert.match(html, /family=Pinyon\+Script&display=swap/, 'Pinyon Script loads through the existing fonts request');
-  assert.match(html, /--gs-wordmark-font:\s*'Pinyon Script', 'Snell Roundhand', 'Apple Chancery', cursive;/);
+  assert.match(html, /--gs-wordmark-font:\s*'Pinyon Script', 'Snell Roundhand', 'Apple Chancery', 'Cormorant Garamond', serif;/);
   assert.match(html, /\.site-header \.logo-name \{\s*font-family: var\(--gs-wordmark-font\);/);
 });
