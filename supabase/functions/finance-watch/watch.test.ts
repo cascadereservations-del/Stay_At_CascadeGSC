@@ -26,11 +26,11 @@ Deno.test('overdue rows are listed oldest first, the oldest owns the action, and
   assertEquals(r.decision, '2 payments overdue, ₱5,407.10 in total.');
   assertEquals(r.lines, [
     'Airbnb HMLATE0001 Cara: checked in 11 Sep, ₱4,517.10 payout not received (3 days)',
-    'Direct DIR-22222222 Mia: check-in 20 Sep, ₱890.00 reservation fee unpaid (3 days)',
+    'Direct DIR-22222222 Mia: check-in 20 Sep, ₱890.00 payment unpaid (3 days)',
   ]);
   assertEquals(r.action, 'Check Airbnb → Earnings for HMLATE0001 (Cara); if it was paid, forward the payout email so the sync records it.');
   const onlyDirect = watchReport(today, [], [dirLate])!;
-  assertEquals(onlyDirect.action, 'Message Mia for the ₱890.00 reservation fee, or cancel DIR-22222222 if the dates should be released.');
+  assertEquals(onlyDirect.action, 'Message Mia for the ₱890.00 payment, or cancel DIR-22222222 if the dates should be released.');
   assertEquals(renderReport(r).includes('— '), false);
 });
 

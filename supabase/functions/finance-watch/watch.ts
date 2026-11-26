@@ -1,8 +1,8 @@
 // finance-watch rules (phase 5, D-106 #5). Pure: rows in, Report out; null when nothing is overdue.
 // Two watches, both from existing data:
 //   airbnb: confirmed, checked in two or more days ago, no payout email yet (Airbnb pays the day after check-in).
-//   direct: pending inquiry, no receipt a day after submission, check-in still ahead (fee is 50 % on booking).
-// ponytail: deposit-return watch skipped — only direct bookings pay the ₱1,000 deposit, one confirmed direct
+//   direct: pending inquiry, no receipt a day after submission, check-in still ahead (the full stay is due on booking).
+// ponytail: deposit-return watch skipped — only direct bookings pay the ₱800 deposit, one confirmed direct
 // booking exists, and no table records the deposit taken or returned. Add when direct bookings are regular.
 import { manilaDate } from '../_shared/cleaning-fee.ts';
 import type { Report } from '../_shared/cascade-core/format.ts';
@@ -34,7 +34,7 @@ export function overdue(today: string, airbnb: AirbnbRow[], direct: DirectRow[])
     const guest = r.guest_name ?? 'guest';
     const code = 'DIR-' + r.id.slice(0, 8).toUpperCase();
     out.push({ kind: 'direct', code, guest, amount: Number(r.deposit_amount ?? 0), days,
-      line: `Direct ${code} ${guest}: check-in ${dm(r.checkin_date)}, ₱${peso(r.deposit_amount)} reservation fee unpaid (${days} days)` });
+      line: `Direct ${code} ${guest}: check-in ${dm(r.checkin_date)}, ₱${peso(r.deposit_amount)} payment unpaid (${days} days)` });
   }
   return out.sort((a, b) => b.days - a.days);
 }
@@ -50,7 +50,7 @@ export function watchReport(today: string, airbnb: AirbnbRow[], direct: DirectRo
   const first = items[0];
   const action = first.kind === 'airbnb'
     ? `Check Airbnb → Earnings for ${first.code} (${first.guest}); if it was paid, forward the payout email so the sync records it.`
-    : `Message ${first.guest} for the ₱${peso(first.amount)} reservation fee, or cancel ${first.code} if the dates should be released.`;
+    : `Message ${first.guest} for the ₱${peso(first.amount)} payment, or cancel ${first.code} if the dates should be released.`;
   return { decision, lines: items.map((i) => i.line), action };
 }
 
