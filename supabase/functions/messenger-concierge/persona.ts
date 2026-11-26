@@ -149,8 +149,8 @@ export const datesChecking = (dates: string, lang?: Lang) => by(lang, {
 /** Taken, nothing near to offer: the honest reason and one easy way on. index.ts matches "already reserved" / "reserved na". */
 export const datesReserved = (dates: string, lang?: Lang) => by(lang, {
   en: `I'm sorry, ${dates} is already reserved, as the home welcomes one party at a time. If other dates suit you, just share your check-in and check-out and we'll gladly check them for you.`,
-  tl: `Pasensya na po, reserved na ang ${dates} — one party lang ang tinatanggap namin per stay. If may ibang dates kayong gusto, share lang po ang check-in and check-out and iche-check namin agad.`,
-  bis: `Pasensya, reserved na ang ${dates} — one party ra ang ma-accommodate namo per stay. If naa moy other dates, share lang ang check-in and check-out and amo dayon i-check.`,
+  tl: `Pasensya na po, reserved na ang ${dates}, one party lang ang tinatanggap namin per stay. If may ibang dates kayong gusto, share lang po ang check-in and check-out and iche-check namin agad.`,
+  bis: `Pasensya, reserved na ang ${dates}, one party ra ang ma-accommodate namo per stay. If naa moy other dates, share lang ang check-in and check-out and amo dayon i-check.`,
 });
 /** Taken, with the nearest open window (`when`: "Oct 2", "Oct 2 to 4", "Oct 2 onwards"). `ask`: offered as the same
  *  one-yes question the price path uses (holdOffer), so a guest is one "yes" from the next step whichever way they came. */
@@ -179,8 +179,8 @@ export const openAck = (openLine: string, pax: number | undefined, lang?: Lang) 
 /** Both dates given but not yet checked: noted, and checked as we go. */
 const datesNoted = (checkin: string, checkout: string, lang?: Lang) => by(lang, {
   en: `${checkin} to ${checkout} is noted, and we'll check those dates for you as we go. `,
-  tl: `Noted po ang ${checkin} to ${checkout} — iche-check namin ang dates as we go. `,
-  bis: `Noted ang ${checkin} to ${checkout} — amo i-check ang dates as we go. `,
+  tl: `Noted po ang ${checkin} to ${checkout}, iche-check namin ang dates as we go. `,
+  bis: `Noted ang ${checkin} to ${checkout}, amo i-check ang dates as we go. `,
 });
 /** A host's welcome that acknowledges what the guest already told us (session 28 - "Your mobile number po?" as an opener
  *  read as a form). `greet` is the greeting already built (or ''); `answer` the calendar's line; `dates` the check-in and
@@ -272,9 +272,9 @@ export const oneNight = (price: string, lang?: Lang) => by(lang, {
 });
 /** Two nights or more on the tier rate: the direct rate anchored on the standard. */
 export const nightsPrice = (n: number, rate: string, std: string, total: string, lang?: Lang) => by(lang, {
-  en: `Booking directly with us brings your ${n} nights to ${rate} per night instead of the standard ${std} — ${total} for the stay.`,
-  tl: `Kapag direct booking po sa amin, ang ${n} nights ninyo ay nasa ${rate} per night imbes na ang standard na ${std} — ${total} for the stay.`,
-  bis: `Kung direct booking sa amo, ang inyong ${n} nights kay ${rate} per night imbes sa standard nga ${std} — ${total} for the stay.`,
+  en: `Booking directly with us brings your ${n} nights to ${rate} per night instead of the standard ${std}: ${total} for the stay.`,
+  tl: `Kapag direct booking po sa amin, ang ${n} nights ninyo ay nasa ${rate} per night imbes na ang standard na ${std}: ${total} for the stay.`,
+  bis: `Kung direct booking sa amo, ang inyong ${n} nights kay ${rate} per night imbes sa standard nga ${std}: ${total} for the stay.`,
 });
 /** D-262: promo nights anchored on the standard rate (never a "was" price). One night, all of it on the promotion. */
 export const promoOneNight = (rate: string, name: string, std: string, lang?: Lang) => by(lang, {
@@ -284,9 +284,9 @@ export const promoOneNight = (rate: string, name: string, std: string, lang?: La
 });
 /** Every night of the stay inside the promotion. */
 export const promoAllNights = (n: number, name: string, rate: string, std: string, total: string, lang?: Lang) => by(lang, {
-  en: `Your ${n} nights fall inside our ${name}, so booking directly brings them to ${rate} per night instead of the standard ${std} — ${total} for the stay.`,
-  tl: `Pasok po ang ${n} nights ninyo sa ${name} namin, kaya sa direct booking ay ${rate} per night imbes na ang standard na ${std} — ${total} for the stay.`,
-  bis: `Sulod sa among ${name} ang inyong ${n} nights, so sa direct booking kay ${rate} per night imbes sa standard nga ${std} — ${total} for the stay.`,
+  en: `Your ${n} nights fall inside our ${name}, so booking directly brings them to ${rate} per night instead of the standard ${std}: ${total} for the stay.`,
+  tl: `Pasok po ang ${n} nights ninyo sa ${name} namin, kaya sa direct booking ay ${rate} per night imbes na ang standard na ${std}: ${total} for the stay.`,
+  bis: `Sulod sa among ${name} ang inyong ${n} nights, so sa direct booking kay ${rate} per night imbes sa standard nga ${std}: ${total} for the stay.`,
 });
 /** A mixed stay names both parts. `when` is the promotion's nights ("Oct 11", "Oct 11 to 13"). */
 export function promoMixed(p: { n: number; total: string; promoNights: number; when: string; name: string; promoRate: string; rest: number; restRate: string; std: string }, lang?: Lang): string {
@@ -359,7 +359,7 @@ export function stayCard(c: CardFacts, lang?: Lang): string {
     `📞 ${c.phone}${c.email ? ` · ${c.email}` : ''}`,
     `💰 Total ${c.total}${c.ref ? ` · reference ${c.ref}` : ''}`,
     ...(c.promo ? [`🏷️ ${c.promo.name}: ${c.promo.nights} night${s(c.promo.nights)} at ${c.promo.rate}`] : []),
-    by(lang, { en: `🔐 ${DEP} refundable security deposit: with your payment or by the day before check-in; returned within ${DEP_DAYS} business days after check-out, to the account you paid from`, tl: `🔐 ${DEP} refundable security deposit: kasabay ng payment o bago mag-check-in; ibabalik within ${DEP_DAYS} business days after check-out, sa account na pinagbayaran`, bis: `🔐 ${DEP} refundable security deposit: kauban sa payment o sa wala pa ang check-in; i-uli within ${DEP_DAYS} business days after check-out, sa account nga gibayran` }),
+    by(lang, { en: `🔐 ${DEP} refundable security deposit: with your payment or by the day before check-in; returned within ${DEP_DAYS} business days after check-out, to the account you paid from`, tl: `🔐 ${DEP} refundable security deposit: kasabay ng payment o by the day before check-in; ibabalik within ${DEP_DAYS} business days after check-out, sa account na pinagbayaran`, bis: `🔐 ${DEP} refundable security deposit: kauban sa payment o by the day before check-in; i-uli within ${DEP_DAYS} business days after check-out, sa account nga gibayran` }),
     ...(!c.ref ? [] : c.hold && c.until
       ? [by(lang, { en: `⏳ Held for you for 24 hours, until ${c.until} (${c.rel})`, tl: `⏳ Naka-hold na para sa inyo for 24 hours, until ${c.until} (${c.rel})`, bis: `⏳ Naka-hold na para ninyo for 24 hours, until ${c.until} (${c.rel})` })]
       : [by(lang, { en: `⏳ Yours as soon as the payment arrives`, tl: `⏳ Sa inyo na ito once dumating ang payment`, bis: `⏳ Inyo na ni once muabot ang payment` })]),
@@ -370,14 +370,19 @@ export function stayCard(c: CardFacts, lang?: Lang): string {
 
 /** Read from the guest by booking.ts toneOf: brisk (short, plain), warm (the default), gentle (hesitant or first-timer). */
 export type Tone = 'brisk' | 'warm' | 'gentle';
-export type PayFacts = { total: string; dates: string; name: string; party?: string };
+/** `balance` (rule 8, R2-1): set only for a booking made under the old rule; `total` is then the amount the QR carries, not the stay. */
+export type PayFacts = { total: string; dates: string; name: string; party?: string; balance?: string };
 const GCASH = '0956 011 5744';
 /** The payment paragraph and the receipt line, after the stay card. s138 (D-428..D-430): the full stay amount confirms the
  *  booking, whatever the length of stay or the days to check-in; the refundable security deposit is separate, paid with the
  *  booking or at least a day before check-in. The amount-set QR is the image of the same turn. */
 export function payNudge(p: PayFacts, tone: Tone, lang?: Lang): string {
   const L = lang ?? 'en', n = p.name, c = n ? `, ${n}` : '';
-  const pay = tone === 'brisk' ? by(L, {
+  const pay = p.balance ? by(L, {
+        en: `The ${p.total} secures these dates: the QR below carries the exact amount, or GCash ${GCASH}. The remaining ${p.balance} of your stay and the ${DEP} refundable security deposit are due by the day before check-in.`,
+        tl: `Ang ${p.total} ang magse-secure ng dates: naka-set na ang exact amount sa QR below, o GCash ${GCASH}. Ang natitirang ${p.balance} ng stay at ang ${DEP} refundable security deposit ay due by the day before check-in.`,
+        bis: `Ang ${p.total} ang mag-secure sa dates: naka-set na ang exact amount sa QR below, o GCash ${GCASH}. Ang nahibilin nga ${p.balance} sa stay ug ang ${DEP} refundable security deposit kay due by the day before check-in.` })
+    : tone === 'brisk' ? by(L, {
         en: `The full ${p.total} secures these dates: the QR below carries the exact amount, or GCash ${GCASH}. The ${DEP} refundable deposit comes with your payment or by the day before check-in.`,
         tl: `Ang full ${p.total} ang magse-secure ng dates: naka-set na ang exact amount sa QR below, o GCash ${GCASH}. Ang ${DEP} refundable deposit ay puwedeng kasabay ng payment o at least a day before check-in.`,
         bis: `Ang full ${p.total} ang mag-secure sa dates: naka-set na ang exact amount sa QR below, o GCash ${GCASH}. Ang ${DEP} refundable deposit kay pwede kauban sa payment o at least a day before check-in.` })
@@ -529,9 +534,14 @@ export const warmClause = (lang?: Lang, booked = false) => booked ? by(lang, {
 /** s78 (TASKS #6, Angel turns 13 and 19): the stay card's payment terms, said back when a booked guest proposes another timing
  *  ("pay the deposit pag nasa area na", "we will send the deposit tomorrow"). s138 (D-430): the full stay amount confirms the
  *  booking; the refundable security deposit is due at least a day before check-in. Never agrees to pay on arrival. */
-export function payTermsLine(name: string | null, lang: Lang, f: { total: string; paid: boolean }): string {
+export function payTermsLine(name: string | null, lang: Lang, f: { total: string; paid: boolean; balance?: string }): string {
   const c = withName(name);
-  const terms = by(lang, {
+  // Rule 8 (R2-1): a booking made under the old rule still owes its balance; `total` is then the amount paid or due to confirm.
+  const terms = f.balance ? by(lang, {
+        en: `the ${f.total} confirms the booking, and the remaining ${f.balance} of your stay is due by the day before check-in, together with the ${DEP} refundable security deposit, so everything is settled before you arrive.`,
+        tl: `ang ${f.total} ang nagko-confirm ng booking, at ang natitirang ${f.balance} ng stay ay due by the day before check-in, kasama ang ${DEP} refundable security deposit, para settled na ang lahat bago kayo dumating.`,
+        bis: `the ${f.total} confirms the booking, and the remaining ${f.balance} of your stay is due by the day before check-in, together with the ${DEP} refundable security deposit, so everything is settled before you arrive.` })
+    : by(lang, {
         en: `the full ${f.total} covers the whole stay and confirms it, and the ${DEP} refundable security deposit may be sent with your payment or by the day before check-in, so everything is settled before you arrive.`,
         tl: `ang full ${f.total} ang sumasaklaw sa buong stay at nagko-confirm nito, at ang ${DEP} refundable security deposit ay puwedeng kasabay ng payment o at least a day before check-in, para settled na ang lahat bago kayo dumating.`,
         bis: `the full ${f.total} covers the whole stay and confirms it, and the ${DEP} refundable security deposit may be sent with your payment or by the day before check-in, so everything is settled before you arrive.` });
@@ -542,19 +552,6 @@ export function payTermsLine(name: string | null, lang: Lang, f: { total: string
   const back = by(lang, { en: `The deposit is returned as soon as possible, within ${DEP_DAYS} business days after check-out, to the account you paid from.`, tl: `Ibabalik ang deposit asap, within ${DEP_DAYS} business days after check-out, sa account na pinagbayaran ninyo.`, bis: `I-uli ang deposit asap, within ${DEP_DAYS} business days after check-out, sa account nga inyong gibayran.` });
   return `${head}${terms}\n\n${back}\n\n${tail}`;
 }
-
-/** s138 fix round 1 (F7, D-428): the direct-booking cancellation terms, from CANCELLATION-STUDY section 6. facts.ts carries the same facts. */
-export const cancelTermsLine = (lang: Lang | undefined) => by(lang, {
-  en: `Our cancellation terms for direct bookings: free until 5 days before check-in; a full refund if you cancel within 24 hours of paying and check-in is 7 or more days away; one free date move up to 5 days before check-in, subject to availability
-
-Inside 5 days, or for a no-show, we keep 50% of the stay and return the ${DEP} deposit in full; if a government-declared calamity or an airport closure stops your trip, you may choose new dates or a full refund. Refunds are sent within 3 business days.`,
-  tl: `Ang cancellation terms namin sa direct bookings: free hanggang 5 days before check-in; full refund kung magka-cancel within 24 hours ng payment at 7 days or more pa ang check-in; isang free na date move hanggang 5 days before check-in, subject to availability
-
-Sa loob ng 5 days, o kapag no-show, 50% ng stay ang kinukuha namin at full na ibabalik ang ${DEP} deposit; kung calamity na dineklara ng gobyerno o airport closure ang pumigil sa trip, puwede kayong pumili ng bagong dates o full refund. Within 3 business days ang refunds.`,
-  bis: `Ang cancellation terms namo sa direct bookings: free hangtod 5 days before check-in; full refund kung mo-cancel within 24 hours human mabayad ug 7 days or more pa ang check-in; usa ka free nga date move hangtod 5 days before check-in, subject to availability
-
-Sulod sa 5 days, o kung no-show, 50% sa stay among kuhaon ug full nga i-uli ang ${DEP} deposit; kung calamity nga gideklara sa gobyerno o airport closure ang nakapugong sa trip, pwede mo pili ug bag-ong dates o full refund. Within 3 business days ang refunds.`,
-});
 
 /** SPEC-14 (D-184): the cancel / "not now" reply. Nothing is committed, and the dates alone reopen the flow. */
 export const cancelReply = (lang: Lang | undefined) => by(lang, {
@@ -786,7 +783,7 @@ export const nudgeReady = (lang: Lang) => by(lang, {
 
 /** submit-booking said 409 / dates_unavailable. */
 export const datesTaken = (lang: Lang | undefined) => by(lang, {
-  en: `Sorry — those dates were reserved just moments ago. If other dates suit you, just share your check-in and check-out and we'll gladly check them for you.`,
+  en: `Sorry, those dates were reserved just moments ago. If other dates suit you, just share your check-in and check-out and we'll gladly check them for you.`,
   tl: `Sorry po, kaka-reserve lang ng dates na iyon. If may ibang dates kayong gusto, share lang po ang check-in and check-out and iche-check namin agad.`,
   bis: `Sorry, kaka-reserve lang sa dates nga na. If naa moy other dates, share lang ang check-in and check-out and amo dayon i-check.`,
 });
@@ -798,23 +795,23 @@ export const submitFailed = (lang: Lang | undefined) => by(lang, {
 }) + `\n\n👉 ${SITE_URL}`;
 export const receiptThanks = (name: string | null, lang: Lang | undefined) => by(lang, {
   en: `Thank you${withName(name)}. We've received your receipt and we'll confirm the reservation as soon as it's reviewed. You'll hear from us here.`,
-  tl: `Salamat po${withName(name)}. Received na namin ang receipt — iko-confirm namin ang reservation once na-review na. Dito po namin kayo iu-update.`,
-  bis: `Salamat${withName(name)}. Na-receive na namo ang receipt — amo dayon i-confirm ang reservation once na-review na. Diri ra namo mo i-update.`,
+  tl: `Salamat po${withName(name)}. Received na namin ang receipt, iko-confirm namin ang reservation once na-review na. Dito po namin kayo iu-update.`,
+  bis: `Salamat${withName(name)}. Na-receive na namo ang receipt, amo dayon i-confirm ang reservation once na-review na. Diri ra namo mo i-update.`,
 });
 export const receiptAlready = (lang: Lang | undefined) => by(lang, {
   en: `Your receipt is already with us and it's being reviewed.`,
-  tl: `Nasa amin na po ang receipt ninyo — nire-review na.`,
-  bis: `Naa na sa amo ang receipt — gi-review na.`,
+  tl: `Nasa amin na po ang receipt ninyo, nire-review na.`,
+  bis: `Naa na sa amo ang receipt, gi-review na.`,
 });
 /** The hold ('hold') or the receipt upload link ('link') has lapsed. */
 export const receiptLapsed = (what: 'hold' | 'link', lang: Lang | undefined) => by(lang, what === 'hold' ? {
-  en: `Thank you. That hold has since expired — just say "book" and we'll set the dates up again.`,
-  tl: `Salamat po. Nag-expire na ang hold na iyon — message lang po "book" and we'll set the dates up again.`,
-  bis: `Salamat. Na-expire na ang hold — message lang "book" and amo i-set up ang dates again.`,
+  en: `Thank you. That hold has since expired, just say "book" and we'll set the dates up again.`,
+  tl: `Salamat po. Nag-expire na ang hold na iyon, message lang po "book" and we'll set the dates up again.`,
+  bis: `Salamat. Na-expire na ang hold, message lang "book" and amo i-set up ang dates again.`,
 } : {
-  en: `Thank you. That upload link has since expired — just say "book" and we'll set the dates up again.`,
-  tl: `Salamat po. Nag-expire na ang upload link — message lang po "book" and we'll set the dates up again.`,
-  bis: `Salamat. Na-expire na ang upload link — message lang "book" and amo i-set up ang dates again.`,
+  en: `Thank you. That upload link has since expired, just say "book" and we'll set the dates up again.`,
+  tl: `Salamat po. Nag-expire na ang upload link, message lang po "book" and we'll set the dates up again.`,
+  bis: `Salamat. Na-expire na ang upload link, message lang "book" and amo i-set up ang dates again.`,
 });
 /** airbnb-email-sync (session 28): the welcome-back line a host sends a returning Airbnb guest from the new-booking card.
  *  Session 58: it lived in that function with an "!" and ISO dates ("2026-10-02 to 2026-10-04"); `dates` is dmRange's

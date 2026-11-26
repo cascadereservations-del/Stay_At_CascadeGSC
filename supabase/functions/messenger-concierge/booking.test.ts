@@ -1,5 +1,5 @@
-import { assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
-import { paymentReply, answer, availabilityLine, dmRange, kidsIn, openWindows, parseDates, parseName, parsePax, parsePhone, prompt, rateLine, start, stayPayMessage, toneOf, trimWindow, type Flow } from './booking.ts';
+import { assert, assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
+import { flowBalance, payTermsReply, paymentReply, answer, availabilityLine, dmRange, kidsIn, openWindows, parseDates, parseName, parsePax, parsePhone, prompt, rateLine, start, stayPayMessage, toneOf, trimWindow, type Flow } from './booking.ts';
 
 const now = new Date('2026-09-17T00:00:00Z');
 
@@ -45,9 +45,9 @@ Deno.test('dmRange: one month reads once, two months read twice', () => {
 
 Deno.test('rateLine: the direct rate and the one-night rate; no last-minute sentence (s138); 28+ nights is never quoted', () => {
   const f = (a: string, z: string): Flow => ({ step: 'offer', checkin: a, checkout: z, pax: 2, lang: 'en', started_at: now.toISOString(), updated_at: now.toISOString() });
-  assertEquals(rateLine(f('2026-11-17', '2026-11-19'), now), 'Booking directly with us brings your 2 nights to PHP 1,691 per night instead of the standard PHP 1,780 — PHP 3,382 for the stay.');
+  assertEquals(rateLine(f('2026-11-17', '2026-11-19'), now), 'Booking directly with us brings your 2 nights to PHP 1,691 per night instead of the standard PHP 1,780: PHP 3,382 for the stay.');
   assertEquals(rateLine(f('2026-11-17', '2026-11-18'), now), 'One night with us comes to PHP 1,780.'); // D-268 persona.ts
-  assertEquals(rateLine(f('2026-11-17', '2026-11-22'), now), 'Booking directly with us brings your 5 nights to PHP 1,602 per night instead of the standard PHP 1,780 — PHP 8,010 for the stay.');
+  assertEquals(rateLine(f('2026-11-17', '2026-11-22'), now), 'Booking directly with us brings your 5 nights to PHP 1,602 per night instead of the standard PHP 1,780: PHP 8,010 for the stay.');
   // s138 (D-428): every stay is paid in full, so no date, near or far, gets a last-minute sentence.
   assertEquals(rateLine(f('2026-09-18', '2026-09-20'), now).includes('within the next five days'), false);
   assertEquals(rateLine(f('2026-09-21', '2026-09-23'), now).includes('within the next five days'), false);
@@ -383,4 +383,24 @@ Deno.test('s138 F3: a flow from before the deploy (deposit 1,691 of 3,382) state
   assertEquals(msg.includes('The full ₱1,691 secures') || msg.includes('₱1,691'), true);
   assertEquals(msg.includes('The full ₱3,382'), false);
   assertEquals(answer(legacy, 'ok', now, 'Ben').reply!.includes('₱1,691'), true);
+});
+
+// ---- s138 fix round 2 (rule 8, R2-1) ----
+Deno.test('R2-1: a legacy 50% flow states the balance in the payment-timing reply and the stay-pay message, never "covers the whole stay"', () => {
+  const legacy = held(start('book Nov 17 to 19 for 2', now), { deposit: 1691, total: 3382, name: 'Ben Munez', phone: '09475977727', email: 'ben@example.com' });
+  assertEquals(flowBalance(legacy), '₱1,691');
+  for (const lang of ['en', 'tl', 'bis'] as const) {
+    const t = payTermsReply({ ...legacy, lang }, 'Ben', lang);
+    assert(t.includes('₱1,691') && /day before check-in/.test(t), `${lang}: ${t}`);
+    assert(!/covers the whole stay|sumasaklaw sa buong stay/.test(t), `${lang}: ${t}`);
+  }
+  const msg = stayPayMessage(legacy, 'Ben', now);
+  assert(msg.includes('remaining ₱1,691') && !msg.includes('The full ₱'), msg);
+});
+Deno.test('R2-1: a new-rule flow keeps the full-payment wording and says nothing about a balance', () => {
+  const fresh = held(start('book Nov 17 to 19 for 2', now), { deposit: 3382, total: 3382, name: 'Ben Munez', phone: '09475977727', email: 'ben@example.com' });
+  assertEquals(flowBalance(fresh), undefined);
+  const t = payTermsReply(fresh, 'Ben', 'en');
+  assert(t.includes('the full ₱3,382 covers the whole stay') && !/balance|remaining/i.test(t), t);
+  assert(!/balance|remaining/i.test(stayPayMessage(fresh, 'Ben', now)));
 });

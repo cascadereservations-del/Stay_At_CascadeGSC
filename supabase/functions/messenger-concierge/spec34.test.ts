@@ -17,7 +17,7 @@ Deno.test('rateLine: a stay straddling the promotion names both parts, anchored 
   assertEquals(rateLine(f('2026-10-16', '2026-10-19'), now),
     'Booking directly with us, your 3 nights come to PHP 4,777: 2 nights (Oct 16 to 17) at our Anniversary Promotion rate of PHP 1,543, and 1 night at PHP 1,691, instead of the standard PHP 1,780 a night.');
   assertEquals(rateLine(f('2026-10-12', '2026-10-15', 'tl'), now),
-    'Pasok po ang 3 nights ninyo sa Anniversary Promotion namin, kaya sa direct booking ay PHP 1,543 per night imbes na ang standard na PHP 1,780 — PHP 4,629 for the stay.');
+    'Pasok po ang 3 nights ninyo sa Anniversary Promotion namin, kaya sa direct booking ay PHP 1,543 per night imbes na ang standard na PHP 1,780: PHP 4,629 for the stay.');
   assertEquals(rateLine(f('2026-10-17', '2026-10-18'), now), 'One night with us comes to PHP 1,543 with our Anniversary Promotion, instead of our standard PHP 1,780.'); // D-269: as oneNight says it
   assertEquals(rateLine(f('2026-10-09', '2026-10-12', 'bis'), now).includes('1 night (Oct 11) sa Anniversary Promotion rate nga PHP 1,543'), true);
 });
@@ -43,7 +43,7 @@ Deno.test('dropNameAsk removes a compound name ask that ends in a full stop (gol
 
 Deno.test('a plain stay is quoted exactly as before', () => {
   assertEquals(quoteTotal('2026-11-17', '2026-11-20').total, 5073);
-  assertEquals(rateLine(f('2026-11-17', '2026-11-19'), now), 'Booking directly with us brings your 2 nights to PHP 1,691 per night instead of the standard PHP 1,780 — PHP 3,382 for the stay.');
+  assertEquals(rateLine(f('2026-11-17', '2026-11-19'), now), 'Booking directly with us brings your 2 nights to PHP 1,691 per night instead of the standard PHP 1,780: PHP 3,382 for the stay.');
 });
 
 Deno.test('FACTS and VOICE follow the card; the seed card leaves them byte-identical', () => {

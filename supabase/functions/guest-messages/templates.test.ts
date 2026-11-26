@@ -44,17 +44,18 @@ Deno.test('message 2 is split at paragraphs when it passes 2,000 characters, and
 
 Deno.test('the payment lines follow D-251 / D-257', () => {
   // s138 (D-428..D-430): the stay is paid in full to confirm, so no balance line exists; only the P800 deposit is due.
-  assertEquals(atCheckinLine(ben), 'the ₱800 refundable security deposit only');
+  // (`ben` holds a 50% amount due: a booking made under the old rule, which rule 8 keeps; the new-rule case is `full`.)
   assertEquals(atCheckinLine(full), 'the ₱800 refundable security deposit only');
-  const m1 = render('confirmation', ben, 'messenger');
+  const m1 = render('confirmation', full, 'messenger');
   assert(m1.includes('• Due a day before check-in: the ₱800 refundable security deposit only'));
   assert(!/balance|1,000/.test(m1));
   assert(!m1.includes('At check-in:'));
-  const m2 = render('pre_arrival', ben, 'email');
+  const m2 = render('pre_arrival', full, 'email');
   assert(m2.includes('is due at least a day before check-in, by Mon, Oct 19.'));
   assert(m2.includes('share the receipt by replying to this e-mail.'));
   assert(render('pre_arrival', full, 'messenger').includes('The ₱800 refundable security deposit is due'));
   assert(m2.includes('Your check-in PIN follows once the deposit and your IDs are in.') && !/balance/i.test(m2));
+  assertEquals(atCheckinLine(ben), 'the ₱1,780 balance of your stay and the ₱800 refundable security deposit'); // rule 8
 });
 
 Deno.test('dates, first name, reply channel, and the on-ground paragraph only when both parts are set', () => {
@@ -108,7 +109,8 @@ Deno.test('message 3 is a Finance card: the PIN slot stays literal, no digit run
   for (const f of [ben, full]) {
     const c = doorCodeCard('DIR-1', f);
     assert(c.includes('⚠️ ₱800 deposit: confirm received before sending the PIN. Policy: the PIN follows full payment, IDs and the ₱800 deposit.'));
-    assert(!/balance|1,000|unless you are collecting/i.test(c));
+    assert(!/1,000|unless you are collecting/i.test(c));
+    assertEquals(/balance/i.test(c), f === ben); // rule 8: only the old-rule booking shows a balance
   }
   assert(!render('door_code', ben, 'card_only').includes('on-ground') && render('door_code', long, 'card_only').includes('📞 Kristine Alexandra Montemayor 0917 123 4567'));
   assertEquals(SUBJECT.door_code, ''); // never e-mailed
@@ -248,4 +250,27 @@ Deno.test('index.ts: flow writes go through setFlowStep with the booking id; no 
   const dupAt = src.indexOf("body.reason_code === 'duplicate'"), endAt = src.indexOf("no_message_for_duplicate");
   const blk = src.slice(dupAt, endAt);
   assert(dupAt > 0 && blk.includes("setFlowStep(db, dt, d.booking_id, 'cancelled')") && blk.includes('!dry'), 'duplicate decline ends the flow for that booking, not on dry runs');
+});
+
+// ---- s138 fix round 2 (rule 8, R2-1): a booking made under the old rule still owes its balance ----
+import { doorCodeCard as doorCard2 } from './templates.ts';
+const legacy50: Fields = { guest_name: 'Ben Cruz', checkin_date: '2026-12-10', checkout_date: '2026-12-12', pax: 2, total_amount: 3382, deposit_amount: 1691 };
+const newRule: Fields = { ...legacy50, deposit_amount: 3382 };
+const longRow: Fields = { ...legacy50, checkout_date: '2027-01-09', total_amount: 40050, deposit_amount: 37380 }; // 30 nights, first 28 due
+
+Deno.test('R2-1: a legacy 50% booking states the balance and its due time in message 1, message 2 and the door-code card', () => {
+  const m1 = render('confirmation', legacy50, 'messenger'), m2 = render('pre_arrival', legacy50, 'email'), card = doorCard2('DIR-1', legacy50);
+  assert(m1.includes('₱1,691 balance of your stay'), m1);
+  assert(m2.includes('₱1,691 balance') && m2.includes('₱2,491 in all') && m2.includes('by Wed, Dec 9'), m2);
+  assert(card.includes('Balance ₱1,691 not recorded yet'), card);
+  for (const t of [m1, m2]) { assertEquals(words(t), []); assert(!t.includes('covers the whole stay')); }
+});
+
+Deno.test('R2-1: a new-rule booking renders as before: no balance in message 1, message 2 or the door-code card', () => {
+  for (const t of [render('confirmation', newRule, 'messenger'), render('pre_arrival', newRule, 'messenger'), doorCard2('DIR-1', newRule)]) assert(!/balance/i.test(t), t);
+  assert(render('confirmation', newRule, 'messenger').includes('Due a day before check-in: the ₱800 refundable security deposit only'));
+});
+
+Deno.test('R2-3: a 28+ night row (first 28 nights due, total larger) is not read as a legacy booking', () => {
+  for (const t of [render('confirmation', longRow, 'messenger'), render('pre_arrival', longRow, 'messenger'), doorCard2('DIR-1', longRow)]) assert(!/balance/i.test(t), t);
 });

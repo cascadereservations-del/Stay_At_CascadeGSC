@@ -263,7 +263,7 @@ Deno.test('SPEC-14: the offer, the details asks, the card and the reserved line 
   // Lloyd's approved first reply (2026-09-18); D-269: the offer asks with the hold wording every other offer uses, and
   // without a second "glad" under the welcome.
   const en = opener(f, 'Ben', availabilityLine(f, new Set())) + prompt(f, 'Ben', false, now);
-  assertEquals(en, "Hi Ben, thank you for reaching out to Cascade Hideaway. Nov 17 to 19 is available, and we'd be delighted to welcome the two of you.\n\nBooking directly with us brings your 2 nights to PHP 1,691 per night instead of the standard PHP 1,780 \u2014 PHP 3,382 for the stay.\n\nShall we hold those dates for you?");
+  assertEquals(en, "Hi Ben, thank you for reaching out to Cascade Hideaway. Nov 17 to 19 is available, and we'd be delighted to welcome the two of you.\n\nBooking directly with us brings your 2 nights to PHP 1,691 per night instead of the standard PHP 1,780: PHP 3,382 for the stay.\n\nShall we hold those dates for you?");
   assertEquals(en.length < 700, true);
   const taken = availabilityLine(f, new Set(['2026-11-17']), { start: '2026-11-20', end: '2026-11-23', nights: 3 });
   assertEquals(taken, "I'm sorry, Nov 17 to 19 is already reserved. The nearest open dates are Nov 20 to 23, and we'd be delighted to welcome you then. If other dates suit you better, just share your check-in and check-out and we'll gladly check them for you.");

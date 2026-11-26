@@ -8,7 +8,7 @@
 import { withHeader, groups } from '../_shared/cascade-core/format.ts';
 import { hasMoney, maskMoney } from '../_shared/ops-money.ts';
 import { SITE_URL } from '../_shared/cascade-core/facts.ts';
-import { SECURITY_DEPOSIT_PHP } from '../_shared/cascade-core/pricing.ts';
+import { SECURITY_DEPOSIT_PHP, legacyBalance, nightsBetween } from '../_shared/cascade-core/pricing.ts';
 
 export type Key = 'confirmation' | 'pre_arrival' | 'door_code' | 'mid_stay' | 'checkout_reminder' | 'after_departure' | 'declined';
 export type Channel = 'messenger' | 'email' | 'card_only';
@@ -33,14 +33,20 @@ const DEP = peso(SECURITY_DEPOSIT_PHP); // s138 (D-430): the one P800, imported 
 export const firstName = (name: string) => String(name ?? '').trim().split(/\s+/)[0] || 'there';
 export const replyChannel = (c: Channel) => c === 'email' ? 'by replying to this e-mail' : 'here in the chat';
 
+/** Rule 8 (R2-1): the balance of a booking made under the old rule (amount due above 0 and below the total), else null. */
+export const legacyOf = (f: Fields): number | null => legacyBalance({ total: f.total_amount, deposit: f.deposit_amount, nights: nightsBetween(f.checkin_date, f.checkout_date) });
+
 /** Message 1's payment bullet (D-257, s138): the stay is paid in full to confirm, so only the refundable security deposit
- *  is due a day before check-in (D-251). */
-export function atCheckinLine(_f: Fields): string {
-  return `the ${DEP} refundable security deposit only`;
+ *  is due a day before check-in (D-251). A booking made under the old rule still owes its balance (rule 8). */
+export function atCheckinLine(f: Fields): string {
+  const bal = legacyOf(f);
+  return bal === null ? `the ${DEP} refundable security deposit only` : `the ${peso(bal)} balance of your stay and the ${DEP} refundable security deposit`;
 }
 /** Message 2's "Before You Arrive" paragraph (D-257, s138). */
 export function beforeYouArrive(f: Fields, c: Channel): string {
-  const due = day(f.checkin_date, -1), where = replyChannel(c);
+  const due = day(f.checkin_date, -1), where = replyChannel(c), bal = legacyOf(f);
+  if (bal !== null) return `💳 Before You Arrive
+The ${peso(bal)} balance of your stay and the ${DEP} refundable security deposit, ${peso(bal + SECURITY_DEPOSIT_PHP)} in all, are due at least a day before check-in, by ${due}. You may send it by GCash to 0956 011 5744 (account name Cascades, Marifel Suzanne Boncales) and share the receipt ${where}. Your check-in PIN follows once the balance, the deposit and your IDs are in.`;
   return `💳 Before You Arrive
 The ${DEP} refundable security deposit is due at least a day before check-in, by ${due}. You may send it by GCash to 0956 011 5744 (account name Cascades, Marifel Suzanne Boncales) and share the receipt ${where}. Your check-in PIN follows once the deposit and your IDs are in.`;
 }
@@ -249,12 +255,14 @@ export function render(key: Key, f: Fields, c: Channel): string {
  *  has no stored receipt (the one-tap confirm records evidence only on a PENDING booking, and the deposit arrives after
  *  confirmation), so the card asks the host to check it by hand and states the policy. The 📨 ⤵ block runs to the end. */
 export function doorCodeCard(ref: string, f: Fields): string {
+  const bal = legacyOf(f);
   return [
     `🔑 DOOR CODE READY TO SEND · ${ref}`,
     '',
     `${f.guest_name} · ${day(f.checkin_date)} → ${day(f.checkout_date)} · ${f.pax ?? '?'} guest${f.pax === 1 ? '' : 's'}`,
     `✅ Booking confirmed · ${peso(Number(f.deposit_amount ?? 0))} received`,
     '✅ ID on file',
+    ...(bal !== null ? [`⚠️ Balance ${peso(bal)} not recorded yet (booked before the full-payment rule, due a day before check-in): confirm it is received before sending the PIN.`] : []),
     `⚠️ ${DEP} deposit: confirm received before sending the PIN. Policy: the PIN follows full payment, IDs and the ${DEP} deposit.`,
     '',
     'Set a fresh PIN in the lock app for this stay. After checkout, delete this guest\'s PIN in the lock app.',

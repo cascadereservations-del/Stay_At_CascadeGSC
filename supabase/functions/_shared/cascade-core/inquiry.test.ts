@@ -37,7 +37,7 @@ Deno.test('every held and decline line passes lintReply and toneRules in all thr
 Deno.test('held: carries the stored due figure exactly once and no other peso figure; fee vs full wording', () => {
   for (const lang of LANGS) {
     const fee = heldLine(view(), lang, UNTIL);
-    assertEquals(fee.match(/₱/g)?.length, 1, lang);
+    assertEquals(fee.match(/₱/g)?.length, 2, lang); // rule 8 (R2-1): the fee and the remaining balance
     assertStringIncludes(fee, '₱6,200 reservation fee');
     assert(!fee.includes('12,400'));
     const full = heldLine(view({ deposit_amount: 12400 }), lang, UNTIL);
@@ -217,4 +217,25 @@ Deno.test('s138 fix round 1 F1: a 28+ night request is stored as asked and the f
   assertEquals(financeCard(view({ nights: 27 })).startsWith('📬'), true); // 27 nights is an ordinary request
   assertEquals(longStayLine({ nights: null, total_amount: 1 }), null);
   assert(!/undefined|NaN/.test(t));
+});
+
+// ---- s138 fix round 2 ----
+import { dueWhat } from './inquiry.ts';
+Deno.test('R2-1 legacy request: the host card and the held line state the balance; a new-rule request has none', () => {
+  const legacy = view({ nights: 2, total_amount: 3382, deposit_amount: 1691 });
+  assertStringIncludes(financeCard(legacy), 'reservation fee ₱1,691 due now · balance ₱1,691 due by the day before check-in');
+  assertStringIncludes(heldLine(legacy, 'en', UNTIL), 'The remaining ₱1,691 of the stay is due by the day before check-in.');
+  assertStringIncludes(dueWhat(legacy), 'remaining ₱1,691');
+  const fresh = view({ nights: 2, total_amount: 3382, deposit_amount: 3382 });
+  assert(!/balance|remaining/i.test(financeCard(fresh) + heldLine(fresh, 'en', UNTIL)));
+});
+Deno.test('R2-3 a 30-night and a 45-night request: long-stay line on the host card, first 28 nights due, not a legacy booking', () => {
+  for (const [n, total] of [[30, 40050], [45, 60075]] as const) {
+    const v = view({ nights: n, total_amount: total, deposit_amount: 37380 });
+    const card = financeCard(v);
+    assert(card.startsWith('🗓️ LONG STAY'), card);
+    assertStringIncludes(card, `first 28 nights ₱37,380 due now · host arranges the monthly payments`);
+    assert(!/balance|reservation fee/i.test(card), card);
+    assertEquals(dueWhat(v), '₱37,380 for the first 28 nights');
+  }
 });

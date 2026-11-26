@@ -5,7 +5,7 @@
 // The cards are written for people: what happened and who acts first, plain sentences, ids last.
 // Guest-facing lines are unsigned and pass lintReply + toneRules in all three registers (inquiry.test.ts).
 // Pronouns: the card never guesses a gender ("the guest", "their"), the guest's own line uses the name.
-import { SECURITY_DEPOSIT_PHP, isLongStay, LONG_STAY_NIGHTS } from './pricing.ts';
+import { SECURITY_DEPOSIT_PHP, isLongStay, LONG_STAY_NIGHTS, legacyBalance, nightsBetween } from './pricing.ts';
 import { dmRange } from '../../messenger-concierge/booking.ts';
 import { CAPACITY } from '../../messenger-concierge/persona.ts'; // the D-222 disclosure stays one constant
 import { autoKeyboard, BTN, DASH_URL, groups, type Btn } from './format.ts';
@@ -128,6 +128,13 @@ const askedFor = (v: InquiryView, via: string, who: string) =>
 /** The Finance card: guest money, phone and e-mail included. */
 /** s138 fix round 1 (F1): the first line of the host card for a 28+ night request. The site stops these before payment; one that
  *  still arrives (a payment taken first, an old tab) is stored as asked and flagged here so the host arranges it. null otherwise. */
+/** Nights of a request: the stored count, else counted from the dates. */
+const viewNights = (v: Pick<InquiryView, 'nights' | 'checkin_date' | 'checkout_date'>) => (v.nights ? Number(v.nights) : nightsBetween(v.checkin_date, v.checkout_date));
+const isLongView = (v: Pick<InquiryView, 'nights' | 'checkin_date' | 'checkout_date'>) => isLongStay(viewNights(v));
+/** Rule 8 (R2-1): the balance still owed on a request made under the old rule, else null. A 28+ night request is never legacy. */
+export const viewBalance = (v: Pick<InquiryView, 'nights' | 'checkin_date' | 'checkout_date' | 'total_amount' | 'deposit_amount'>): number | null =>
+  legacyBalance({ total: v.total_amount, deposit: v.deposit_amount, nights: viewNights(v) });
+
 export function longStayLine(v: Pick<InquiryView, 'nights' | 'total_amount'>): string | null {
   if (!v.nights || !isLongStay(Number(v.nights))) return null;
   return `🗓️ LONG STAY (${v.nights} nights, ${LONG_STAY_NIGHTS}+): host arranges. First month to confirm, then monthly. The quote on this request is not final.`;
@@ -135,11 +142,14 @@ export function longStayLine(v: Pick<InquiryView, 'nights' | 'total_amount'>): s
 
 export function financeCard(v: InquiryView, x: CardExtra = {}): string {
   const via = x.via ?? viaOf(v.notes);
-  const total = pesoOrNull(v.total_amount), due = pesoOrNull(v.deposit_amount);
+  const total = pesoOrNull(v.total_amount), due = pesoOrNull(v.deposit_amount), bal = viewBalance(v);
   const full = v.total_amount !== null && v.deposit_amount !== null && Number(v.total_amount) === Number(v.deposit_amount);
   const until = v.hold_expires_at ?? x.holdExpiresAt ?? null;
   const money = total
-    ? `💰 Total ${total}${due ? (full ? ` · full payment ${due} due now · ${peso(SECURITY_DEPOSIT_PHP)} deposit by the day before check-in` : ` · reservation fee ${due} due now`) : ''}`
+    ? `💰 Total ${total}${due ? (isLongView(v) ? ` · first ${LONG_STAY_NIGHTS} nights ${due} due now · host arranges the monthly payments · ${peso(SECURITY_DEPOSIT_PHP)} deposit by the day before check-in`
+      : full ? ` · full payment ${due} due now · ${peso(SECURITY_DEPOSIT_PHP)} deposit by the day before check-in`
+      : bal !== null ? ` · reservation fee ${due} due now · balance ${peso(bal)} due by the day before check-in (booked before the full-payment rule)`
+      : ` · reservation fee ${due} due now`) : ''}`
     : null;
   const rate = pesoOrNull(x.rateToday) && x.rateToday !== v.total_amount && total ? `Rate card today ${pesoOrNull(x.rateToday)}. The guest keeps the ${total} quoted.` : null;
   const timer = until
@@ -348,19 +358,28 @@ export const asLang = (x: unknown): Lang => (typeof x === 'string' && x in REG ?
 const lead = (first: string, rest: string) => (first ? `${first}, ${rest}` : cap(rest));
 
 /** What the guest is asked to pay: `₱6,200 reservation fee`, `₱12,400 full payment`, or plain `payment` when the stored figure is unknown. */
-export function dueWhat(v: InquiryView): string {
+export function dueWhat(v: InquiryView, withBalance = true): string {
   const due = pesoOrNull(v.deposit_amount);
   if (!due) return 'payment';
+  if (isLongView(v)) return `${due} for the first ${LONG_STAY_NIGHTS} nights`;
+  const bal = withBalance ? viewBalance(v) : null;
+  if (bal !== null) return `${due} reservation fee, with the remaining ${peso(bal)} due by the day before check-in`; // rule 8 (R2-1)
   return `${due} ${v.total_amount !== null && Number(v.deposit_amount) === Number(v.total_amount) ? 'full payment' : 'reservation fee'}`;
 }
 
 /** The held line: the stored figure she was quoted, never a recomputed one. */
 export function heldLine(v: InquiryView, lang: Lang, untilIso: string): string {
-  const first = firstName(v.guest_name), dates = stayShort(v), until = fmtUntil(untilIso), pay = dueWhat(v);
+  const first = firstName(v.guest_name), dates = stayShort(v), until = fmtUntil(untilIso), pay = dueWhat(v, false), bal = viewBalance(v);
+  // Rule 8 (R2-1): a request made under the old rule still owes its balance, said in the same message.
+  const rest = bal === null ? { en: '', tl: '', bis: '' } : {
+    en: ` The remaining ${peso(bal)} of the stay is due by the day before check-in.`,
+    tl: ` Ang natitirang ${peso(bal)} ng stay ay due by the day before check-in.`,
+    bis: ` Ang nahibilin nga ${peso(bal)} sa stay kay due by the day before check-in.`,
+  };
   return {
-    en: lead(first, `our host has set ${dates} aside for you until ${until}, Manila time. The ${pay} secures the stay, and a screenshot of the receipt sent here is all we need to confirm it.`),
-    tl: lead(first, `naka-set aside na po ang ${dates} para sa inyo hanggang ${until}, Manila time. Ang ${pay} ang magse-secure ng stay, at screenshot lang ng receipt dito ang kailangan namin para ma-confirm ito.`),
-    bis: lead(first, `gi-set aside na sa among host ang ${dates} para ninyo hangtod ${until}, Manila time. Ang ${pay} ang mo-secure sa stay, ug screenshot ra sa receipt diri ang among kinahanglan para ma-confirm.`),
+    en: lead(first, `our host has set ${dates} aside for you until ${until}, Manila time. The ${pay} secures the stay, and a screenshot of the receipt sent here is all we need to confirm it.${rest.en}`),
+    tl: lead(first, `naka-set aside na po ang ${dates} para sa inyo hanggang ${until}, Manila time. Ang ${pay} ang magse-secure ng stay, at screenshot lang ng receipt dito ang kailangan namin para ma-confirm ito.${rest.tl}`),
+    bis: lead(first, `gi-set aside na sa among host ang ${dates} para ninyo hangtod ${until}, Manila time. Ang ${pay} ang mo-secure sa stay, ug screenshot ra sa receipt diri ang among kinahanglan para ma-confirm.${rest.bis}`),
   }[lang];
 }
 

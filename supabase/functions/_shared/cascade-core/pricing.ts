@@ -42,6 +42,31 @@ export const DEPOSIT_RETURN_BUSINESS_DAYS = 3;
 export const LONG_STAY_NIGHTS = 28;
 export const isLongStay = (nights: number) => nights >= LONG_STAY_NIGHTS;
 
+/** s138 round 2 (R2-3): the amount due to confirm a long stay = the first 28 nights, ceil(total x 28 / nights). Shorter stays: the total. */
+export const firstMonthDue = (total: number, nights: number) => isLongStay(nights) && nights > LONG_STAY_NIGHTS ? Math.ceil(total * LONG_STAY_NIGHTS / nights) : total;
+
+/** s138 round 2 (rule 8, R2-1): a booking made under the old rule has an amount due above 0 and below its total. Returns the
+ *  balance (total minus amount due) then, else null. A stay of 28+ nights is never legacy: its amount due is the first month by
+ *  design, so it is told apart by the NIGHTS, not by the amounts. Unknown nights are read as a short stay. The ONE helper every
+ *  surface that renders an existing booking uses (guest messages 1 and 2, host cards, Messenger replies, Telegram drafts). */
+export function legacyBalance(b: { total: unknown; deposit: unknown; nights?: unknown }): number | null {
+  const total = Number(b.total), due = Number(b.deposit), nights = Number(b.nights);
+  if (!(due > 0) || !(total > due)) return null;
+  if (Number.isFinite(nights) && isLongStay(nights)) return null;
+  return total - due;
+}
+/** Whole nights between two yyyy-mm-dd dates (NaN when either is not a date). */
+export const nightsBetween = (checkin: unknown, checkout: unknown) =>
+  Math.round((Date.parse(String(checkout).slice(0, 10) + 'T00:00:00Z') - Date.parse(String(checkin).slice(0, 10) + 'T00:00:00Z')) / 86_400_000);
+
+/** submit-booking's night-count gate. A stay of 28+ nights is never refused (a guest may already have paid; the host card carries the
+ *  long-stay line). Only a stay below the minimum, or above the maximum yet under 28 nights, is refused. null = accept. */
+export function nightsRefusal(nights: number, minNights: number, maxNights: number): { error: string; min_nights?: number; max_nights?: number } | null {
+  if (nights < minNights) return { error: 'below_minimum_nights', min_nights: minNights };
+  if (nights > maxNights && !isLongStay(nights)) return { error: 'above_maximum_nights', max_nights: maxNights };
+  return null;
+}
+
 /** Today's card (2026-09-26) and the Anniversary Promotion: the migration's seed, and the fallback when the read fails. */
 export const SEED_CARD: RateCard = {
   base: 1780,
@@ -99,7 +124,8 @@ export function serverAmounts(card: RateCard, checkin: string, checkout: string,
   client: { payFull?: unknown; total?: number; deposit?: number }, now = new Date()) {
   const q = quote(card, checkin, checkout, now);
   const ct = Number(client.total ?? 0);
-  return { q, full: true, total: q.total, deposit: q.total, mismatch: ct > 0 && ct !== q.total };
+  // R2-3: 28+ nights store the first 28 nights as the amount due (total stays the whole stay); everything else is paid in full.
+  return { q, full: true, total: q.total, deposit: firstMonthDue(q.total, q.n), mismatch: ct > 0 && ct !== q.total };
 }
 
 /** A promotion that is running or still to come (last night today or later), for prose and banners. */

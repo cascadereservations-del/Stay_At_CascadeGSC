@@ -1,5 +1,5 @@
 // deno test --no-check upload-booking-receipt/followup.test.ts  (from supabase/functions)
-import { assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
+import { assert, assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
 import { CAPTION_MAX, guestFollowUp, hostDoLine, overpaymentLines, priorUseLines, verdictLine, verdictOf, type PriorUse } from './followup.ts';
 import { groups, doSend } from '../_shared/cascade-core/format.ts';
 import { lintReply, toneRules } from '../messenger-concierge/voice.ts';
@@ -135,5 +135,16 @@ Deno.test('s138 fix round 1 F8: guest sample replies carry no em-dash and no und
     const m = guestFollowUp(v, lang, 'Ben', 3382, 1000);
     assertEquals(m.includes('—'), false, `${lang}/${v}`);
     assertEquals(/undefined|NaN/.test(m), false);
+  }
+});
+
+Deno.test('R2-1: a receipt follow-up for a legacy booking names the remaining balance; a new-rule one does not; no "!" in any language', () => {
+  for (const l of ['en', 'tl', 'bis'] as const) {
+    for (const v of ['not_proof', 'short'] as const) {
+      const t = guestFollowUp(v, l, 'Ben Cruz', 1691, 1000, 1691);
+      assert(t.includes('₱1,691 ') && /day before check-in/.test(t), `${l} ${v}: ${t}`);
+      assert(!/balance|!/.test(guestFollowUp(v, l, 'Ben Cruz', 3382, 1000)), `${l} ${v} new rule`);
+      assert(!t.includes('!'), `${l} ${v}`);
+    }
   }
 });

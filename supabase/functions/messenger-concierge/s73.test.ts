@@ -165,7 +165,7 @@ Deno.test('s73 R2-1: two dates are the stay whatever length word sits beside the
 Deno.test('s73 R2-2: "already given" matches the stay total, not a per-night rate two stays share', async () => {
   const m = stubModel('For Oct 26 to 29 your 3 nights come to PHP 5,073.');
   try {
-    const prior: Array<[string, string]> = [['how much for Oct 19 to 21?', 'Booking directly with us brings your 2 nights to PHP 1,691 per night instead of the standard PHP 1,780 — PHP 3,382 for the stay.']];
+    const prior: Array<[string, string]> = [['how much for Oct 19 to 21?', 'Booking directly with us brings your 2 nights to PHP 1,691 per night instead of the standard PHP 1,780: PHP 3,382 for the stay.']];
     await turn('how much for Oct 26 to 29?', null, prior);
     assert(m.seen[0].includes('PHP 5,073') && !m.seen[0].includes('stay figures were already given'), m.seen[0].slice(0, 300));
     await turn('how much again for Oct 19 to 21?', null, prior);

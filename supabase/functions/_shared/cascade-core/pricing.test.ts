@@ -74,3 +74,26 @@ Deno.test('loadCard: a failed read falls back to the seed card (never zero), a g
   assertEquals([c3.base, currentCard().base], [1800, 1800]);
   _resetCardCache();
 });
+
+// ---- s138 fix round 2 ----
+import { firstMonthDue, legacyBalance, nightsBetween, nightsRefusal } from './pricing.ts';
+Deno.test('R2-1 legacyBalance: due above 0 and below total is legacy under 28 nights; never at 28+; unknown nights read as short', () => {
+  assertEquals(legacyBalance({ total: 3382, deposit: 1691, nights: 2 }), 1691);
+  assertEquals(legacyBalance({ total: 3382, deposit: 3382, nights: 2 }), null);
+  assertEquals(legacyBalance({ total: 3382, deposit: 0, nights: 2 }), null);
+  assertEquals(legacyBalance({ total: 3382, deposit: null, nights: 2 }), null);
+  assertEquals(legacyBalance({ total: 40050, deposit: 37380, nights: 30 }), null);
+  assertEquals(legacyBalance({ total: 40050, deposit: 20025, nights: 27 }), 20025);
+  assertEquals(legacyBalance({ total: 3382, deposit: 1691 }), 1691);
+  assertEquals(nightsBetween('2026-12-10', '2026-12-12'), 2);
+});
+Deno.test('R2-3: a 30-night and a 45-night stay are accepted; the amount due is the first 28 nights, ceil(total x 28 / nights); the total is the whole stay', () => {
+  const a30 = serverAmounts(SEED_CARD, '2027-01-10', '2027-02-09', {}, NOW), a45 = serverAmounts(SEED_CARD, '2027-01-10', '2027-02-24', {}, NOW), a28 = serverAmounts(SEED_CARD, '2027-01-10', '2027-02-07', {}, NOW);
+  assertEquals([a30.total, a30.deposit], [40050, 37380]); // 30 x 1,335 = 40,050; ceil(40,050 x 28 / 30) = 37,380
+  assertEquals([a45.total, a45.deposit], [60075, 37380]); // 45 x 1,335 = 60,075; ceil(60,075 x 28 / 45) = 37,380
+  assertEquals([a28.total, a28.deposit], [37380, 37380]);
+  assertEquals(firstMonthDue(100, 29), Math.ceil(100 * 28 / 29));
+  assertEquals(nightsRefusal(30, 1, 30), null); assertEquals(nightsRefusal(31, 1, 30), null); assertEquals(nightsRefusal(45, 1, 30), null); assertEquals(nightsRefusal(120, 1, 30), null);
+  assertEquals(nightsRefusal(0, 1, 30)?.error, 'below_minimum_nights');
+  assertEquals(nightsRefusal(12, 1, 10)?.error, 'above_maximum_nights');
+});

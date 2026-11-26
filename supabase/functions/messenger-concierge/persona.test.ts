@@ -113,7 +113,6 @@ const SAMPLES: Record<string, (l: Lang) => string[]> = {
   promoLine: (l) => [P.promoLine([PROMO], l), P.promoLine([], l)],
   promoFirst: (l) => [P.promoFirst('We completely understand wanting the best value for your stay.', [PROMO], l)],
   warmClause: (l) => [`Our direct rate starts at PHP 1,780 per night. ${P.warmClause(l)}`, `Yes, there is a water dispenser with complimentary drinking water. ${P.warmClause(l, true)}`], // s78: and the booked variant
-  cancelTermsLine: (l) => [P.cancelTermsLine(l)], // s138 fix round 1 (F7)
   payTermsLine: (l) => [P.payTermsLine('Angel', l, { total: '₱5,073', paid: false }), P.payTermsLine(null, l, { total: '₱5,073', paid: true })], // s78
   // Session 58: the fixed turns index.ts sends.
   HANDOFF: () => Object.values(P.HANDOFF).filter(Boolean),

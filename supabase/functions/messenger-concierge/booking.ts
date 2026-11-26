@@ -1,7 +1,7 @@
 // Messenger book intent (booking PRD §A, session 27). Pure functions, no I/O: a code-driven
 // slot-filling flow that index.ts runs BEFORE the model. The model never books; it only answers
 // questions. State is one jsonb on concierge_threads.booking_flow.
-import { cardOn, currentCard, isLongStay, quote, type Quote, type RateCard } from '../_shared/cascade-core/pricing.ts';
+import { cardOn, currentCard, isLongStay, legacyBalance, quote, type Quote, type RateCard } from '../_shared/cascade-core/pricing.ts';
 // D-268 / D-269: every guest-facing word lives in persona.ts; this file decides the move and seals the facts.
 import * as P from './persona.ts';
 import { thinPo } from './voice.ts'; // read inside functions only (voice.ts imports this file)
@@ -436,11 +436,17 @@ export function holdCancelReply(flow: Flow, name: string | null, lang: Lang, cha
   const kind = change ? 'change' : flow.step === 'receipt_sent' ? 'receipt' : 'cancel';
   return P.holdCancelLine(kind, name, dmRange(flow.checkin!, flow.checkout!), lang);
 }
+/** Rule 8 (R2-1): the formatted balance of a flow whose booking was made under the old rule (stored amount due below the stay total), else undefined. */
+export function flowBalance(flow: Flow): string | undefined {
+  const q = quoteTotal(flow.checkin!, flow.checkout!);
+  const bal = legacyBalance({ total: flow.total ?? q.total, deposit: flow.deposit, nights: q.nights });
+  return bal === null ? undefined : peso(bal);
+}
 /** s78: the stay card's own payment terms for a booked guest who names another timing (payTiming). Facts from the flow.
  *  s138: always the same terms (full stay amount, then the security deposit a day before check-in); nothing is agreed on arrival. */
 export function payTermsReply(flow: Flow, name: string | null, lang: Lang): string {
   const total = flow.deposit ?? flow.total ?? quoteTotal(flow.checkin!, flow.checkout!).total; // the amount the QR carries
-  return P.payTermsLine(P.first(flow.name ?? name) || null, lang, { total: peso(total), paid: flow.step === 'receipt_sent' || flow.step === 'confirmed' || !!flow.photo_at });
+  return P.payTermsLine(P.first(flow.name ?? name) || null, lang, { total: peso(total), paid: flow.step === 'receipt_sent' || flow.step === 'confirmed' || !!flow.photo_at, balance: flowBalance(flow) });
 }
 /** SPEC-31 s2 (REVIEW F2): "paid na po?" once a booking exists. No timing promise: nothing measures the host. */
 export function paidClaimReply(flow: Flow, name: string | null, lang: Lang): string {
@@ -524,7 +530,7 @@ function cardFacts(flow: Flow, name: string | null, resume: boolean, now: Date):
 export function stayPayMessage(flow: Flow, name: string | null, now = new Date(), resume = false): string {
   const q = quoteTotal(flow.checkin!, flow.checkout!), total = flow.total ?? q.total;
   const nudge = P.payNudge({
-    total: peso(flow.deposit ?? total), dates: dmRange(flow.checkin!, flow.checkout!),
+    total: peso(flow.deposit ?? total), dates: dmRange(flow.checkin!, flow.checkout!), balance: flowBalance(flow),
     name: P.first(flow.name ?? name), party: P.partyName(flow.pax, flow.lang, flow.children ?? 0),
   }, flow.tone ?? 'warm', flow.lang);
   return thinPo(`${P.stayCard(cardFacts(flow, name, resume, now), flow.lang)}\n\n${nudge}`, flow.lang === 'bis' ? 0 : 2);

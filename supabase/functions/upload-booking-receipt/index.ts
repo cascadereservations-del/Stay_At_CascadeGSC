@@ -1,6 +1,7 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { withHeader, groups, doSend, autoKeyboard } from '../_shared/cascade-core/format.ts';
-import { SECURITY_DEPOSIT_PHP } from '../_shared/cascade-core/pricing.ts';
+import { SECURITY_DEPOSIT_PHP, legacyBalance, nightsBetween } from '../_shared/cascade-core/pricing.ts';
+import { longStayLine } from '../_shared/cascade-core/inquiry.ts';
 import { CAPTION_MAX, guestFollowUp, hostDoLine, overpaymentLines, priorUseLines, verdictLine, verdictOf, type Lang, type PriorUse } from './followup.ts';
 import { hasVisionKey, visionExtractText, parseModelJson } from '../_shared/cascade-core/vision.ts';
 import { storePayer } from './payer.ts';
@@ -169,7 +170,7 @@ async function notifyFinance(db: any, bookingId: string, objectPath: string, ev:
     else priorUse = (prior ?? []) as PriorUse[];
   }
   const { data: th } = await db.from('concierge_threads').select('booking_flow').eq('booking_flow->>booking_id', bookingId).maybeSingle() as { data: { booking_flow?: { lang?: Lang } } | null };
-  const sample = guestFollowUp(v, th?.booking_flow?.lang ?? 'en', String(b.guest_name ?? ''), expected, r?.amount ?? 0);
+  const sample = guestFollowUp(v, th?.booking_flow?.lang ?? 'en', String(b.guest_name ?? ''), expected, r?.amount ?? 0, legacyBalance({ total: b.total_amount, deposit: b.deposit_amount, nights: nightsBetween(b.checkin_date, b.checkout_date) }) ?? 0); // rule 8: an old-rule booking still owes its balance
   const verdict = verdictLine(v, r?.amount ?? null, expected, Number(b.total_amount)); // s138: stay paid / deposit still due, or both received
   const stayFull = Number(b.total_amount) > 0 && expected >= Number(b.total_amount) - 0.5;
   // SPEC-10 control 2: the old Do line said "Confirm only once the payment is real" without saying
@@ -181,7 +182,10 @@ async function notifyFinance(db: any, bookingId: string, objectPath: string, ev:
        ?? (sample ? 'Do: open the image. If no full payment shows, reply to the guest; Confirm only once the payment is real.'
                   : 'Do: open the image, then tap Confirm if the payment is real — Decline if not.'))
     : 'Do: review in the dashboard (evidence row was not recorded).';
+  // R2-2: a 28+ night request keeps its long-stay line right above the Confirm button, so the host cannot confirm it as an ordinary stay.
+  const longLine = longStayLine({ nights: nightsBetween(b.checkin_date, b.checkout_date), total_amount: Number(b.total_amount) });
   const caption = withHeader('finance', `receipt ${ref}`, groups(
+    longLine ? [longLine] : [],
     priorUseLines(priorUse),
     [`📎 Receipt uploaded — ${b.guest_name}`, `📅 ${b.checkin_date} → ${b.checkout_date} · status ${b.status}`],
     [stayFull ? `💳 Expected: ₱${peso(b.total_amount)} (the full stay), plus the ₱${peso(SECURITY_DEPOSIT_PHP)} refundable deposit by the day before check-in` : `💳 Expected: ₱${peso(b.deposit_amount)} of ₱${peso(b.total_amount)}`, readLine, verdict],

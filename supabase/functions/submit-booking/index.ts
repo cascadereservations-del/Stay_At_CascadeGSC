@@ -19,7 +19,7 @@ import { guestContext, guestContextLines } from '../_shared/cascade-core/tools.t
 // v17 (session 55, SPEC-34, D-262): the stored rate card is authoritative. The client's total is ignored; the server
 // stores and returns its own total and deposit. v19 (s138, D-428..D-430): every stay is paid in full to confirm, so
 // deposit_amount = total_amount always; a client pay_full is accepted and harmless; 28+ nights is refused (host arranges).
-import { loadCard, serverAmounts } from '../_shared/cascade-core/pricing.ts';
+import { isLongStay, loadCard, nightsRefusal, serverAmounts } from '../_shared/cascade-core/pricing.ts';
 import { callerHash, clientIp } from './caller.ts'; // v18 (s78, TASKS #21): the hourly cap per caller
 
 const CORS = {
@@ -106,13 +106,11 @@ Deno.serve(async (req) => {
   const minNights  = setting('min_nights',  1);
   const maxNights  = setting('max_nights', 30);
 
-  if (nights < minNights)
-    return json({ error: 'below_minimum_nights', min_nights: minNights }, 400);
-  // s138 fix round 1 (F1): a 28+ night request is NOT refused here. The live site can take payment before it calls submit, so a
-  // refusal would leave a paid guest with no booking row. It is stored as asked (amount due = the server total) and the Finance
-  // card opens with a long-stay line (financeCard / longStayLine in inquiry.ts). The site stops these before payment.
-  if (nights > maxNights)
-    return json({ error: 'above_maximum_nights', max_nights: maxNights }, 400);
+  // s138 (F1, R2-3): a stay of 28 nights or more is NEVER refused here, however long. The live site can take payment before it calls
+  // submit, so a refusal would leave a paid guest with no booking row. It is stored as asked (total = the whole stay, amount due = the
+  // first 28 nights) and the Finance card opens with a long-stay line (financeCard / longStayLine in inquiry.ts). The site stops these before payment.
+  const refusal = nightsRefusal(nights, minNights, maxNights);
+  if (refusal) return json(refusal, 400);
 
   // v18 (s78, TASKS #21): at most 10 requests an hour from one caller, counted before anything is written. Only an HMAC
   // of the address is stored (booking_submit_attempts). Messenger requests all come from the Concierge's Edge Function,
@@ -249,7 +247,7 @@ Deno.serve(async (req) => {
     payee_name:       guestName,
     booking_id:       inquiry.id,
     external_ref:     inquiry.id,
-    notes:            `Direct booking — ${nights}n, ${pax} pax. Due to confirm ₱${depositAmount.toLocaleString()} (full stay).`,
+    notes:            `Direct booking — ${nights}n, ${pax} pax. ${isLongStay(nights) ? `Long stay: first 28 nights ₱${depositAmount.toLocaleString()} due to confirm, host arranges the monthly payments.` : `Due to confirm ₱${depositAmount.toLocaleString()} (full stay).`}`,
     tax_treatment:    'vat_exempt',
     logged_by:        'submit-booking',
   }).then(({ error: te }) => {
@@ -325,6 +323,7 @@ Deno.serve(async (req) => {
         total:        totalAmount,
         deposit:      depositAmount,
         deposit_pct:  depositPct,
+        long_stay:    isLongStay(nights),
         // Bucket is private now — pass a short-lived signed URL (same one
         // used for Telegram) so GAS can still fetch/embed the image; a bare
         // object path would 404 for it.
@@ -363,6 +362,9 @@ Deno.serve(async (req) => {
     hold: isHold,
     hold_expires_at: holdExpiresAt,
     status_url:     statusToken ? STATUS_PAGE + statusToken : null,
-    message:        'Booking request received. We will confirm via Messenger or phone within 2 hours.',
+    long_stay:      isLongStay(nights),
+    message:        isLongStay(nights)
+      ? 'Booking request received. This is a stay of 28 nights or more, so our host will message you to arrange the payment.'
+      : 'Booking request received. We will confirm via Messenger or phone within 2 hours.',
   });
 });
