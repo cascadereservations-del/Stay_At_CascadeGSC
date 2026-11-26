@@ -6,6 +6,22 @@
 begin;
 select plan(30);
 
+-- Fixture for a database with no production rows (CI applies the migrations to an empty database, so the seed insert of 20260926020000_rate_card.sql is omitted there).
+-- Runs only when the property has no live or scheduled rate version; on a production copy (one live row) it does nothing. Rolled back with the transaction.
+do $f$
+begin
+  if not exists (select 1 from public.booking_rate_policy_versions
+                  where property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd'
+                    and (effective_to is null or effective_to >= (now() at time zone 'Asia/Manila')::date)) then
+    insert into public.properties(id, name, is_active) values ('6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', 'Synthetic s138 Property', true) on conflict (id) do nothing;
+    insert into auth.users(id) values ('e2000000-0000-4000-8000-000000000138') on conflict (id) do nothing;
+    insert into public.booking_rate_policy_versions (property_id, effective_from, effective_to, nightly_rate, currency, terms, approved_by, idempotency_key)
+    values ('6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', date '2025-01-01', null, 1780, 'PHP',
+            '{"tiers":[{"min_nights":2,"pct":5}],"deposit_pct":50}'::jsonb,
+            'e2000000-0000-4000-8000-000000000138', 'test:s138-payment-rule-fixture');
+  end if;
+end $f$;
+
 create temp table s138_sql (name text primary key, body text not null) on commit drop;
 insert into s138_sql values
 ('dep_guard', $t$
