@@ -83,7 +83,8 @@ test.describe('responsive contract', () => {
       document.querySelectorAll(selectors).forEach(el => {
         const r = el.getBoundingClientRect();
         if (r.width === 0 && r.height === 0) return; // not rendered
-        if (r.width < 44 || r.height < 44) bad.push({ id: el.id, w: r.width, h: r.height });
+        // 43.99, not 44: a 44px box can measure 43.99997 after sub-pixel layout (seen in CI on #bsClose); anything really under 44 still fails
+        if (r.width < 43.99 || r.height < 43.99) bad.push({ id: el.id, w: r.width, h: r.height });
       });
       return bad;
     });
