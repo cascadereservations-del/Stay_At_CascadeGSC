@@ -142,10 +142,11 @@ select ok(has_function_privilege('authenticated', 'public.bill_pay_settle_v1(uui
           'grants are present: bill_pay_settle_v1 authenticated only (not anon, not service_role); today_bills_v1 unchanged');
 select ok((select p.prosecdef and p.provolatile = 'v' and p.proconfig = array['search_path=""'] from pg_proc p where p.oid = 'public.bill_pay_settle_v1(uuid,jsonb)'::regprocedure),
           'bill_pay_settle_v1 is still security definer, volatile, with the empty search_path');
-select ok((select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.bill_pay_settle_v1(uuid,jsonb)'::regprocedure) = '9784e8619b3aeb3d6b19c5fd7f679c79'
-          and (select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.bill_entry_v1(public.utility_bills,jsonb,boolean,uuid)'::regprocedure) = '64e749cf8ed30afc9c4475bcd398685a'
-          and (select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.today_bills_v1(uuid)'::regprocedure) = '7fca3fd12b7e372010f8f20b12c491a4',
-          'bill_pay_settle_v1 is the s131b body; the other s131 bodies (bill_entry_v1, today_bills_v1) are untouched');
+-- s143: the s143 release (20261210) replaces all three bodies after s131b: each is its s131b / s131 body (the pin of this release, which still runs alone on an s131b database) or the s143 body (the one on a rehearsal copy).
+select ok((select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.bill_pay_settle_v1(uuid,jsonb)'::regprocedure) in ('9784e8619b3aeb3d6b19c5fd7f679c79', 'fd43c497553394e5b47b861c3e1d1206')
+          and (select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.bill_entry_v1(public.utility_bills,jsonb,boolean,uuid)'::regprocedure) in ('64e749cf8ed30afc9c4475bcd398685a', 'b9445c74b9de12d095258176dbba99df')
+          and (select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.today_bills_v1(uuid)'::regprocedure) in ('7fca3fd12b7e372010f8f20b12c491a4', '563053ef8469130428e9d35f09cc7762'),
+          's143: bill_pay_settle_v1 is the s131b body or the s143 one that replaces it; bill_entry_v1 and today_bills_v1 are their s131 bodies or the s143 ones');
 
 -- 6. the md5 guard of the migration (last: it breaks the function on purpose) --------------------------------------------------------------------------------------------------------------------
 -- The guard block below is a verbatim copy of the one in 20261201000000_s131b_followups.sql (the rehearsal's database role cannot read the mounted file, so it cannot be cut out of it; keep the two identical).
@@ -171,7 +172,12 @@ begin
 end $g$;$dq$::text
 $gq$;
 select ok(pg_temp.guard_sql() like 'do $g$%' and (select count(*) = 1 from regexp_matches(pg_temp.guard_sql(), '\(''public\.', 'g')), 'the guard block lists the one replaced function');
-select ok(pg_temp.run_do(pg_temp.guard_sql()) = 'null'::jsonb, 'the guard passes on the s131b body');
+-- s143: this guard is the s131b migration's own; once the later s143 release has replaced bill_pay_settle_v1 it refuses (55000), which is its job. It passes on the s131b body and refuses on the s143 body.
+select ok(case (select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.bill_pay_settle_v1(uuid,jsonb)'::regprocedure)
+                when '9784e8619b3aeb3d6b19c5fd7f679c79' then pg_temp.run_do(pg_temp.guard_sql()) = 'null'::jsonb
+                when 'fd43c497553394e5b47b861c3e1d1206' then pg_temp.run_do(pg_temp.guard_sql()) ->> 'err' = '55000' and pg_temp.run_do(pg_temp.guard_sql()) ->> 'msg' like '%bill_pay_settle_v1%md5 fd43c497553394e5b47b861c3e1d1206%'
+                else false end,
+          's143: the s131b guard passes on the s131b body and refuses (55000, naming the s143 md5) on the s143 body that replaces it');
 create or replace function public.bill_pay_settle_v1(p_bill_id uuid, p_proof jsonb) returns jsonb language sql set search_path = '' as $$ select '{"unknown":true}'::jsonb $$;
 select ok(pg_temp.run_do(pg_temp.guard_sql()) ->> 'err' = '55000' and pg_temp.run_do(pg_temp.guard_sql()) ->> 'msg' like 's131b: public.bill_pay_settle_v1(uuid,jsonb)%neither the s131 body nor this release%',
           'the guard refuses with 55000 when bill_pay_settle_v1 is an unknown body');

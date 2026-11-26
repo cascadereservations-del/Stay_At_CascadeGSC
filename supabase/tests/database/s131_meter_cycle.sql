@@ -16,6 +16,9 @@ grant execute on function auth.uid(), auth.jwt() to anon, authenticated, service
 grant execute on function public.current_staff_authorized(text, uuid) to authenticated, service_role;
 grant select on public.app_settings to anon, authenticated;
 grant select on storage.objects to authenticated;
+-- s143: the production grants of the seven s131 helpers this release does not touch (s131 revoked them; a --no-acl restore leaves the default PUBLIC execute, so test 64 failed on the base 8bab6e7 as well). Idempotent, rolled back with the suite.
+revoke all on function public.utility_safe_date_v1(text), public.utility_cfg_date_v1(jsonb,jsonb), public.utility_meter_from_v1(uuid,text,date,jsonb), public.utility_reading_warn_v1(uuid,text,date,numeric),
+  public.utility_billing_default_v1(), public.utility_billing_cfg_v1(), public.bill_schedule_cfg_v1() from public, anon, authenticated, service_role;
 
 create function pg_temp.id(p text) returns uuid language sql immutable as $$ select ('e1310000-0000-4000-8000-0000000000' || p)::uuid $$;
 create function pg_temp.as_user(p_uid uuid) returns void language sql as $$
@@ -125,23 +128,24 @@ select gen_random_uuid(), null, pg_temp.id(b), r.at, r.ep, r.ec, r.wp, r.wc, r.e
 -- so far = 120 x 12 + 5.60 = 1445.60. per day 120 / 29 = 4.137931 kWh (4.14), x 12 = 49.655 (49.66). forecast 4.137931 x 32 = 132.413793 kWh (132.41), x 12 + 5.60 = 1594.565517 (1594.57).
 -- water: 7.0 m3 is inside the 10 m3 minimum = 212.00; per day 7 / 29 = 0.241379 (0.24), forecast 0.241379 x 32 = 7.724138 (7.72), still the minimum 212.00.
 insert into _t select 'e1', pg_temp.est('b1', date '2026-11-22');
-select ok((select v -> 'electric' = jsonb_build_object('cycle_from', '2026-10-21', 'cycle_to', '2026-11-21', 'days', 29, 'days_in_cycle', 32, 'kwh', 120.00, 'rate', 12, 'fixed_php', 5.60,
-                   'so_far_php', 1445.60, 'forecast_kwh', 132.41, 'forecast_php', 1594.57, 'per_day_kwh', 4.14, 'per_day_php', 49.66,
-                   'last_reading_at', (timestamptz '2026-11-19 09:00+08')::text, 'billed_month', '2026-11', 'overdue', true) from _t where k = 'e1')
-          or (select (v -> 'electric') - 'last_reading_at' = jsonb_build_object('cycle_from', '2026-10-21', 'cycle_to', '2026-11-21', 'days', 29, 'days_in_cycle', 32, 'kwh', 120.00, 'rate', 12, 'fixed_php', 5.60,
-                   'so_far_php', 1445.60, 'forecast_kwh', 132.41, 'forecast_php', 1594.57, 'per_day_kwh', 4.14, 'per_day_php', 49.66, 'billed_month', '2026-11', 'overdue', true) from _t where k = 'e1'),
-          'electric on 22 Nov with no paid bill: counts from the 21 Oct start, everything counted (120 kWh), expected end 21 Nov already passed (overdue), 32 days in the cycle, PHP 1445.60 so far, forecast 1594.57');
-select ok((select v -> 'water' = jsonb_build_object('cycle_from', '2026-10-21', 'cycle_to', '2026-11-21', 'days', 29, 'm3', 7.00, 'so_far_php', 212.00, 'forecast_m3', 7.72, 'forecast_php', 212.00, 'per_day_m3', 0.24,
-                   'min_php', 212, 'min_m3', 10, 'next_php', 23.05, 'next_upto', 20, 'billed_month', '2026-11', 'overdue', true) from _t where k = 'e1'),
-          'water on 22 Nov with no paid bill: from 21 Oct, 7.00 m3 (inside the minimum) = PHP 212.00, overdue, billed month 2026-11');
-select ok((select v -> 'electric' ->> 'last_reading_at' is not null and (v -> 'electric' ->> 'last_reading_at')::timestamptz = timestamptz '2026-11-19 09:00+08' from _t where k = 'e1'),
-          'last_reading_at is the newest counted reading inside the open cycle (19 Nov 09:00 Manila)');
+-- s143: with no real reading date the boundary is ASSUMED, so on 22 Nov the open cycle is the one that began on the assumed boundary 21 Nov (open_from 21 Oct + 1 month): cycle_from 21 Nov, cycle_to 21 Dec, nothing counted yet
+-- (c3 ended 19 Nov): 0 kWh and 0 days, so far = the fixed charge 5.60 at the rate of the billed month December (the latest earlier rate, 12), no forecast. It is never overdue (cycle_to is always after p_on). The 120 kWh of 21 Oct .. 21 Nov belong to the open bill, not to this card.
+select ok((select v -> 'electric' = jsonb_build_object('cycle_from', '2026-11-21', 'cycle_to', '2026-12-21', 'days', 0, 'days_in_cycle', 30, 'kwh', 0.00, 'rate', 12, 'fixed_php', 5.60,
+                   'so_far_php', 5.60, 'forecast_kwh', null, 'forecast_php', null, 'per_day_kwh', null, 'per_day_php', null,
+                   'last_reading_at', null, 'billed_month', '2026-12', 'overdue', false) from _t where k = 'e1'),
+          's143: electric on 22 Nov with no paid bill: the cycle is the assumed one from 21 Nov to 21 Dec, nothing counted yet (0 kWh, 0 days), PHP 5.60 so far, no forecast, billed month 2026-12, never overdue');
+select ok((select v -> 'water' = jsonb_build_object('cycle_from', '2026-11-21', 'cycle_to', '2026-12-21', 'days', 0, 'm3', 0.00, 'so_far_php', 212.00, 'forecast_m3', null, 'forecast_php', null, 'per_day_m3', null,
+                   'min_php', 212, 'min_m3', 10, 'next_php', 23.05, 'next_upto', 20, 'billed_month', '2026-12', 'overdue', false) from _t where k = 'e1'),
+          's143: water on 22 Nov with no paid bill: the assumed cycle from 21 Nov, 0 m3 = the PHP 212.00 minimum, no forecast, billed month 2026-12, never overdue');
 -- the same property on 5 Nov: still from 21 Oct; counted 22 Oct .. 5 Nov = 60 + 5 x 3.157895 = 75.789474 kWh (75.79), last covered day 5 Nov (days 15); cycle_to 21 Nov not passed (overdue false);
 -- days_in_cycle = 21 Nov - 21 Oct = 31; so far = 75.789474 x 12 + 5.60 = 915.073684 (915.07). Water 3.0 + 5 x 0.210526 = 4.052632 (4.05) = 212.00.
 insert into _t select 'e2', pg_temp.est('b1', date '2026-11-05');
 select ok((select (v -> 'electric' ->> 'kwh')::numeric = 75.79 and (v -> 'electric' ->> 'days')::integer = 15 and (v -> 'electric' ->> 'days_in_cycle')::integer = 31 and (v -> 'electric' ->> 'so_far_php')::numeric = 915.07
                   and (v -> 'electric' ->> 'overdue')::boolean = false and (v -> 'water' ->> 'm3')::numeric = 4.05 and (v -> 'water' ->> 'overdue')::boolean = false from _t where k = 'e2'),
           'on 5 Nov the cycle is not overdue: 75.79 kWh over 15 days, 31 days in the cycle, PHP 915.07 so far, water 4.05 m3');
+select ok((select v -> 'electric' -> 'last_reading_at' = 'null'::jsonb from _t where k = 'e1')
+          and (select (v -> 'electric' ->> 'last_reading_at')::timestamptz = timestamptz '2026-10-31 09:00+08' from _t where k = 'e2'),
+          's143: last_reading_at is the newest counted reading inside the open cycle: none on 22 Nov (the cycle began 21 Nov), c2 (31 Oct 09:00 Manila) on 5 Nov');
 
 -- 2. the cycle follows the PAID bill ------------------------------------------------------------------------------------------------------------------------------------------------
 -- b1: a paid electric bill with reading date 21 Nov. On 22 Nov electric starts 21 Nov: nothing counted yet (0 kWh, 0 days), so far = the fixed charge 5.60 at the December rate (latest earlier = November 12), cycle_to 21 Dec,
@@ -153,8 +157,9 @@ select ok((select (v -> 'electric' ->> 'cycle_from') = '2026-11-21' and (v -> 'e
                   and (v -> 'electric' ->> 'kwh')::numeric = 0 and (v -> 'electric' ->> 'so_far_php')::numeric = 5.60 and (v -> 'electric' ->> 'billed_month') = '2026-12' and (v -> 'electric' ->> 'overdue')::boolean = false
                   and (v -> 'electric' -> 'forecast_kwh') = 'null'::jsonb and (v -> 'electric' -> 'forecast_php') = 'null'::jsonb and (v -> 'electric' ->> 'rate')::numeric = 12 from _t where k = 'p1'),
           'after a paid electric bill with reading date 21 Nov the electric cycle starts 21 Nov: 0 kWh, the fixed charge only, billed month 2026-12, not overdue, no forecast');
-select ok((select (v -> 'water' ->> 'cycle_from') = '2026-10-21' and (v -> 'water' ->> 'overdue')::boolean and (v -> 'water' ->> 'm3')::numeric = 7.00 from _t where k = 'p1'),
-          'water is independent of the electric bill: still from 21 Oct, overdue, 7.00 m3');
+-- s143: no real water reading exists, so the water boundary stays the assumed 21 Nov (open_from + 1 month), 0 m3, never overdue (it never reads the electric bill)
+select ok((select (v -> 'water' ->> 'cycle_from') = '2026-11-21' and (v -> 'water' ->> 'cycle_to') = '2026-12-21' and not (v -> 'water' ->> 'overdue')::boolean and (v -> 'water' ->> 'm3')::numeric = 0.00 from _t where k = 'p1'),
+          's143: water is independent of the electric bill: its own assumed cycle from 21 Nov, 0 m3, not overdue');
 select ok((select (v -> 'electric' ->> 'cycle_from') = '2026-10-21' and (v -> 'electric' ->> 'so_far_php')::numeric = 915.07 from _t where k = 'e2')
           and (pg_temp.est('b1', date '2026-11-05') -> 'electric' ->> 'cycle_from') = '2026-10-21' and (pg_temp.est('b1', date '2026-11-05') -> 'electric' ->> 'so_far_php')::numeric = 915.07,
           'a reading date after p_on is ignored: the 5 Nov estimate is the same with the 21 Nov bill present');
@@ -168,20 +173,25 @@ insert into _t select 'p2', pg_temp.est('b2', date '2026-11-22');
 select ok((select (v -> 'electric') - 'last_reading_at' = jsonb_build_object('cycle_from', '2026-10-31', 'cycle_to', '2026-11-30', 'days', 19, 'days_in_cycle', 30, 'kwh', 60.00, 'rate', 12, 'fixed_php', 5.60,
                    'so_far_php', 725.60, 'forecast_kwh', 94.74, 'forecast_php', 1142.44, 'per_day_kwh', 3.16, 'per_day_php', 37.89, 'billed_month', '2026-11', 'overdue', false) from _t where k = 'p2'),
           'paid electric bill with reading date 31 Oct: the cycle runs 31 Oct to 30 Nov, 60 kWh, PHP 725.60 so far, forecast 1142.44, not overdue');
-select ok((select (v -> 'water' ->> 'cycle_from') = '2026-10-21' and (v -> 'water' ->> 'm3')::numeric = 7.00 from _t where k = 'p2'),
-          'a bill that is not paid never moves the cycle, even with a reading date: water stays from 21 Oct');
+-- s143: a real reading date moves the boundary whatever the bill status is (the boundary is the reading date of ANY bill): the due water bill with 10 Nov starts the open cycle on 10 Nov (c3 counted 11 .. 19 Nov = 9 days x 0.210526 = 1.89 m3)
+select ok((select (v -> 'water' ->> 'cycle_from') = '2026-11-10' and (v -> 'water' ->> 'cycle_to') = '2026-12-10' and (v -> 'water' ->> 'days')::integer = 9 and (v -> 'water' ->> 'm3')::numeric = 1.89 from _t where k = 'p2'),
+          's143: a real reading date moves the boundary whatever the bill status: the due water bill dated 10 Nov starts the open water cycle on 10 Nov (9 days, 1.89 m3)');
 -- b3: a paid bill with reading date 31 Jan 2026: the expected end is 28 Feb (the month is clamped), billed month 2026-02. No rate exists for February or earlier: so far is null, never 0.
 insert into public.utility_bills(property_id, kind, period, estimate_php, status, paid_php, paid_at, paid_by_name, proof_verdict, reading_date)
 values (pg_temp.id('b3'), 'electric', '2026-01', 1000, 'paid', 1000, now(), 'Zz Admin', 'typed', date '2026-01-31');
 select ok((pg_temp.est('b3', date '2026-02-10') -> 'electric' ->> 'cycle_to') = '2026-02-28' and (pg_temp.est('b3', date '2026-02-10') -> 'electric' ->> 'billed_month') = '2026-02'
-          and (pg_temp.est('b3', date '2026-02-10') -> 'electric' ->> 'overdue')::boolean = false and (pg_temp.est('b3', date '2026-03-01') -> 'electric' ->> 'overdue')::boolean = true
+          and (pg_temp.est('b3', date '2026-02-10') -> 'electric' ->> 'overdue')::boolean = false
+          -- s143: the cycle never goes overdue; on 1 Mar it rolls to the assumed boundary 28 Feb (the 31 Jan anchor, clamped) and ends 31 Mar (the anchor day comes back)
+          and (pg_temp.est('b3', date '2026-03-01') -> 'electric' ->> 'cycle_from') = '2026-02-28' and (pg_temp.est('b3', date '2026-03-01') -> 'electric' ->> 'cycle_to') = '2026-03-31'
+          and (pg_temp.est('b3', date '2026-03-01') -> 'electric' ->> 'billed_month') = '2026-03' and (pg_temp.est('b3', date '2026-03-01') -> 'electric' ->> 'overdue')::boolean = false
           and (pg_temp.est('b3', date '2026-02-10') -> 'electric' -> 'so_far_php') = 'null'::jsonb and (pg_temp.est('b3', date '2026-02-10') -> 'electric' -> 'rate') = 'null'::jsonb,
-          'from 31 Jan the expected end is 28 Feb (clamped), billed month 2026-02, overdue only after it, and no rate means a null amount, never 0');
+          's143: from 31 Jan the expected end is 28 Feb (clamped), billed month 2026-02; on 1 Mar the cycle rolls to 28 Feb .. 31 Mar (never overdue), and no rate means a null amount, never 0');
 -- the open_from setting: b4 has no bill. open_from 2026-10-31 for electric only: electric counts from 31 Oct (60 kWh, c3), water still from the default 21 Oct. A wrong type or an impossible date falls back to 21 Oct.
 select pg_temp.set_ub('{"electric":{"open_from":"2026-10-31"}}'::jsonb);
 select ok((pg_temp.est('b4', date '2026-11-22') -> 'electric' ->> 'cycle_from') = '2026-10-31' and (pg_temp.est('b4', date '2026-11-22') -> 'electric' ->> 'kwh')::numeric = 60.00
-          and (pg_temp.est('b4', date '2026-11-22') -> 'water' ->> 'cycle_from') = '2026-10-21',
-          'the open_from setting starts the first cycle: electric from 31 Oct, water (no setting) from the 21 Oct default');
+          -- s143: water has no setting, so the default 21 Oct anchors it; on 22 Nov its open cycle is the assumed one from 21 Nov
+          and (pg_temp.est('b4', date '2026-11-22') -> 'water' ->> 'cycle_from') = '2026-11-21',
+          's143: the open_from setting anchors the first cycle: electric from 31 Oct (the next boundary 30 Nov is still ahead), water (no setting) anchored on the 21 Oct default, so its open cycle starts 21 Nov');
 select ok((select public.utility_billing_cfg_v1() #>> '{electric,open_from}' = '2026-10-31' and public.utility_billing_cfg_v1() #>> '{water,open_from}' = '2026-10-21'), 'the cfg returns the stored open_from key by key');
 select pg_temp.set_ub('{"electric":{"open_from":"2026-02-31"},"water":{"open_from":20261031}}'::jsonb);
 select ok((select public.utility_billing_cfg_v1() #>> '{electric,open_from}' = '2026-10-21' and public.utility_billing_cfg_v1() #>> '{water,open_from}' = '2026-10-21'),
@@ -216,17 +226,21 @@ select ok((select (c -> 'bills' -> 'water' ->> 'remind_day') = '10' and (c -> 'b
 select pg_temp.set_bs(null);
 -- bill_due_open_v1 on b9: the 24th is before the remind day 25, so it opens the PREVIOUS month 2026-10 (catch-up); the 25th opens 2026-11. Estimates of the 25th: electric = forecast of the cycle that closes in November
 -- (21 Oct .. 21 Nov, p_on 21 Nov): 120 kWh over 29 days, forecast days = 31: 120 / 29 x 31 = 128.275862 kWh x 12 + 5.60 = 1544.910345 (1544.91); water 7 / 29 x 31 = 7.48 m3 = 212.00; internet 1500; netflix 449.
+-- s143: the 24th opens 2026-10 first, so the 25th opens 2026-11 whose own span (21 Nov ..) has nothing counted yet. The estimate of a row is the counted use in its OWN span up to the earlier of its end and p_on:
+-- the 2026-10 rows get electric 120 kWh x 12 + 5.60 = 1445.60 and water 212.00; the 2026-11 rows get electric and water null (no reading yet), internet 1500 and netflix 449 as before.
 insert into _t select 'o24', public.bill_due_open_v1(pg_temp.id('b9'), date '2026-11-24');
 insert into _t select 'o25', public.bill_due_open_v1(pg_temp.id('b9'), date '2026-11-25');
 select ok((select (select bool_and(e ->> 'period' = '2026-10') and count(*) = 4 from jsonb_array_elements(v -> 'new') e) from _t where k = 'o24'),
           'on the 24th (before the remind day 25) the previous month 2026-10 opens its four rows');
 select ok((select (select jsonb_agg(e ->> 'period') from jsonb_array_elements(v -> 'new') e) = '["2026-11","2026-11","2026-11","2026-11"]'::jsonb
                   and (select jsonb_agg(e ->> 'kind') from jsonb_array_elements(v -> 'new') e) = '["electric","water","internet","netflix"]'::jsonb from _t where k = 'o25')
-          and (select estimate_php from public.utility_bills where property_id = pg_temp.id('b9') and kind = 'electric' and period = '2026-11') = 1544.91
-          and (select estimate_php from public.utility_bills where property_id = pg_temp.id('b9') and kind = 'water' and period = '2026-11') = 212.00
+          and (select estimate_php from public.utility_bills where property_id = pg_temp.id('b9') and kind = 'electric' and period = '2026-10') = 1445.60
+          and (select estimate_php from public.utility_bills where property_id = pg_temp.id('b9') and kind = 'water' and period = '2026-10') = 212.00
+          and (select estimate_php is null from public.utility_bills where property_id = pg_temp.id('b9') and kind = 'electric' and period = '2026-11')
+          and (select estimate_php is null from public.utility_bills where property_id = pg_temp.id('b9') and kind = 'water' and period = '2026-11')
           and (select estimate_php from public.utility_bills where property_id = pg_temp.id('b9') and kind = 'internet' and period = '2026-11') = 1500
           and (select estimate_php from public.utility_bills where property_id = pg_temp.id('b9') and kind = 'netflix' and period = '2026-11') = 449,
-          'on the 25th the November rows open with the estimates of the cycle that closes in November: electric 1544.91, water 212.00, internet 1500, netflix 449');
+          's143: the 2026-10 rows open with the counted use of their own span (electric 1445.60, water 212.00); the 2026-11 meter rows open with no estimate yet (nothing counted since 21 Nov), internet 1500, netflix 449');
 
 -- 3b. due day and the notice of a new bill ------------------------------------------------------------------------------------------------------------------------------------------
 -- A bill opens on the 25th (remind_day) but is due by the pay day: due_day = the later of remind_day and pay_day. b9's November electric bill (opened above): remind 25 + pay 27 -> 27; a stored remind_day 28 -> 28 (never earlier than the pay day).
@@ -258,12 +272,15 @@ insert into _t select 't1n', pg_temp.c1('today_bills_v1', pg_temp.id('b5'));
 select pg_temp.as_anon();
 insert into _t select 't1x', pg_temp.c1('today_bills_v1', pg_temp.id('b5'));
 reset role;
-select ok((select v - 'last_reading_at' = jsonb_build_object('since', '2026-10-21', 'water_since', '2026-10-21', 'waiting_for', 'November', 'water_waiting_for', 'November',
-                   'electric', jsonb_build_object('php', 1445.60, 'kwh', 120.00), 'water', jsonb_build_object('php', 212.00, 'm3', 7.00), 'can_pay_list', false, 'check_bills', false, 'due', '[]'::jsonb) from _t where k = 't1c')
-          and (select (v ->> 'last_reading_at')::timestamptz = timestamptz '2026-11-19 09:00+08' from _t where k = 't1c'),
-          'cleaner on 22 Nov: every old key plus since / water_since 21 Oct, waiting for the November bill (both meters), can_pay_list false, check_bills false before the 25th, due []');
-select ok((select (v ->> 'can_pay_list')::boolean and (v ->> 'check_bills')::boolean = false and v -> 'due' = '[]'::jsonb and (v ->> 'waiting_for') = 'November' and (v ->> 'since') = '2026-10-21' from _t where k = 't1a'),
-          'admin on 22 Nov: can_pay_list true, nothing to pay yet (no rows), check_bills false');
+-- s143: the card shows the open cycle of each meter: since / water_since = the assumed boundary 21 Nov, nothing waits for a bill (waiting_for null), each meter carries cycle_from, next_reading and cycle_from_assumed, nothing counted yet (0 kWh = 5.60, 0 m3 = 212.00)
+select ok((select v - 'last_reading_at' = jsonb_build_object('since', '2026-11-21', 'water_since', '2026-11-21', 'waiting_for', null, 'water_waiting_for', null,
+                   'electric', jsonb_build_object('php', 5.60, 'kwh', 0.00, 'cycle_from', '2026-11-21', 'next_reading', '2026-12-21', 'cycle_from_assumed', true),
+                   'water', jsonb_build_object('php', 212.00, 'm3', 0.00, 'cycle_from', '2026-11-21', 'next_reading', '2026-12-21', 'cycle_from_assumed', true),
+                   'can_pay_list', false, 'check_bills', false, 'due', '[]'::jsonb) from _t where k = 't1c')
+          and (select v -> 'last_reading_at' = 'null'::jsonb from _t where k = 't1c'),
+          's143: cleaner on 22 Nov: every old key plus the open cycle of each meter (assumed boundary 21 Nov, next reading 21 Dec), nothing waiting for a bill, can_pay_list false, check_bills false before the 25th, due []');
+select ok((select (v ->> 'can_pay_list')::boolean and (v ->> 'check_bills')::boolean = false and v -> 'due' = '[]'::jsonb and v -> 'waiting_for' = 'null'::jsonb and (v ->> 'since') = '2026-11-21' from _t where k = 't1a'),
+          's143: admin on 22 Nov: can_pay_list true, nothing to pay yet (no rows), nothing waiting for a bill, check_bills false');
 select ok((select (v ->> 'can_pay_list')::boolean = false and v -> 'due' = '[]'::jsonb from _t where k = 't1l'), 'laundry cannot pay: can_pay_list false, due []');
 select ok((select v ->> 'err' = '42501' from _t where k = 't1n') and (select v ->> 'err' = '42501' from _t where k = 't1x'), 'a user with no staff profile and anon are still refused (42501)');
 -- 26 Nov, b5: rows open (electric 2026-11 est 1000, water 2026-11 est 300). The cleaner gets due [] and check_bills true (the 26th is after the 25th and neither bill is paid); the admin gets the list and check_bills false.
@@ -279,13 +296,15 @@ select ok((select (v ->> 'can_pay_list')::boolean = false and v -> 'due' = '[]':
 select ok((select (v ->> 'can_pay_list')::boolean and (v ->> 'check_bills')::boolean = false and jsonb_array_length(v -> 'due') = 2
                   and (select jsonb_agg(e ->> 'kind') from jsonb_array_elements(v -> 'due') e) = '["electric","water"]'::jsonb and (select bool_and((e ->> 'can_pay')::boolean) from jsonb_array_elements(v -> 'due') e) from _t where k = 't2a'),
           'admin on 26 Nov: the To pay list as before (electric, water, both payable), check_bills false');
--- the electric bill is paid with reading date 21 Nov, the water bill is still unpaid: the cleaner is still asked to check (water). Electric now starts 21 Nov: since 2026-11-21, no waiting_for; water still since 21 Oct, waiting for November.
+-- the electric bill is paid with reading date 21 Nov, the water bill is still unpaid: the cleaner is still asked to check (water). Electric now starts 21 Nov: since 2026-11-21, no waiting_for.
+-- s143: water has no real reading, so its open cycle is the assumed one from 21 Nov (cycle_from_assumed true) and nothing waits for a bill; electric's boundary is now real (cycle_from_assumed false).
 update public.utility_bills set status = 'paid', paid_php = 1000, paid_at = now(), paid_by_name = 'Zz Admin', proof_verdict = 'typed', reading_date = date '2026-11-21' where property_id = pg_temp.id('b5') and kind = 'electric';
 select pg_temp.as_user(pg_temp.id('a1'));
 insert into _t select 't3c', pg_temp.c1('today_bills_v1', pg_temp.id('b5'));
 reset role;
-select ok((select (v ->> 'check_bills')::boolean and (v ->> 'since') = '2026-11-21' and v -> 'waiting_for' = 'null'::jsonb and (v ->> 'water_since') = '2026-10-21' and (v ->> 'water_waiting_for') = 'November' from _t where k = 't3c'),
-          'electric paid with reading date 21 Nov: the card counts from 21 Nov and waits for nothing, water still since 21 Oct and waiting for November, the cleaner is still asked to check the water bill');
+select ok((select (v ->> 'check_bills')::boolean and (v ->> 'since') = '2026-11-21' and v -> 'waiting_for' = 'null'::jsonb and (v ->> 'water_since') = '2026-11-21' and v -> 'water_waiting_for' = 'null'::jsonb
+                  and (v #>> '{electric,cycle_from_assumed}') = 'false' and (v #>> '{water,cycle_from_assumed}') = 'true' from _t where k = 't3c'),
+          's143: electric paid with reading date 21 Nov: the card counts from the real 21 Nov and waits for nothing, water counts from its assumed 21 Nov, the cleaner is still asked to check the water bill');
 -- the water bill is paid with reading date 20 Nov: water now starts 20 Nov and nothing is left to check.
 update public.utility_bills set status = 'paid', paid_php = 300, paid_at = now(), paid_by_name = 'Zz Admin', proof_verdict = 'typed', reading_date = date '2026-11-20' where property_id = pg_temp.id('b5') and kind = 'water';
 select pg_temp.as_user(pg_temp.id('a1'));
@@ -364,6 +383,8 @@ select ok((select v = '{"ok":false,"reason":"reading_date_invalid","after":"2026
 select ok((select (v ->> 'ok')::boolean and v ->> 'reading_date' = '2026-11-22' from _t where k = 's7c') and (select reading_date = date '2026-11-22' and reading_value is null from public.utility_bills where id = pg_temp.bi('el12')),
           'the day after the previous one, which is today, is accepted; no present reading stays null (unknown is not 0)');
 -- water: its own rule. Date required. Value 120 at 21 Nov: the water log runs on from c3 (19 Nov, 108 m3, 4 m3 over 19 days = 0.210526 a day): 108 + 2 x 0.210526 = 108.421053; 120 is 11.58 away (> 3): warning true.
+-- s143: the restored production ledger already holds a real bill:water:2026-11 row of another property (212.00), and the ledger keeps one row per bill ref across properties, so this settle refused with 55000 on the base 8bab6e7 as well (test 45). Clear that ref (rolled back with the suite, as section 5b does for its own).
+delete from public.transactions where source = 'bill' and external_ref = 'bill:water:2026-11' and property_id <> pg_temp.id('b7');
 select pg_temp.as_user(pg_temp.id('a2'));
 insert into _t select 'w1', pg_temp.c2('bill_pay_settle_v1', pg_temp.bi('wa11'), pg_temp.pf('b7', 'zz131-proof-0016-a.jpg', '11', 300));
 insert into _t select 'w2', pg_temp.c2('bill_pay_settle_v1', pg_temp.bi('wa11'), pg_temp.pf('b7', 'zz131-proof-0017-a.jpg', '12', 300, '{"reading_date":"2026-11-21","reading_value":"120"}'));
@@ -499,15 +520,17 @@ select ok((select bool_and(p.prosecdef = e.secdef and p.provolatile = e.vol and 
                           ('public.bill_entry_v1(public.utility_bills,jsonb,boolean,uuid)'::regprocedure, false, 's'), ('public.bill_daily_v1(date,uuid)'::regprocedure, true, 'v')) e(oid, secdef, vol)
              join pg_proc p on p.oid = e.oid),
           'security definer, volatility and the empty search_path of the eight replaced functions are unchanged');
-select ok((select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.bill_due_open_v1(uuid,date,text)'::regprocedure) = '51c1bca21bbacbba9d214f963e3806d1'
+-- s143: bill_due_open_v1 and bill_step_v1 are replaced by the s143 release, so each is its s127 body or the s143 one
+select ok((select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.bill_due_open_v1(uuid,date,text)'::regprocedure) in ('51c1bca21bbacbba9d214f963e3806d1', '8f8dfbfdc2f187abc7bf415ec6c44a59')
           and (select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.kpi_admin_bills_v1(uuid,numeric)'::regprocedure) = 'd732f76179ea3433dbf6c710c69bec5f'
-          and (select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.bill_step_v1(uuid,text,uuid,text,jsonb)'::regprocedure) = '36c9347d29f4b964540ca973af8cac19'
+          and (select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.bill_step_v1(uuid,text,uuid,text,jsonb)'::regprocedure) in ('36c9347d29f4b964540ca973af8cac19', '44d8d6670985d060556cd772cc61b3c4')
           and (select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.kpi_tab_v1(uuid,date)'::regprocedure) in ('80efd89e916bcd6107c681baf86f143f', '7c6d5a22d09ad96916804630f31df602'),
-          'the callers this release does not replace (bill_due_open_v1, kpi_admin_bills_v1, bill_step_v1, kpi_tab_v1) are byte for byte the s127 bodies');
-select ok((select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.bill_entry_v1(public.utility_bills,jsonb,boolean,uuid)'::regprocedure) = '64e749cf8ed30afc9c4475bcd398685a'
-          and (select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.bill_daily_v1(date,uuid)'::regprocedure) = '91a6d8a62fafd25894310e522de23494'
-          and (select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.bill_pay_settle_v1(uuid,jsonb)'::regprocedure) in ('ede3c0432079186f73b7db56900e6671', '9784e8619b3aeb3d6b19c5fd7f679c79'),
-          'bill_entry_v1, bill_daily_v1 and bill_pay_settle_v1 are the bodies of this release (settle: this release or s131b, which replaces it again)');
+          'the callers this release does not replace (kpi_admin_bills_v1, kpi_tab_v1) are byte for byte the s127 bodies; bill_due_open_v1 and bill_step_v1 are the s127 bodies or the s143 ones that replace them');
+-- s143: the s143 release replaces all three again; each is this release's body or the s143 one
+select ok((select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.bill_entry_v1(public.utility_bills,jsonb,boolean,uuid)'::regprocedure) in ('64e749cf8ed30afc9c4475bcd398685a', 'b9445c74b9de12d095258176dbba99df')
+          and (select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.bill_daily_v1(date,uuid)'::regprocedure) in ('91a6d8a62fafd25894310e522de23494', '7ad3a9553a03b6f24b0dffa5eb2e689b')
+          and (select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.bill_pay_settle_v1(uuid,jsonb)'::regprocedure) in ('ede3c0432079186f73b7db56900e6671', '9784e8619b3aeb3d6b19c5fd7f679c79', 'fd43c497553394e5b47b861c3e1d1206'),
+          'bill_entry_v1, bill_daily_v1 and bill_pay_settle_v1 are the bodies of this release, or (settle) s131b, or the s143 ones that replace them again');
 
 -- 10. the md5 guard of the migration (last: it breaks one function on purpose) ---------------------------------------------------------------------------------------------------------------------------------------------------
 -- The guard block below is a verbatim copy of the one at the top of 20261130000000_s131_meter_cycle.sql (the rehearsal's database role cannot read the mounted file, so it cannot be cut out of it; keep the two identical).
@@ -519,9 +542,9 @@ begin
 exception when others then
   return jsonb_build_object('err', sqlstate, 'msg', sqlerrm);
 end $f$;
--- s131b (D-395) replaces bill_pay_settle_v1 again after this release: the guard text is cut verbatim, but its settle row's new md5 is pointed at the live settle body (the previous test pins that to this release or s131b) so the guard also passes once s131b is applied
+-- s131b (D-395) and s143 replace bill_pay_settle_v1, bill_entry_v1, bill_daily_v1, today_bills_v1 and utility_bill_estimate_v1 again after this release: the guard text is cut verbatim, but the new md5 of those five rows is pointed at the live body (the previous tests pin each to this release or a later one) so the guard also passes once they are applied
 create function pg_temp.guard_sql() returns text language sql as $gq$
-select replace($dq$do $g$
+select replace(replace(replace(replace(replace($dq$do $g$
 declare v text; r record;
 begin
   for r in select * from (values
@@ -539,7 +562,11 @@ begin
       raise exception using errcode = '55000', message = 's131: ' || r.sig || ' is neither the s127 body nor this release (md5 ' || coalesce(v, 'null') || '): re-cut it from the live body';
     end if;
   end loop;
-end $g$;$dq$::text, '''ede3c0432079186f73b7db56900e6671''', quote_literal((select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.bill_pay_settle_v1(uuid,jsonb)'::regprocedure)))
+end $g$;$dq$::text, '''ede3c0432079186f73b7db56900e6671''', quote_literal((select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.bill_pay_settle_v1(uuid,jsonb)'::regprocedure))),
+  '''64e749cf8ed30afc9c4475bcd398685a''', quote_literal((select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.bill_entry_v1(public.utility_bills,jsonb,boolean,uuid)'::regprocedure))),
+  '''91a6d8a62fafd25894310e522de23494''', quote_literal((select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.bill_daily_v1(date,uuid)'::regprocedure))),
+  '''7fca3fd12b7e372010f8f20b12c491a4''', quote_literal((select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.today_bills_v1(uuid)'::regprocedure))),
+  '''563e61f417555730a9294df15c7eca7f''', quote_literal((select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.utility_bill_estimate_v1(uuid,date)'::regprocedure)))
 $gq$;
 select ok(pg_temp.guard_sql() like 'do $g$%' and (select count(*) = 8 from regexp_matches(pg_temp.guard_sql(), '\(''public\.', 'g')), 'the guard block lists the eight replaced functions');
 select ok(pg_temp.run_do(pg_temp.guard_sql()) = 'null'::jsonb, 'the guard passes on the bodies of this release');

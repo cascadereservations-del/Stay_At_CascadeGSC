@@ -15,11 +15,11 @@ begin
   for r in select * from (values
     ('public.utility_bill_estimate_v1(uuid,date)', '563e61f417555730a9294df15c7eca7f', '615c5e6719f1d35872e885c6f5084587'),
     ('public.bill_entry_v1(public.utility_bills,jsonb,boolean,uuid)', '64e749cf8ed30afc9c4475bcd398685a', 'b9445c74b9de12d095258176dbba99df'),
-    ('public.bill_due_open_v1(uuid,date,text)', '51c1bca21bbacbba9d214f963e3806d1', 'c5781b6c5b7c59e8621b17fef0a2d29a'),
-    ('public.bill_daily_v1(date,uuid)', '91a6d8a62fafd25894310e522de23494', '1726ac329d265f98a9c345aae083d729'),
+    ('public.bill_due_open_v1(uuid,date,text)', '51c1bca21bbacbba9d214f963e3806d1', '8f8dfbfdc2f187abc7bf415ec6c44a59'),
+    ('public.bill_daily_v1(date,uuid)', '91a6d8a62fafd25894310e522de23494', '7ad3a9553a03b6f24b0dffa5eb2e689b'),
     ('public.bill_step_v1(uuid,text,uuid,text,jsonb)', '36c9347d29f4b964540ca973af8cac19', '44d8d6670985d060556cd772cc61b3c4'),
     ('public.bill_pay_open_v1(uuid)', 'dba3b83d4e7cd0f9dcf192b0c925644e', 'b090554ca873215100d9167579c0facc'),
-    ('public.bill_pay_settle_v1(uuid,jsonb)', '9784e8619b3aeb3d6b19c5fd7f679c79', '591176b334a7f6089a25b79ee2a4b245'),
+    ('public.bill_pay_settle_v1(uuid,jsonb)', '9784e8619b3aeb3d6b19c5fd7f679c79', 'fd43c497553394e5b47b861c3e1d1206'),
     ('public.today_bills_v1(uuid)', '7fca3fd12b7e372010f8f20b12c491a4', '563053ef8469130428e9d35f09cc7762'),
     ('public.expenses_screen_v1(uuid,date,integer,timestamptz,text,uuid)', '0a94343249946154b709a4a7f9e407b9', '87d5b34bc801736104bf69da5019b792'),
     ('public.admin_save_transaction_v2(uuid,jsonb,text)', '3f6547827d1cd04c8875c6fc2fe8a154', '2eebbce5a512ddf389b6361ff85ae74d')

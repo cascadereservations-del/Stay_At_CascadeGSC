@@ -4,7 +4,7 @@
 -- The ledger keeps one row per bill ref across properties and a restored production copy already holds 2026 refs: every bill this suite settles has a 2027 period, and utility_billing.open_from is set to 2027-04-21 for the whole suite.
 -- Rows are written and read as the owner role (a --no-acl restore gives authenticated no table grants); only the RPC calls run as the staff roles. Hand-computed values are quoted next to each assertion.
 begin;
-select plan(37);
+select plan(44);
 
 -- baseline grants a --no-acl restore lacks (idempotent, rolled back with the suite)
 do $sr$ begin if not (select rolbypassrls from pg_roles where rolname = 'service_role') then alter role service_role bypassrls; end if; end $sr$;
@@ -128,17 +128,21 @@ insert into public.app_settings(key, value) values
 delete from public.utility_rates;
 insert into public.utility_rates(provider, php_per_kwh, effective_from, source) values ('socoteco2', 10, date '2026-10-01', 'manual');
 select pg_temp.today('2027-05-26');
+-- moves the open_from anchor of each meter (the suite default is 2027-04-21 for both)
+create function pg_temp.set_open(e text, w text) returns void language sql as $$
+  update public.app_settings set value = jsonb_set(jsonb_set(value, '{electric,open_from}', to_jsonb(e)), '{water,open_from}', to_jsonb(w)) where key = 'utility_billing'
+$$;
 
 -- fixtures -------------------------------------------------------------------------------------------------------------------------------------------
 insert into public.properties(id, name, is_active)
-select pg_temp.id(x), 'Zz S143 ' || x, true from unnest(array['b1', 'b2', 'b3', 'b4', 'b5', 'b6', 'b7', 'b8', 'b9', 'ba', 'bb', 'bc', 'bd', 'be']) x;
+select pg_temp.id(x), 'Zz S143 ' || x, true from unnest(array['b1', 'b2', 'b3', 'b4', 'b5', 'b6', 'b7', 'b8', 'b9', 'ba', 'bb', 'bc', 'bd', 'be', 'c1', 'c2', 'c3', 'c4', 'c5']) x;
 insert into auth.users(id, email, raw_user_meta_data) values
   (pg_temp.id('a1'), 'zz143-cleaner@example.com', '{"display_name":"Zz Cleaner"}'::jsonb), (pg_temp.id('a2'), 'zz143-admin@example.com', '{"display_name":"Zz Admin"}'::jsonb),
   (pg_temp.id('a5'), 'zz143-other@example.com', '{"display_name":"Zz Other"}'::jsonb), (pg_temp.id('a6'), 'zz143-owner@example.com', '{"display_name":"Zz Owner"}'::jsonb);
 insert into public.staff_access_profiles(user_id, role, disabled_at) values
   (pg_temp.id('a1'), 'cleaner', null), (pg_temp.id('a2'), 'admin', null), (pg_temp.id('a5'), 'cleaner', null), (pg_temp.id('a6'), 'owner', null);
 insert into public.staff_property_access(user_id, property_id)
-select pg_temp.id('a2'), pg_temp.id(x) from unnest(array['b1', 'b2', 'b3', 'b4', 'b5', 'b6', 'b7', 'b8', 'b9', 'ba', 'bb', 'bc', 'bd', 'be']) x;
+select pg_temp.id('a2'), pg_temp.id(x) from unnest(array['b1', 'b2', 'b3', 'b4', 'b5', 'b6', 'b7', 'b8', 'b9', 'ba', 'bb', 'bc', 'bd', 'be', 'c1', 'c2', 'c3', 'c4', 'c5']) x;
 insert into public.staff_property_access(user_id, property_id) values
   (pg_temp.id('a1'), pg_temp.id('b8')), (pg_temp.id('a1'), pg_temp.id('ba')), (pg_temp.id('a5'), pg_temp.id('b1')), (pg_temp.id('a6'), pg_temp.id('b6'));
 insert into public.expense_categories(property_id, slug, label, sort_order) values (pg_temp.id('b6'), 'supplies', 'Supplies', 1), (pg_temp.id('b6'), 'utilities', 'Utilities', 2) on conflict do nothing;
@@ -291,12 +295,13 @@ insert into _t select 'u2', pg_temp.rs('a2', pg_temp.id('b8'), 'water', date '20
 select ok((select v = '{"ok":false,"reason":"reading_date_invalid","before":"2027-06-01"}'::jsonb from _t where k = 'u1')
           and (select (v ->> 'ok')::boolean and v ->> 'period' = '2027-05' from _t where k = 'u2'),
           'a later DUE bill with a real date (1 Jun) bounds the older bill: 1 Jun is refused with before = 2027-06-01, 31 May is saved');
--- older_bill_open: p9b water 2027-05 is open with no date (assumed 21 May); on 1 Jul a reading of 25 Jun belongs to the next cycle (21 May + 1 month = 21 Jun): the older bill is still waiting
+-- p9b water 2027-05 is open with no date (assumed 21 May); on 1 Jul a reading of 25 Jun belongs to the next cycle (21 May + 1 month = 21 Jun)
 insert into public.utility_bills(property_id, kind, period, estimate_php, status) values (pg_temp.id('bc'), 'water', '2027-05', 300, 'due');
 insert into _t select 'o1', pg_temp.rs('a2', pg_temp.id('bc'), 'water', date '2027-06-25');
 insert into _t select 'o2', pg_temp.rs('a2', pg_temp.id('bc'), 'water', date '2027-06-20');
-select ok((select v = '{"ok":false,"reason":"older_bill_open"}'::jsonb from _t where k = 'o1') and (select (v ->> 'ok')::boolean from _t where k = 'o2'),
-          'older_bill_open: 25 Jun is past the assumed 21 Jun for the open 2027-05 bill; 20 Jun is still its cycle and is saved');
+-- s143: the open 2027-05 bill is the oldest open one, so a reading past its next cycle is a DATE problem (reading_date_invalid with before = 21 Jun), never older_bill_open (there is no older bill to settle)
+select ok((select v = '{"ok":false,"reason":"reading_date_invalid","before":"2027-06-21"}'::jsonb from _t where k = 'o1') and (select (v ->> 'ok')::boolean from _t where k = 'o2'),
+          's143: a reading of 25 Jun on the oldest undated 2027-05 bill is reading_date_invalid with before = 2027-06-21 (not older_bill_open); 20 Jun is still its cycle and is saved');
 -- already_paid: the date of a paid bill is closed
 insert into public.utility_bills(property_id, kind, period, estimate_php, status, paid_php, paid_at, paid_by_name, proof_verdict, reading_date)
 values (pg_temp.id('bd'), 'water', '2027-05', 300, 'paid', 300, now(), 'Zz Admin', 'typed', date '2027-05-10');
@@ -388,6 +393,71 @@ select ok((select (v ->> 'ok')::boolean from _t where k = 'x4') and (select (v -
           and (select r ->> 'method' = 'bank' and r ->> 'title' = 'Zz Shop' and r ->> 'by' is null from _t, jsonb_array_elements(v -> 'rows') r where k = 'x5' and r ->> 'id' = (select v ->> 'id' from _t where k = 'x2'))
           and (select t.payment_method is null from public.transactions t where t.id = (select (v ->> 'id')::uuid from _t where k = 'x2')),
           'edit sets the method (bank, shown in the screen with title = payee and by null for an admin-logged row); an empty payment_method clears it');
+
+-- 13. fix round 1: calendar slots, orphan notices, edges ------------------------------------------------------------------------------------------------------------------------------------------
+-- c1 water: 2027-05 has the REAL reading 21 May (due), 2027-06 was never opened, 2027-07 is due with no date. The slot is the calendar distance to the anchor row (07 - 05 = 2 months), not the one undated row:
+-- 2027-07 ends 21 Jul (not 21 Jun, which would put the whole cycle a month early) and starts where 2027-05 ends.
+insert into public.utility_bills(property_id, kind, period, estimate_php, status, reading_date) values (pg_temp.id('c1'), 'water', '2027-05', 300, 'due', date '2027-05-21');
+insert into public.utility_bills(property_id, kind, period, estimate_php, status) values (pg_temp.id('c1'), 'water', '2027-07', 300, 'due');
+select is((select string_agg(r.period || ' ' || r.row_from || '>' || r.row_to || ' ' || case when r.to_assumed then 'assumed' else 'real' end, '; ' order by r.period) from public.utility_meter_rows_v1(pg_temp.id('c1'), 'water') r),
+          '2027-05 2027-04-21>2027-05-21 real; 2027-07 2027-05-21>2027-07-21 assumed',
+          'a missing middle period (2027-06) keeps its calendar slot: 2027-07 ends 21 Jul, starting at the real 21 May');
+
+-- c2: bill_daily_v1 writes the one notice of every open bill that has none (a row bill_reading_set_v1 created has notice_id null and is never opened again by bill_due_open_v1).
+-- 24 May is before the remind day 25, so the opener looks at 2027-04 (all four rows exist, three skipped): nothing opens. Orphans: electric 2027-04 (a month back: "is overdue.") and water 2027-05 ("bill: due by the 27th.").
+insert into public.utility_bills(property_id, kind, period, estimate_php, status) values
+  (pg_temp.id('c2'), 'electric', '2027-04', 1000, 'due'), (pg_temp.id('c2'), 'water', '2027-04', 300, 'skipped'), (pg_temp.id('c2'), 'internet', '2027-04', 1500, 'skipped'), (pg_temp.id('c2'), 'netflix', '2027-04', 449, 'skipped'),
+  (pg_temp.id('c2'), 'water', '2027-05', 300, 'due');
+insert into _t select 'd1', public.bill_daily_v1(date '2027-05-24', pg_temp.id('c2'));
+insert into _t select 'd2', public.bill_daily_v1(date '2027-05-24', pg_temp.id('c2'));
+select ok((select (v ->> 'bills_opened')::integer = 0 and (v ->> 'notices_written')::integer = 2 from _t where k = 'd1')
+          and (select array_agg(n.title order by n.title) = array['Electricity (SOCOTECO II) is overdue.', 'Water (Gensan Water District) bill: due by the 27th.'] from public.ops_notices n where n.property_id = pg_temp.id('c2') and n.source = 'system')
+          and (select count(*) = 2 and bool_and(notice_id is not null) from public.utility_bills where property_id = pg_temp.id('c2') and status = 'due'),
+          'bill_daily_v1 writes the missing notice of each open bill with notice_id null: "Electricity ... is overdue." (2027-04) and "Water ... bill: due by the 27th." (2027-05); notice_id is set');
+select ok((select (v ->> 'bills_opened')::integer = 0 and (v ->> 'notices_written')::integer = 0 from _t where k = 'd2')
+          and (select count(*) = 2 from public.ops_notices n where n.property_id = pg_temp.id('c2') and n.source = 'system'),
+          'a second run writes no notice again: once only');
+
+-- paid_on is bounded below for EVERY kind (the 1st of the month before the billed period): b7 Netflix 2027-04 may not be paid on 28 Feb (a year typo), 1 Mar is the lower edge
+select pg_temp.settle('s13a', 'netflix', 'b7', '2027-04', 449, '{"paid_on": "2027-02-28"}');
+select pg_temp.settle('s13b', 'netflix', 'b7', '2027-04', 449, '{"paid_on": "2027-03-01"}');
+select ok((select v = '{"ok":false,"reason":"paid_on_invalid"}'::jsonb from _t where k = 's13a')
+          and (select (v ->> 'ok')::boolean and v #>> '{bill,paid_on}' = '2027-03-01' from _t where k = 's13b')
+          and (select t.transaction_date = date '2027-03-01' from public.transactions t where t.external_ref = 'bill:netflix:2027-04'),
+          'paid_on 28 Feb on a 2027-04 Netflix bill is paid_on_invalid (not before 1 Mar); 1 Mar is accepted and dates the ledger row');
+
+-- c4: a bill another person is paying keeps its date and estimate: bill_reading_set_v1 refuses with paying_by_other and the payer''s name; the payer themself can still set it
+insert into public.utility_bills(property_id, kind, period, estimate_php, status) values (pg_temp.id('c4'), 'water', '2027-05', 300, 'due');
+update public.utility_bills set status = 'paying', paying_by = pg_temp.id('a6'), paying_by_name = 'Zz Owner', paying_at = now() where property_id = pg_temp.id('c4') and kind = 'water';
+insert into _t select 'y1', pg_temp.rs('a2', pg_temp.id('c4'), 'water', date '2027-05-22');
+update public.utility_bills set paying_by = pg_temp.id('a2'), paying_by_name = 'Zz Admin' where property_id = pg_temp.id('c4') and kind = 'water';
+insert into _t select 'y2', pg_temp.rs('a2', pg_temp.id('c4'), 'water', date '2027-05-22');
+select ok((select v = '{"ok":false,"reason":"paying_by_other","name":"Zz Owner"}'::jsonb from _t where k = 'y1')
+          and (select (v ->> 'ok')::boolean from _t where k = 'y2')
+          and (select reading_date = date '2027-05-22' and status = 'paying' from public.utility_bills where property_id = pg_temp.id('c4') and kind = 'water'),
+          'bill_reading_set_v1 on a bill another user is paying: paying_by_other with the payer''s name and nothing written; the payer themself can set the date');
+
+-- c3: a bill that opens before the assumed end of its own span is estimated with the FORECAST to that end. Anchor 28 Apr: the 2027-05 row spans 28 Apr .. 28 May and opens on 26 May (>= the remind day 25, before 28 May).
+-- 30 kWh counted on 10 May: 12 covered days (29 Apr .. 10 May), 30 / 12 = 2.5 kWh a day, the span has 30 days: forecast 75 kWh x 10 + 5.60 = 755.60 (the use counted so far would be 305.60).
+select pg_temp.set_open('2027-04-28', '2027-04-28');
+insert into public.meter_readings(id, session_id, property_id, recorded_at, electric_prev, electric_curr, water_prev, electric_delta, water_delta, meter_flag) values
+  (pg_temp.id('f1'), null, pg_temp.id('c3'), timestamptz '2027-05-10 09:00+08', 1000, 1030, 50, 30, 3.0, null);
+insert into _t select 'f1', public.bill_due_open_v1(pg_temp.id('c3'), date '2027-05-26', '2027-05');
+select pg_temp.set_open('2027-04-21', '2027-04-21');
+select ok((select jsonb_array_length(v -> 'new') = 4 from _t where k = 'f1')
+          and (select estimate_php = 755.60 from public.utility_bills where property_id = pg_temp.id('c3') and kind = 'electric' and period = '2027-05'),
+          'a bill opened before its span ends carries the forecast to the end of the span (28 May): 75 kWh x 10 + 5.60 = 755.60, not the 305.60 counted so far');
+
+-- c5: the reading-day notice names only the meter(s) due that day. Electric anchored on 21 Apr, water on 22 Apr: on 21 May only the electricity meter is due; on 21 Jun both are (both anchors reach the 21st).
+select pg_temp.set_open('2027-04-21', '2027-04-22');
+insert into _t select 'n1', public.bill_daily_v1(date '2027-05-21', pg_temp.id('c5'));
+select pg_temp.set_open('2027-04-21', '2027-04-21');
+insert into _t select 'n2', public.bill_daily_v1(date '2027-06-21', pg_temp.id('c5'));
+select ok((select count(*) = 1 and bool_and(n.title = 'Meter reading due today (21st)' and n.description = 'Read the electricity meter.') from public.ops_notices n
+            where n.property_id = pg_temp.id('c5') and n.title like 'Meter reading%' and n.effective_date = date '2027-05-21')
+          and (select count(*) = 1 and bool_and(n.title = 'Meter reading due today (21st)' and n.description = 'Read the electricity and water meters.') from public.ops_notices n
+            where n.property_id = pg_temp.id('c5') and n.title like 'Meter reading%' and n.effective_date = date '2027-06-21'),
+          'the reading-day notice names the meter(s) due: electricity only on 21 May (water is anchored on the 22nd), both meters on 21 Jun');
 
 -- 12. shape: grants, the check constraint and the ledger column ---------------------------------------------------------------------------------------------------------------------------------------
 select ok(has_function_privilege('authenticated', 'public.bill_reading_set_v1(uuid,text,date,numeric,boolean)', 'execute')

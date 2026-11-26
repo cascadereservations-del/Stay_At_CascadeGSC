@@ -10,14 +10,14 @@
     "20261210000000_s143_money.sql"
   ],
   "migration_sha256": {
-    "20261210000000_s143_money.sql": "6f398a8528cee9687f9207829a85ad77dbe0be6d02c8310866f129aa9c6133d7"
+    "20261210000000_s143_money.sql": "23c424c082ded623917d5fb4fb303f81c458ab8e1848ef0efb4e6cc4cb5ae6c3"
   },
   "backup": {
     "required": true,
     "scope": "production",
     "restore_point": "C:/Cascade-Backups/cascade-supabase-20261126T080115Z",
     "verified_at": "2026-11-26T08:05:57.104Z",
-    "production_rule": "Money consolidation (s143), server side. 20261210000000 adds the nullable column public.transactions.payment_method (check: gcash, bank, cash, card, other), six internal helper functions (granted to nobody), the function bill_reading_set_v1 (signed-in users, gated by bill_can_v1) and replaces ten bill/expense functions: bill_step_v1, bill_pay_open_v1, bill_due_open_v1, bill_entry_v1, bill_daily_v1, utility_bill_estimate_v1, today_bills_v1, bill_pay_settle_v1 (paid_on, method), expenses_screen_v1 and admin_save_transaction_v2 (payment_method). Every replaced function keeps all existing JSON keys and only gains keys. It stops (55000) if any of the ten is not the body it was cut from (md5 of prosrc). Category back-fill of old bill rows is NOT in the migration: docs/s143/laneS/backfill_category.sql runs separately with Lloyd's yes.",
+    "production_rule": "Money consolidation (s143), server side. 20261210000000 adds the nullable column public.transactions.payment_method (check: gcash, bank, cash, card, other), six internal helper functions (granted to nobody), the function bill_reading_set_v1 (signed-in users, gated by bill_can_v1) and replaces ten bill/expense functions: bill_step_v1, bill_pay_open_v1, bill_due_open_v1, bill_entry_v1, bill_daily_v1, utility_bill_estimate_v1, today_bills_v1, bill_pay_settle_v1 (paid_on, method), expenses_screen_v1 and admin_save_transaction_v2 (payment_method). Every replaced function keeps all existing JSON keys and only gains keys. It stops (55000) if any of the ten is not the body it was cut from (md5 of prosrc). SEMANTIC CHANGES an operator must know: (1) a meter cycle boundary is the real reading_date of a bill (any status), else an assumed date (latest real reading, or the setting open_from, plus whole calendar months, anchor day kept, month end clamped); a missing middle period keeps its calendar slot. (2) utility_bill_estimate_v1 and the Today card show the OPEN cycle: overdue is now always false and waiting_for / water_waiting_for are null (the keys stay). (3) A bill opens with the counted use of its own span (forecast to the end of the span only while that end is still ahead). (4) bill_daily_v1 writes the meter-reading notice on the assumed boundary, naming the meter(s) due, and writes the one notice of any open bill that has none (a row bill_reading_set_v1 created). (5) bill_pay_settle_v1 and bill_reading_set_v1 refuse a bill another user is paying (paying_by_other); paid_on may not be before the 1st of the month before the billed period for any kind. (6) The pgTAP suites s127_bill_reminders, s127_utility_bills, s131_meter_cycle and s131b_followups were updated for these changes (each changed assertion carries a '-- s143:' comment). Category back-fill of old bill rows is NOT in the migration: docs/s143/laneS/backfill_category.sql runs separately with Lloyd's yes.",
     "notes": "restore_point and verified_at are placeholders: restamp them with a fresh backup at apply time (scripts/migrations/fill-restore-point.mjs). The migration carries no begin/commit (the runner wraps it); the rollback carries its own and refuses (55000) once a ledger row carries a payment_method. source.commit is the base the lane started from; the lane commit is the branch tip. Apply the SQL before the Staff release. Rehearse with migration-rehearsal-on-host.sh and the pgTAP suite s143_money before the apply."
   },
   "forward_verification": [
@@ -28,7 +28,7 @@
     },
     {
       "name": "ten_replaced_functions_have_the_new_bodies",
-      "query": "select count(*) = 10 and bool_and(md5(replace(p.prosrc, chr(13), '')) = v.m) from (values ('bill_step_v1', '44d8d6670985d060556cd772cc61b3c4'), ('bill_pay_open_v1', 'b090554ca873215100d9167579c0facc'), ('bill_due_open_v1', 'c5781b6c5b7c59e8621b17fef0a2d29a'), ('bill_entry_v1', 'b9445c74b9de12d095258176dbba99df'), ('bill_daily_v1', '1726ac329d265f98a9c345aae083d729'), ('utility_bill_estimate_v1', '615c5e6719f1d35872e885c6f5084587'), ('today_bills_v1', '563053ef8469130428e9d35f09cc7762'), ('bill_pay_settle_v1', '591176b334a7f6089a25b79ee2a4b245'), ('expenses_screen_v1', '87d5b34bc801736104bf69da5019b792'), ('admin_save_transaction_v2', '2eebbce5a512ddf389b6361ff85ae74d')) v(n, m) join pg_proc p on p.pronamespace = 'public'::regnamespace and p.proname = v.n",
+      "query": "select count(*) = 10 and bool_and(md5(replace(p.prosrc, chr(13), '')) = v.m) from (values ('bill_step_v1', '44d8d6670985d060556cd772cc61b3c4'), ('bill_pay_open_v1', 'b090554ca873215100d9167579c0facc'), ('bill_due_open_v1', '8f8dfbfdc2f187abc7bf415ec6c44a59'), ('bill_entry_v1', 'b9445c74b9de12d095258176dbba99df'), ('bill_daily_v1', '7ad3a9553a03b6f24b0dffa5eb2e689b'), ('utility_bill_estimate_v1', '615c5e6719f1d35872e885c6f5084587'), ('today_bills_v1', '563053ef8469130428e9d35f09cc7762'), ('bill_pay_settle_v1', 'fd43c497553394e5b47b861c3e1d1206'), ('expenses_screen_v1', '87d5b34bc801736104bf69da5019b792'), ('admin_save_transaction_v2', '2eebbce5a512ddf389b6361ff85ae74d')) v(n, m) join pg_proc p on p.pronamespace = 'public'::regnamespace and p.proname = v.n",
       "expect": true
     },
     {
@@ -73,7 +73,7 @@
     "old_reader": true,
     "old_writer": true,
     "verified": true,
-    "evidence": "Rehearsed 2026-11-26 with migration-rehearsal-on-host.sh on a throwaway restore of backup set cascade-supabase-20261126T080115Z (prefix cascade-migration-rehearsal-2603a606132c): migrations applied 1, failed 0; forward verification 6 passed, 0 failed; pgTAP s143_money 37/37; cleanup leftovers 0. Log docs/s143/laneS/rehearsal3_s143_only.log. The older suites s127_utility_bills, s127_bill_reminders, s131_meter_cycle and s131b_followups still encode superseded semantics (forecast estimate, overdue, body pins, fourteen entry keys) and must be updated by the owner of those files: docs/s143/laneS/rehearsal2.log. Rollback was not rehearsed (the script has no rollback mode). Not applied to production."
+    "evidence": "Rehearsed 2026-11-26 with migration-rehearsal-on-host.sh on a throwaway restore of backup set cascade-supabase-20261126T080115Z (prefix cascade-migration-rehearsal-756f3d4743e3): migrations applied 1, failed 0; forward verification 6 passed, 0 failed; pgTAP s127_bill_reminders 120/120, s127_utility_bills 102/102, s131_meter_cycle 71/71, s131b_followups 14/14, s143_money 44/44 (5 of 5 suites). Log docs/s143/laneS/rehearsal-fix1.log. Rollback was not rehearsed (the script has no rollback mode). Not applied to production."
   },
   "approvals": {
     "production_required": true,
@@ -84,8 +84,12 @@
     "any forward verification query returns anything other than its expected value",
     "the restore point is older than one hour, or restore_point / verified_at are still the placeholders",
     "the migration guard raises 55000 (a replaced function is not the body it was cut from)",
-    "the pgTAP suite s143_money has not passed on this commit",
-    "the superseded assertions in s131_meter_cycle.sql have not been updated",
+    "any of the pgTAP suites s127_bill_reminders, s127_utility_bills, s131_meter_cycle, s131b_followups and s143_money has not passed on this commit",
     "the Opus 5.5 review of this SQL lane has not passed"
+  ],
+  "risks": [
+    "No cooldown on bill_reading_set_v1: a signed-in user with approve_payment can set or move the reading date of the oldest open bill repeatedly (each call rewrites that bill's date and estimate until it is paid); it is audited by the transactions/bill triggers only for paid rows, so a wrong date is repaired by calling it again, not by a rollback.",
+    "The rollback script restores the ten previous function bodies but was NOT rehearsed (migration-rehearsal-on-host.sh has no rollback mode); it refuses (55000) once a ledger row carries a payment_method.",
+    "The semantic changes in production_rule alter what the Today card, the daily notice and the bill estimates show on the day the SQL is applied; the Staff release that reads the new keys must follow the SQL."
   ]
 }

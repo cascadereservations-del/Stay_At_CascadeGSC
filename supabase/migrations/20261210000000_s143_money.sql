@@ -1,11 +1,13 @@
 -- Session 143, lane S (SQL): release s143_money_20261210. Contract: docs/s143/CONTRACT.md "SQL (lane S)" over docs/s143/PLAN-finance.md sections 3-4. Money consolidation, server side.
 --
 --   boundary model                    A meter cycle boundary is the REAL reading_date of a bill (any status, a skipped bill keeps it), else ASSUMED = the latest real reading (else the setting open_from) + n months, month end clamped,
---                                     the anchor day kept (31 Jan -> 28 Feb -> 31 Mar). Each bill row of a meter uses one slot (utility_meter_rows_v1); the open cycle on a day comes from utility_meter_cycle_v1.
+--                                     the anchor day kept (31 Jan -> 28 Feb -> 31 Mar). Each bill row of a meter takes the slot of its calendar month after the anchor (utility_meter_rows_v1: a missing middle period keeps its slot);
+--                                     the open cycle on a day comes from utility_meter_cycle_v1.
 --   utility_bill_estimate_v1          from / to = the open cycle above (was: newest PAID reading + 1 month). Same keys; overdue is always false.
 --   bill_entry_v1                     + from, to, to_assumed (meter bills; null / false otherwise), paid_on (the ledger date of a paid bill).
---   bill_due_open_v1                  the estimate of a new meter bill = the use counted in its own span (so far at the reading date).
---   bill_daily_v1                     the "Meter reading due today (<day>)" notice fires on an assumed reading day of either meter (was: the fixed 21st).
+--   bill_due_open_v1                  the estimate of a new meter bill = the use counted in its own span (so far at the reading date), or the forecast to the span end while that end is still ahead of the opening day.
+--   bill_daily_v1                     the "Meter reading due today (<day>)" notice fires on an assumed reading day of either meter (was: the fixed 21st) and names the meter(s) due; every due / paying bill of the release months without a notice
+--                                     (rows just opened, and rows bill_reading_set_v1 created) gets its one notice, written once.
 --   today_bills_v1                    every key kept; the meter objects gain cycle_from, cycle_from_assumed, next_reading; last_bill and last_paid only when can_pay_list; due[] holds due and paying only.
 --   bill_pay_open_v1                  + bill.reading_date, bill.reading_date_assumed, pay.method_default (+ the new bill_entry keys, among them bill.from).
 --   bill_pay_settle_v1                reading date from the proof else the date already set on the bill; the previous / next bounds count a bill of ANY status; + paid_on (not after today, not before the reading date;
@@ -28,11 +30,11 @@ begin
   for r in select * from (values
     ('public.utility_bill_estimate_v1(uuid,date)', '563e61f417555730a9294df15c7eca7f', '615c5e6719f1d35872e885c6f5084587'),
     ('public.bill_entry_v1(public.utility_bills,jsonb,boolean,uuid)', '64e749cf8ed30afc9c4475bcd398685a', 'b9445c74b9de12d095258176dbba99df'),
-    ('public.bill_due_open_v1(uuid,date,text)', '51c1bca21bbacbba9d214f963e3806d1', 'c5781b6c5b7c59e8621b17fef0a2d29a'),
-    ('public.bill_daily_v1(date,uuid)', '91a6d8a62fafd25894310e522de23494', '1726ac329d265f98a9c345aae083d729'),
+    ('public.bill_due_open_v1(uuid,date,text)', '51c1bca21bbacbba9d214f963e3806d1', '8f8dfbfdc2f187abc7bf415ec6c44a59'),
+    ('public.bill_daily_v1(date,uuid)', '91a6d8a62fafd25894310e522de23494', '7ad3a9553a03b6f24b0dffa5eb2e689b'),
     ('public.bill_step_v1(uuid,text,uuid,text,jsonb)', '36c9347d29f4b964540ca973af8cac19', '44d8d6670985d060556cd772cc61b3c4'),
     ('public.bill_pay_open_v1(uuid)', 'dba3b83d4e7cd0f9dcf192b0c925644e', 'b090554ca873215100d9167579c0facc'),
-    ('public.bill_pay_settle_v1(uuid,jsonb)', '9784e8619b3aeb3d6b19c5fd7f679c79', '591176b334a7f6089a25b79ee2a4b245'),
+    ('public.bill_pay_settle_v1(uuid,jsonb)', '9784e8619b3aeb3d6b19c5fd7f679c79', 'fd43c497553394e5b47b861c3e1d1206'),
     ('public.today_bills_v1(uuid)', '7fca3fd12b7e372010f8f20b12c491a4', '563053ef8469130428e9d35f09cc7762'),
     ('public.expenses_screen_v1(uuid,date,integer,timestamptz,text,uuid)', '0a94343249946154b709a4a7f9e407b9', '87d5b34bc801736104bf69da5019b792'),
     ('public.admin_save_transaction_v2(uuid,jsonb,text)', '3f6547827d1cd04c8875c6fc2fe8a154', '2eebbce5a512ddf389b6361ff85ae74d')
@@ -66,8 +68,9 @@ returns date language sql immutable set search_path = '' as $$
 $$;
 
 -- the bills of one meter in period order with their reading span: a row ends on its real reading_date (any status, a skipped bill keeps it) else on an ASSUMED date = the latest real reading before it
--- (else the setting open_from) + k months, k = the number of rows without a date since that reading (a skipped row without a date still uses its slot). A row starts where the row before it ends (open_from for the first).
--- p_extra adds a virtual row of that period (when no bill has it) so the caller can see the span a new bill would get.
+-- (else the setting open_from) + k months. k is the calendar distance between the row's period and the period of that anchor row (the month of open_from for the setting), never less than the number of undated rows
+-- since the anchor: a missing middle period (a month bill_daily never opened, a hand delete) keeps its calendar slot instead of shifting every later row one month early. A skipped row without a date still uses its slot.
+-- A row starts where the row before it ends (open_from for the first). p_extra adds a virtual row of that period (when no bill has it) so the caller can see the span a new bill would get.
 create or replace function public.utility_meter_rows_v1(p_property_id uuid, p_kind text, p_extra text default null)
 returns table(id uuid, period text, status text, reading_date date, row_from date, row_to date, to_assumed boolean)
 language sql stable set search_path = '' as $$
@@ -79,14 +82,21 @@ language sql stable set search_path = '' as $$
      where p_extra is not null and not exists (select 1 from public.utility_bills b where b.property_id = p_property_id and b.kind = p_kind and b.period = p_extra)
   ),
   g as (
-    select r.*, count(r.reading_date) over w grp, max(r.reading_date) over w prev_real
-      from r window w as (order by r.period rows between unbounded preceding and 1 preceding)
+    select r.*, a.reading_date prev_real, a.period prev_per
+      from r left join lateral (select p.reading_date, p.period from r p where p.reading_date is not null and p.period < r.period order by p.period desc limit 1) a on true
   ),
   k as (
-    select g.*, count(*) filter (where g.reading_date is null) over (partition by g.grp order by g.period) n from g
+    select g.*, count(*) filter (where g.reading_date is null) over (partition by g.prev_per order by g.period) n from g
   ),
   t as (
-    select k.*, coalesce(k.reading_date, public.utility_add_months_v1(coalesce(k.prev_real, o.d), k.n::integer)) to_d from k cross join o
+    select k.*, coalesce(k.reading_date,
+             public.utility_add_months_v1(coalesce(k.prev_real, o.d),
+               greatest(k.n::integer,
+                        case when k.period ~ '^[0-9]{4}-[0-9]{2}$' and (k.prev_per is null or k.prev_per ~ '^[0-9]{4}-[0-9]{2}$')
+                             then substr(k.period, 1, 4)::integer * 12 + substr(k.period, 6, 2)::integer
+                                  - case when k.prev_per is null then extract(year from o.d)::integer * 12 + extract(month from o.d)::integer
+                                         else substr(k.prev_per, 1, 4)::integer * 12 + substr(k.prev_per, 6, 2)::integer end end))) to_d
+      from k cross join o
   )
   select t.id, t.period, t.status, t.reading_date, coalesce(lag(t.to_d) over (order by t.period), o.d), t.to_d, t.reading_date is null
     from t cross join o order by t.period;
@@ -216,12 +226,14 @@ declare
   v_cfg jsonb := public.bill_schedule_cfg_v1();
   v_ucfg jsonb := public.utility_billing_cfg_v1();
   v_day integer;
-  v_ids uuid[]; v_new jsonb;
+  v_ids uuid[]; v_new jsonb; v_fc jsonb;
 begin
   if p_property_id is null or p_on is null then
     return jsonb_build_object('new', '[]'::jsonb);
   end if;
   v_day := extract(day from p_on)::integer;
+  -- s143: a bill that opens before the assumed end of its own span (anchor day after the remind day, or a reading that slipped) is estimated with the forecast to that end, as the Today card does; once the end has passed it is the use counted so far
+  v_fc := public.utility_bill_estimate_v1(p_property_id, p_on);
   perform pg_advisory_xact_lock(hashtextextended('bill_due_open:' || p_property_id::text, 0));
 
   with k as (
@@ -232,8 +244,10 @@ begin
     insert into public.utility_bills(property_id, kind, period, estimate_php)
     select p_property_id, k.kind, k.period,
            case k.kind
-             when 'electric' then public.utility_cycle_php_v1(p_property_id, 'electric', ss.row_from, least(ss.row_to, p_on), v_ucfg)
-             when 'water'    then public.utility_cycle_php_v1(p_property_id, 'water', ss.row_from, least(ss.row_to, p_on), v_ucfg)
+             when 'electric' then coalesce(case when p_on < ss.row_to and (v_fc #>> '{electric,cycle_from}')::date = ss.row_from and (v_fc #>> '{electric,cycle_to}')::date = ss.row_to then (v_fc #>> '{electric,forecast_php}')::numeric end,
+                                           public.utility_cycle_php_v1(p_property_id, 'electric', ss.row_from, least(ss.row_to, p_on), v_ucfg))
+             when 'water'    then coalesce(case when p_on < ss.row_to and (v_fc #>> '{water,cycle_from}')::date = ss.row_from and (v_fc #>> '{water,cycle_to}')::date = ss.row_to then (v_fc #>> '{water,forecast_php}')::numeric end,
+                                           public.utility_cycle_php_v1(p_property_id, 'water', ss.row_from, least(ss.row_to, p_on), v_ucfg))
              else (v_cfg -> 'bills' -> k.kind ->> 'amount')::numeric end
       from k
       left join lateral (select r.row_from, r.row_to from public.utility_meter_rows_v1(p_property_id, k.kind, k.period) r where k.kind in ('electric', 'water') and r.period = k.period) ss on true
@@ -255,30 +269,37 @@ declare
   c_floor constant text := '2026-11'; -- the release month: October 2026 and earlier stay closed
   v_today date := coalesce(p_on, public.manila_today());
   v_cfg jsonb := public.bill_schedule_cfg_v1();
-  v_read integer := (v_cfg ->> 'reading_day')::integer;
-  v_prop uuid; v_res jsonb; v_bill jsonb; v_nid uuid; v_title text; v_opened integer := 0; v_notices integer := 0; v_po integer; v_pn integer;
+  v_prop uuid; v_res jsonb; v_bill record; v_nid uuid; v_title text; v_desc text; v_opened integer := 0; v_notices integer := 0; v_po integer; v_pn integer; v_el boolean; v_wa boolean;
 begin
   for v_prop in select p.id from public.properties p where p.is_active and (p_property_id is null or p.id = p_property_id) order by p.id loop
     begin
       v_po := 0; v_pn := 0;
-      -- s143: the reading day is the assumed boundary of a meter (anchor + n months, month end clamped), not a fixed day of the month; a real reading that moved the boundary moves the notice
-      if exists (select 1 from unnest(array['electric', 'water']) k(kind), lateral public.utility_meter_cycle_v1(v_prop, k.kind, v_today, public.utility_billing_cfg_v1()) c where c.from_assumed and c.cycle_from = v_today) then
+      -- s143: the reading day is the assumed boundary of a meter (anchor + n months, month end clamped), not a fixed day of the month; a real reading that moved the boundary moves the notice. It names the meter(s) due that day.
+      select coalesce(bool_or(k.kind = 'electric'), false), coalesce(bool_or(k.kind = 'water'), false) into v_el, v_wa
+        from unnest(array['electric', 'water']) k(kind), lateral public.utility_meter_cycle_v1(v_prop, k.kind, v_today, public.utility_billing_cfg_v1()) c
+       where c.from_assumed and c.cycle_from = v_today;
+      if v_el or v_wa then
         v_title := 'Meter reading due today (' || to_char(v_today, 'FMDDth') || ')';
+        v_desc := case when v_el and v_wa then 'Read the electricity and water meters.' when v_el then 'Read the electricity meter.' else 'Read the water meter.' end;
         if not exists (select 1 from public.ops_notices n where n.property_id = v_prop and n.notice_type = 'reminder' and n.source = 'system' and n.effective_date = v_today and n.title = v_title) then
           insert into public.ops_notices(property_id, notice_type, title, description, effective_date, source, audience)
-          values (v_prop, 'reminder', v_title, 'Read the electricity and water meters.', v_today, 'system', 'staff');
+          values (v_prop, 'reminder', v_title, v_desc, v_today, 'system', 'staff');
           v_pn := v_pn + 1;
         end if;
       end if;
 
       v_res := public.bill_due_open_v1(v_prop, v_today, c_floor);
-      for v_bill in select e from jsonb_array_elements(v_res -> 'new') e loop
-        v_po := v_po + 1;
-        v_title := case when (v_bill ->> 'period') < to_char(v_today, 'YYYY-MM') then (v_bill ->> 'label') || ' is overdue.'
-                        else (v_bill ->> 'label') || ' bill: due by the ' || to_char(make_date(2001, 1, greatest((v_bill ->> 'remind_day')::integer, (v_cfg ->> 'pay_day')::integer)), 'FMDDth') || '.' end;
+      v_po := jsonb_array_length(v_res -> 'new');
+      -- s143: every open bill of the property that has no notice yet gets its one notice: the rows just opened, and a row bill_reading_set_v1 created (notice_id null; bill_due_open_v1 never opens that period again).
+      -- Once written the notice_id is set, so a second run writes nothing.
+      for v_bill in select b.id, b.kind, b.period from public.utility_bills b
+                     where b.property_id = v_prop and b.status in ('due', 'paying') and b.notice_id is null and b.period >= c_floor and b.period <= to_char(v_today, 'YYYY-MM')
+                     order by b.period, array_position(array['electric', 'water', 'internet', 'netflix'], b.kind) loop
+        v_title := case when v_bill.period < to_char(v_today, 'YYYY-MM') then (v_cfg -> 'bills' -> v_bill.kind ->> 'label') || ' is overdue.'
+                        else (v_cfg -> 'bills' -> v_bill.kind ->> 'label') || ' bill: due by the ' || to_char(make_date(2001, 1, greatest((v_cfg -> 'bills' -> v_bill.kind ->> 'remind_day')::integer, (v_cfg ->> 'pay_day')::integer)), 'FMDDth') || '.' end;
         insert into public.ops_notices(property_id, notice_type, title, description, effective_date, source, audience)
         values (v_prop, 'reminder', v_title, '', v_today, 'system', 'staff') returning id into v_nid;
-        update public.utility_bills set notice_id = v_nid where id = (v_bill ->> 'id')::uuid;
+        update public.utility_bills set notice_id = v_nid where id = v_bill.id;
         v_pn := v_pn + 1;
       end loop;
 
@@ -447,7 +468,7 @@ returns jsonb language plpgsql security definer set search_path = '' as $$
 declare
   v_uid uuid := auth.uid(); v_prop uuid; v_b public.utility_bills%rowtype; v_cfg jsonb; v_res jsonb;
   v_path text; v_client_sha text; v_sha text; v_prefix text;
-  v_rd date; v_rv numeric; v_prev date; v_low date; v_warn boolean; v_next date; v_paid_on date; v_meth text;
+  v_rd date; v_rv numeric; v_prev date; v_low date; v_warn boolean; v_next date; v_paid_on date; v_meth text; v_plow date;
 begin
   select b.property_id into v_prop from public.utility_bills b where b.id = p_bill_id;
   if v_uid is null or not public.bill_can_v1(v_prop) then return jsonb_build_object('ok', false, 'reason', 'not_authorized'); end if;
@@ -495,11 +516,12 @@ begin
       return jsonb_build_object('ok', false, 'reason', 'reading_value_invalid');
     end if;
   end if;
-  -- s143: paid on (the ledger date: a safe date, not after Manila today, not before the reading date of a meter bill; absent = today) and how it was paid
+  -- s143: paid on (the ledger date: a safe date, not after Manila today, not before the reading date of a meter bill, and for every kind not before the 1st of the month before the billed period (a year typo); absent = today) and how it was paid
   v_paid_on := public.manila_today();
+  v_plow := (public.utility_safe_date_v1(v_b.period || '-01') - interval '1 month')::date;
   if p_proof ? 'paid_on' and jsonb_typeof(p_proof -> 'paid_on') <> 'null' then
     v_paid_on := case when jsonb_typeof(p_proof -> 'paid_on') = 'string' then public.utility_safe_date_v1(btrim(p_proof ->> 'paid_on')) end;
-    if v_paid_on is null or v_paid_on > public.manila_today() or (v_rd is not null and v_paid_on < v_rd) then
+    if v_paid_on is null or v_paid_on > public.manila_today() or v_paid_on < v_plow or (v_rd is not null and v_paid_on < v_rd) then
       return jsonb_build_object('ok', false, 'reason', 'paid_on_invalid');
     end if;
   end if;
@@ -813,12 +835,12 @@ end $$;
 -- 5. the new Staff app function ---------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 -- set the reading date (and optionally the present reading) of the oldest open bill of a meter; no open bill = a new row for the cycle being closed. The reading moves the next cycle (the boundary is the real date).
--- preview writes nothing. Refusals {ok:false, reason}: not_authorized, bad_kind, reading_date_invalid (after | before), reading_value_invalid, already_paid, older_bill_open.
+-- preview writes nothing. Refusals {ok:false, reason}: not_authorized, bad_kind, reading_date_invalid (after | before), reading_value_invalid, already_paid, older_bill_open, paying_by_other (name: the bill is being paid by someone else).
 create or replace function public.bill_reading_set_v1(p_property_id uuid, p_kind text, p_reading_date date, p_reading_value numeric default null, p_preview boolean default false)
 returns jsonb language plpgsql security definer set search_path = '' as $$
 declare
   v_uid uuid := auth.uid(); v_today date := public.manila_today(); v_ucfg jsonb; v_open date; v_b public.utility_bills%rowtype; v_id uuid; v_id2 uuid;
-  v_period text; v_max text; v_from date; v_to date; v_prev date; v_low date; v_next date; v_est numeric; v_warn boolean; v_rv numeric; v_new uuid;
+  v_period text; v_max text; v_vp text; v_from date; v_to date; v_prev date; v_low date; v_next date; v_est numeric; v_warn boolean; v_rv numeric; v_new uuid;
 begin
   if v_uid is null or p_property_id is null or not public.bill_can_v1(p_property_id) then return jsonb_build_object('ok', false, 'reason', 'not_authorized'); end if;
   if p_kind is null or p_kind not in ('electric', 'water') then return jsonb_build_object('ok', false, 'reason', 'bad_kind'); end if;
@@ -836,6 +858,10 @@ begin
   if v_id2 is distinct from v_id then
     return jsonb_build_object('ok', false, 'reason', case when v_id is not null and coalesce((select o.status from public.utility_bills o where o.id = v_id), '') = 'paid' then 'already_paid' else 'older_bill_open' end);
   end if;
+  -- a bill another person is paying keeps its date and estimate until that person settles or cancels (the same refusal bill_pay_open_v1 gives)
+  if v_b.id is not null and v_b.status = 'paying' and v_b.paying_by is distinct from v_uid then
+    return jsonb_build_object('ok', false, 'reason', 'paying_by_other', 'name', v_b.paying_by_name);
+  end if;
   -- the reading date of a bill that is already paid is closed
   if p_reading_date is not null and exists (select 1 from public.utility_bills o where o.property_id = p_property_id and o.kind = p_kind and o.status = 'paid' and o.reading_date = p_reading_date) then
     return jsonb_build_object('ok', false, 'reason', 'already_paid');
@@ -846,9 +872,10 @@ begin
     select r.row_from, r.row_to into v_from, v_to from public.utility_meter_rows_v1(p_property_id, p_kind) r where r.id = v_b.id;
   else
     -- no open bill: the new row is the cycle being closed, i.e. the month of the ASSUMED reading date of the next slot (a reading that slips over a month end stays in that month); never a month that already has a row
-    select r.row_from, r.row_to into v_from, v_to from public.utility_meter_rows_v1(p_property_id, p_kind, 'zzzz-99') r where r.period = 'zzzz-99';
-    v_period := to_char(v_to, 'YYYY-MM');
     select max(b.period) into v_max from public.utility_bills b where b.property_id = p_property_id and b.kind = p_kind;
+    v_vp := to_char(coalesce(public.utility_safe_date_v1(v_max || '-01'), date_trunc('month', v_open)::date) + interval '1 month', 'YYYY-MM');
+    select r.row_from, r.row_to into v_from, v_to from public.utility_meter_rows_v1(p_property_id, p_kind, v_vp) r where r.period = v_vp;
+    v_period := to_char(v_to, 'YYYY-MM');
     if v_max is not null and v_period <= v_max then v_period := to_char(public.utility_safe_date_v1(v_max || '-01') + interval '1 month', 'YYYY-MM'); end if;
   end if;
 
@@ -862,9 +889,9 @@ begin
   end if;
   if p_reading_date > v_today then return jsonb_build_object('ok', false, 'reason', 'reading_date_invalid', 'before', v_today + 1); end if;
   if v_next is not null and p_reading_date >= v_next then return jsonb_build_object('ok', false, 'reason', 'reading_date_invalid', 'before', v_next); end if;
-  -- an open bill with no date yet cannot take a reading that already belongs to the next cycle: that bill is the one still waiting
+  -- an open bill with no date yet cannot take a reading that already belongs to the next cycle (a month or more after its assumed end): the date must be before that day. This bill is itself the oldest open one, so the answer is a date problem, never older_bill_open.
   if v_b.id is not null and v_b.reading_date is null and p_reading_date >= public.utility_add_months_v1(v_to, 1) then
-    return jsonb_build_object('ok', false, 'reason', 'older_bill_open');
+    return jsonb_build_object('ok', false, 'reason', 'reading_date_invalid', 'before', public.utility_add_months_v1(v_to, 1));
   end if;
 
   v_est := public.utility_cycle_php_v1(p_property_id, p_kind, v_from, p_reading_date, v_ucfg);
@@ -913,8 +940,8 @@ grant execute on function public.admin_save_transaction_v2(uuid, jsonb, text) to
 
 comment on function public.utility_bill_estimate_v1(uuid, date) is 's143: internal. The open cycle of each meter: from = the newest REAL reading_date of that kind (any bill status) on or before p_on, else the setting open_from, plus the whole months that fit before p_on (an assumed date: anchor + n months, month end clamped, anchor day kept); to = one month after from. Same keys as s131 (overdue is now always false). Counted readings = meter_chain_v1.';
 comment on function public.today_bills_v1(uuid) is 's143: the electricity and water bill so far for the Today tab (since per meter, cycle_from, cycle_from_assumed, next_reading; last_bill per meter and last_paid only for roles with approve_payment) plus the bills to pay (due: status due or paying only) for those roles (can_pay_list true); other roles get due [] and check_bills. waiting_for / water_waiting_for stay as keys and are null (a cycle is never overdue: the boundary moves on). Every active staff role of the property (read_operations); anyone else 42501.';
-comment on function public.bill_pay_settle_v1(uuid, jsonb) is 's143: approve_payment. p_proof {path, sha256, amount, confirmed, reading_date (electric and water; else the date already set by bill_reading_set_v1), reading_value (optional, never wipes a stored one), paid_on (YYYY-MM-DD, default today), method (gcash|bank|cash|card|other)}; one expense row. Refusals: not_authorized, not_found, already_paid, not_payer, bad_proof, older_bill_open, reading_date_required, reading_date_invalid (after / before, any bill status), reading_value_invalid, paid_on_invalid, bad_method, no_stored_proof, sha_mismatch, duplicate_proof, bad_amount, confirm_amount. Adds reading_date and reading_warn.';
-comment on function public.bill_reading_set_v1(uuid, text, date, numeric, boolean) is 's143: approve_payment. Sets the reading date (and optionally the present reading) of the oldest open bill of electric or water (creates the row of the cycle being closed when none is open); p_preview writes nothing. Answer {ok, bill_id, period, from, to, estimate_php, next_reading, reading_warn, preview}. Refusals: not_authorized, bad_kind, reading_date_invalid (after | before), reading_value_invalid, already_paid, older_bill_open.';
+comment on function public.bill_pay_settle_v1(uuid, jsonb) is 's143: approve_payment. p_proof {path, sha256, amount, confirmed, reading_date (electric and water; else the date already set by bill_reading_set_v1), reading_value (optional, never wipes a stored one), paid_on (YYYY-MM-DD, default today, not before the 1st of the month before the billed period), method (gcash|bank|cash|card|other)}; one expense row. Refusals: not_authorized, not_found, already_paid, not_payer, bad_proof, older_bill_open, reading_date_required, reading_date_invalid (after / before, any bill status), reading_value_invalid, paid_on_invalid, bad_method, no_stored_proof, sha_mismatch, duplicate_proof, bad_amount, confirm_amount. Adds reading_date and reading_warn.';
+comment on function public.bill_reading_set_v1(uuid, text, date, numeric, boolean) is 's143: approve_payment. Sets the reading date (and optionally the present reading) of the oldest open bill of electric or water (creates the row of the cycle being closed when none is open); p_preview writes nothing. Answer {ok, bill_id, period, from, to, estimate_php, next_reading, reading_warn, preview}. Refusals: not_authorized, bad_kind, reading_date_invalid (after | before), reading_value_invalid, already_paid, older_bill_open, paying_by_other (name).';
 
 -- forward check ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 do $$
@@ -923,11 +950,11 @@ begin
   for r in select * from (values
     ('public.utility_bill_estimate_v1(uuid,date)', '615c5e6719f1d35872e885c6f5084587'),
     ('public.bill_entry_v1(public.utility_bills,jsonb,boolean,uuid)', 'b9445c74b9de12d095258176dbba99df'),
-    ('public.bill_due_open_v1(uuid,date,text)', 'c5781b6c5b7c59e8621b17fef0a2d29a'),
-    ('public.bill_daily_v1(date,uuid)', '1726ac329d265f98a9c345aae083d729'),
+    ('public.bill_due_open_v1(uuid,date,text)', '8f8dfbfdc2f187abc7bf415ec6c44a59'),
+    ('public.bill_daily_v1(date,uuid)', '7ad3a9553a03b6f24b0dffa5eb2e689b'),
     ('public.bill_step_v1(uuid,text,uuid,text,jsonb)', '44d8d6670985d060556cd772cc61b3c4'),
     ('public.bill_pay_open_v1(uuid)', 'b090554ca873215100d9167579c0facc'),
-    ('public.bill_pay_settle_v1(uuid,jsonb)', '591176b334a7f6089a25b79ee2a4b245'),
+    ('public.bill_pay_settle_v1(uuid,jsonb)', 'fd43c497553394e5b47b861c3e1d1206'),
     ('public.today_bills_v1(uuid)', '563053ef8469130428e9d35f09cc7762'),
     ('public.expenses_screen_v1(uuid,date,integer,timestamptz,text,uuid)', '87d5b34bc801736104bf69da5019b792'),
     ('public.admin_save_transaction_v2(uuid,jsonb,text)', '2eebbce5a512ddf389b6361ff85ae74d')
