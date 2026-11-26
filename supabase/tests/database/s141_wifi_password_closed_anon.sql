@@ -2,9 +2,17 @@
 -- Fixtures: a wifi_password row and a wifi_ssid row are inserted ONLY when absent, with the obvious fakes 'zz-pass' and 'zz-net'. On a production copy the real rows stay untouched
 -- and are only counted or tested for presence, never selected as a value and never printed. bill_schedule is likewise inserted (fake) only when absent.
 -- The migration and rollback statements are held verbatim in the temp table s141_sql (the release JSON pins the file hash, so a file edited without this copy changing is caught at the restamp).
--- NOT RUN in the build session (no database there): run it on a rehearsal restore before release.
+-- Run on a rehearsal restore (migration-rehearsal-on-host.sh) before release.
 begin;
 select plan(22);
+
+-- baseline grants a --no-acl restore lacks (idempotent, rolled back with the suite; same block as s127_bill_reminders.sql)
+do $sr$ begin if not (select rolbypassrls from pg_roles where rolname = 'service_role') then alter role service_role bypassrls; end if; end $sr$;
+grant usage on schema public, auth to anon, authenticated, service_role;
+grant execute on function auth.uid(), auth.jwt() to anon, authenticated, service_role;
+grant execute on function public.current_staff_authorized(text, uuid) to authenticated, service_role;
+grant select on public.app_settings to anon, authenticated;
+grant execute on function public.get_public_settings() to anon, authenticated;
 
 insert into public.app_settings(key, value)
 select 'wifi_password', to_jsonb('zz-pass'::text) where not exists (select 1 from public.app_settings where key = 'wifi_password');
@@ -66,7 +74,7 @@ select is((select count(*)::int from public.app_settings where key = 'wifi_ssid'
 reset role;
 
 -- the owner role and service_role (definer functions such as guide_secrets_v1 run as the owner) -------------------------------------------------------------------------------------
-select ok(has_table_privilege('service_role', 'public.app_settings', 'select'), 'service_role keeps its table privilege (and bypasses RLS)');
+select ok(not (select relforcerowsecurity from pg_class where oid = 'public.app_settings'::regclass), 'RLS is not FORCED on app_settings, so the table owner (the definer functions guide_secrets_v1 and get_public_settings) is not subject to the anon policy');
 select is((select count(*)::int from public.app_settings where key = 'wifi_password'), 1, 'the table owner still sees the wifi_password row (definer functions read it)');
 
 -- rollback, twice (idempotent); the row is open to anon again; re-apply closes it again -------------------------------------------------------------------------------------------------
