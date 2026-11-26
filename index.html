@@ -148,7 +148,7 @@
       "name": "How do I confirm my booking?",
       "acceptedAnswer": {
         "@type": "Answer",
-        "text": "Once you send your booking request, you’ll receive an Acknowledgement Receipt (AR) by email within 1–2 hours if you gave an email address. Five or more days before check-in, submitting also holds your dates for 24 hours while you send the reservation fee; if nothing arrives, the hold is released quietly and nothing is owed. We verify both payment and availability, then send your personal confirmation by email if you gave one, otherwise on Messenger or by call. Your dates are not confirmed until that message arrives. The balance and the refundable security deposit are settled at least a day before check-in — no surprises. When full payment is made up front (check-in within 5 days), the deposit is handed over on arrival."
+        "text": "Once you send your booking request, you’ll receive an Acknowledgement Receipt (AR) by email within 1–2 hours if you gave an email address. Five or more days before check-in, submitting also holds your dates for 24 hours while you send your payment; if nothing arrives, the hold is released quietly and nothing is owed. We verify both payment and availability, then send your personal confirmation by email if you gave one, otherwise on Messenger or by call. Your dates are not confirmed until that message arrives. Every direct stay is paid in full to confirm. A separate refundable security deposit is paid with your booking or by the day before check-in, and your door PIN is sent once your payment, IDs and the deposit are in. The deposit is returned as soon as possible, within 3 business days of check-out, to the same account or payment mode it came from. Stays of 28 nights or more are arranged with the host: the first month is paid to confirm, then monthly."
       }
     },
     {
@@ -188,7 +188,7 @@
       "name": "What is the cancellation policy?",
       "acceptedAnswer": {
         "@type": "Answer",
-        "text": "Cancellations 5 or more days before check-in receive a full refund of the reservation fee. Under 5 days: the reservation fee is retained to cover the reserved dates."
+        "text": "Free cancellation until 5 days before check-in, the same as our Airbnb listing. Changed your mind within 24 hours of paying? Full refund, when check-in is at least 7 days away. You may move your stay once, free, up to 5 days before check-in, subject to availability. Inside 5 days, or for a no-show, we keep 50% of the stay and refund the rest, and your security deposit is returned in full. If a government-declared calamity in General Santos or an airport closure stops your trip, choose new dates or a full refund. Refunds go to the GCash or bank account you paid from, within 3 business days. To cancel or change, use the link in your booking message or e-mail cascadereservations@gmail.com."
       }
     },
     {
@@ -2337,7 +2337,7 @@
       margin-bottom: var(--space-m);
     }
 
-    /* Last-minute full-payment notice — warm amber, positive framing */
+    /* Notice banner (hold nudge, promotion banner) — warm amber, positive framing */
     .hold-nudge p { margin: 0; }
     .hold-nudge p + p { margin-top: 0.55em; }
     .lm-banner {
@@ -2699,8 +2699,8 @@
     /* ══════════════════════════════════════════════════════════════
        PAYMENT BREAKDOWN — 3-zone layout
        Zone A: Stay Cost (anchored base → discounted total)
-       Zone B: Send Now hero (reservation fee = dominant action)
-       Zone C: Later obligations (balance + deposit, subordinate)
+       Zone B: Send Now hero (the stay, paid in full = dominant action)
+       Zone C: the separate refundable deposit (subordinate)
     ══════════════════════════════════════════════════════════════ */
     .pay-summary {
       display: flex; flex-direction: column; gap: 0;
@@ -2889,7 +2889,7 @@
       border-block-start: 1px solid rgb(201 150 58 / 0.18);
     }
 
-    /* ── Zone C: Later obligations — compact, subordinate ── */
+    /* ── Zone C: security deposit — compact, subordinate ── */
     .pay-zone-later {
       padding: var(--space-s) var(--space-m);
       background: rgb(28 16 6 / 0.25);
@@ -2899,9 +2899,6 @@
     .pay-later-row {
       display: flex; align-items: center; justify-content: space-between;
       gap: var(--space-s); padding-block: 0.5rem;
-    }
-    .pay-later-row + .pay-later-together + .pay-later-row {
-      border-block-start: none;
     }
     .pay-later-left { display: flex; flex-direction: column; gap: 0.18em; }
     .pay-later-label {
@@ -2914,7 +2911,6 @@
       font-size: var(--step--2); font-weight: 600;
       letter-spacing: 0.10em; text-transform: uppercase;
     }
-    .pay-later-tag--when { color: rgb(247 220 160 / 0.70); }
     .pay-later-tag--refund { color: rgb(160 210 170 / 0.80); }
     .pay-later-amount {
       font-family: var(--ch-font-display);
@@ -2925,59 +2921,6 @@
       font-size: var(--step-1);
       color: rgb(247 242 232 / 0.55);
     }
-    /* Collected-together bridge */
-    .pay-later-together {
-      display: flex; align-items: center; gap: 0.6em;
-      padding-block: 0.2em;
-      margin-inline: -0.1em;
-    }
-    .pay-later-together-line {
-      flex: 1; height: 1px;
-      background: rgb(247 220 160 / 0.18);
-    }
-    .pay-later-together-label {
-      font-family: var(--ch-font-body);
-      font-size: var(--step--2); font-weight: 600;
-      letter-spacing: 0.12em; text-transform: uppercase;
-      color: rgb(247 220 160 / 0.85);
-      white-space: nowrap;
-    }
-    @media (max-width: 480px) {
-      .pay-later-together-label { white-space: normal; text-align: center; }
-    }
-
-
-    /* ── Pay mode selector (Reservation Fee / Pay in Full) ── */
-    .pay-mode-selector {
-      display: grid; grid-template-columns: 1fr 1fr;
-      gap: 0.4em; margin-bottom: var(--space-s);
-    }
-    .pay-mode-btn {
-      display: flex; flex-direction: column; align-items: center;
-      gap: 0.15em; padding: 0.55em 0.6em;
-      background: rgba(247,242,232,0.05);
-      border: 1px solid rgba(201,150,58,0.20);
-      cursor: pointer; border-radius: 3px;
-      transition: background 180ms ease, border-color 180ms ease;
-    }
-    .pay-mode-btn.is-active {
-      background: rgba(201,150,58,0.14);
-      border-color: rgba(201,150,58,0.55);
-    }
-    .pay-mode-btn-label {
-      font-family: var(--ch-font-body);
-      font-size: var(--step--1); font-weight: 600;
-      letter-spacing: 0.06em; text-transform: uppercase;
-      color: var(--ch-cream);
-    }
-    .pay-mode-btn-sub {
-      font-family: var(--ch-font-body);
-      font-size: var(--step--2); font-weight: 400;
-      color: rgba(247,242,232,0.72); letter-spacing: 0.04em;
-    }
-    .pay-mode-btn.is-active .pay-mode-btn-label { color: var(--ch-gold-light); }
-    .pay-mode-btn.is-active .pay-mode-btn-sub   { color: var(--ch-gold-light); }
-
     /* ── Revised trust zone — single-line ── */
     .pay-trust-block {
       padding: 0.55rem var(--space-m);
@@ -7180,13 +7123,13 @@ body.theme-quiet-luxury #conciergePanel, body.theme-quiet-luxury #conciergeTrigg
         <p class="gs-meta iv-fine">No charge yet. Book direct, no platform fees.</p>
       </article>
       <div class="iv-bd-side">
-        <p class="gs-card-note iv-note">Rates can change by date. Your exact total shows the moment you pick dates, before you pay anything. Free cancellation up to 5 days before check-in.</p>
+        <p class="gs-card-note iv-note">Rates can change by date. Your exact total shows the moment you pick dates, before you pay anything. Paid in full to confirm, with a separate refundable deposit. Free cancellation until 5 days before check-in.</p>
         <p class="gs-card-from" data-price-only="from-line"></p>
         <div class="gs-ladder" data-price-only="ladder"></div>
         <ol class="gs-card-steps iv-steps iv-steps--bd">
           <li><span class="gs-disp iv-num" aria-hidden="true">1</span><span>Pick dates. See your discount and total.</span></li>
           <li><span class="gs-disp iv-num" aria-hidden="true">2</span><span>Add your name and mobile.</span></li>
-          <li><span class="gs-disp iv-num" aria-hidden="true">3</span><span>Settle your reservation fee by GCash or bank transfer. We confirm every booking personally.</span></li>
+          <li><span class="gs-disp iv-num" aria-hidden="true">3</span><span>Pay your stay in full by GCash or bank transfer. We confirm every booking personally.</span></li>
         </ol>
         <figure class="iv-pull iv-pull--side"><blockquote class="gs-disp">“I would definitely recommend this Airbnb to anyone looking for a comfortable, beautiful place to stay.”</blockquote><figcaption class="gs-meta">Babes Aubrey, Jan 2026</figcaption></figure>
       </div>
@@ -7234,7 +7177,7 @@ body.theme-quiet-luxury #conciergePanel, body.theme-quiet-luxury #conciergeTrigg
             <li class="booking-perk">Book direct at the lowest rate &#x2014; your discount is calculated and shown in real time as you select dates</li>
             <li class="booking-perk">Cleaning fee always included &#x2014; no surprise charge at checkout</li>
             <li class="booking-perk">Stay 5 nights or more for a complimentary mid-stay room refresh</li>
-            <li class="booking-perk">50% reservation fee starts verification &#x2014; balance due at least one day before check-in</li>
+            <li class="booking-perk">Paid in full to confirm, with a separate refundable deposit</li>
           </ul>
 
         </div>
@@ -7481,12 +7424,7 @@ body.theme-quiet-luxury #conciergePanel, body.theme-quiet-luxury #conciergeTrigg
               Back
             </button>
 
-            <!-- Last-minute banner — shown when check-in is less than 5 days away (D-185, 2026-09-18) -->
-            <div class="lm-banner" id="lmBanner" role="status" hidden>
-              <strong>Your check-in is less than five days away.</strong> Full payment is required now to confirm your dates.
-            </div>
-
-            <!-- Hold-before-pay nudge (D-162): filled by applyHold() / applyPayFirst() -->
+            <!-- Hold-before-pay nudge (D-162): filled by applyHold() -->
             <div class="lm-banner hold-nudge" id="holdNudge" role="status" hidden></div>
 
             <div class="payment-panel">
@@ -7528,23 +7466,11 @@ body.theme-quiet-luxury #conciergePanel, body.theme-quiet-luxury #conciergeTrigg
                 <!-- Zone B: Send Now hero -->
                 <div class="pay-zone-action" id="payZoneAction">
 
-                  <!-- Payment mode selector — Reservation Fee vs Pay in Full -->
-                  <div class="pay-mode-selector" id="payModeSelector">
-                    <button class="pay-mode-btn is-active" id="payModeDeposit" type="button">
-                      <span class="pay-mode-btn-label">Reserve (50%)</span>
-                      <span class="pay-mode-btn-sub">Hold dates now</span>
-                    </button>
-                    <button class="pay-mode-btn" id="payModeFull" type="button">
-                      <span class="pay-mode-btn-label">Pay in Full</span>
-                      <span class="pay-mode-btn-sub">Priority verification</span>
-                    </button>
-                  </div>
-
-                  <p class="pay-action-eyebrow" id="payActionEyebrow">Send now to secure your dates</p>
+                  <p class="pay-action-eyebrow" id="payActionEyebrow">Send now to confirm your dates</p>
                   <div class="pay-action-hero">
                     <div class="pay-action-label">
-                      <span id="payActionTitle">Reservation Fee</span>
-                      <small id="payActionSub">50% of total &middot; reviewed before confirmation</small>
+                      <span id="payActionTitle">Your stay, paid in full</span>
+                      <small id="payActionSub">Reviewed before confirmation</small>
                     </div>
                     <div class="pay-action-amount">
                       <span class="pay-amount-currency" aria-hidden="true">&#x20B1;</span><span id="payBdFee"></span>
@@ -7553,26 +7479,14 @@ body.theme-quiet-luxury #conciergePanel, body.theme-quiet-luxury #conciergeTrigg
                   <p class="pay-action-confirm" id="payActionConfirm">We verify your payment and availability before confirming your dates.</p>
                 </div>
 
-                <!-- Zone C: Later obligations -->
+                <!-- Zone C: the refundable security deposit, its own line (D-429) -->
                 <div class="pay-zone-later" id="payZoneLater">
                   <div class="pay-later-row">
                     <div class="pay-later-left">
-                      <span class="pay-later-label">Remaining Balance</span>
-                      <span class="pay-later-tag pay-later-tag--when">Due at least 24 hrs before check-in</span>
-                    </div>
-                    <span class="pay-later-amount" id="payBdBalanceOnly"></span>
-                  </div>
-                  <div class="pay-later-together" aria-hidden="true">
-                    <span class="pay-later-together-line"></span>
-                    <span class="pay-later-together-label">collected together before check-in</span>
-                    <span class="pay-later-together-line"></span>
-                  </div>
-                  <div class="pay-later-row">
-                    <div class="pay-later-left">
                       <span class="pay-later-label">Refundable Security Deposit</span>
-                      <span class="pay-later-tag pay-later-tag--refund">&#x2713; Returned in full after smooth check-out</span>
+                      <span class="pay-later-tag pay-later-tag--refund">&#x2713; Separate. Send it with your payment or by the day before check-in. Returned as soon as possible, within 3 business days of check-out, to the same account or payment mode it came from.</span>
                     </div>
-                    <span class="pay-later-amount pay-later-amount--deposit">&#x20B1;1,000</span>
+                    <span class="pay-later-amount pay-later-amount--deposit" id="payBdDeposit">&#x20B1;800</span>
                   </div>
                 </div>
 
@@ -7584,9 +7498,9 @@ body.theme-quiet-luxury #conciergePanel, body.theme-quiet-luxury #conciergeTrigg
 
               </div><!-- /.pay-summary -->
 
-              <!-- Reservation instruction — dynamic: hidden for full payment -->
+              <!-- Payment instruction -->
               <p class="pay-deposit-note" id="payDepositNote">
-                Send the <strong>reservation fee</strong> for review &mdash; after confirmation, the balance and &#x20B1;1,000 refundable deposit are collected at least a day before check-in. When full payment is made up front (check-in within 5 days), the deposit is handed over on arrival.
+                Send <strong>payment for your stay in full</strong> for review. The refundable &#x20B1;800 security deposit is separate: send it together with your payment or by the day before check-in. Your door PIN is sent once your payment, IDs and the deposit are in.
               </p>
 
               <!-- Tab switcher — Bank Transfer first (faster confirmation) -->
@@ -7605,7 +7519,7 @@ body.theme-quiet-luxury #conciergePanel, body.theme-quiet-luxury #conciergeTrigg
                       <!-- Not loading="lazy": these sit inside #bookingStep2, which is display:none at parse time, so a lazy image never gets a layout box and the fetch is never started - the guest reaches the payment step and sees an empty white square (D-203). -->
                       <img
                         src="assets/images/qr-gcash.png"
-                        alt="GCash QR code — scan to send reservation fee"
+                        alt="GCash QR code — scan to send payment"
                         width="220" height="220">
                     </div>
                     <p class="pay-qr-caption" id="gcashQrCaption">GCash</p>
@@ -7616,7 +7530,7 @@ body.theme-quiet-luxury #conciergePanel, body.theme-quiet-luxury #conciergeTrigg
                     <p class="pay-method-number" id="gcashNumber">0956 011 5744</p>
                     <p class="pay-method-name">Marifel Suzanne Boncales</p>
                     <p class="pay-method-name" style="font-size:var(--step--2); margin-top:0.4em; opacity:0.7;">
-                      Reservation fee due:<br>
+                      Amount due for your stay:<br>
                       <strong id="gcashAmountHint" style="color:var(--ch-gold); font-size:var(--step-1); font-family:var(--ch-font-display); font-weight:300;"></strong>
                     </p>
                   </div>
@@ -7630,7 +7544,7 @@ body.theme-quiet-luxury #conciergePanel, body.theme-quiet-luxury #conciergeTrigg
                 <!-- Action buttons: row 1 pair, row 2 copy amount -->
                 <div class="pay-action-row--pair">
                   <a href="gcash://" class="pay-action-btn pay-action-btn-app" id="openGcashBtn"
-                     aria-label="Open GCash app to send reservation fee">
+                     aria-label="Open GCash app to send payment">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg>
                     Open GCash App
                   </a>
@@ -7642,7 +7556,7 @@ body.theme-quiet-luxury #conciergePanel, body.theme-quiet-luxury #conciergeTrigg
                 </div>
                 <div class="pay-action-row" style="margin-top:0.35em;">
                   <button type="button" class="pay-amount-chip" id="copyGcashAmtBtn"
-                     aria-label="Copy reservation fee amount to clipboard">
+                     aria-label="Copy payment amount to clipboard">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
                     Copy Amount
                   </button>
@@ -7713,7 +7627,7 @@ body.theme-quiet-luxury #conciergePanel, body.theme-quiet-luxury #conciergeTrigg
                     Copy Account No.
                   </button>
                   <button type="button" class="pay-action-btn" id="copyBankAmtBtn"
-                     aria-label="Copy reservation fee amount to clipboard for paste into InstaPay">
+                     aria-label="Copy payment amount to clipboard for paste into InstaPay">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
                     Copy Amount
                   </button>
@@ -7843,7 +7757,7 @@ body.theme-quiet-luxury #conciergePanel, body.theme-quiet-luxury #conciergeTrigg
           </summary>
           <div class="faq-body-wrap">
             <div class="faq-body">
-              <p class="faq-answer">Once you send your booking request, you&rsquo;ll receive an Acknowledgement Receipt (AR) by email within 1&ndash;2 hours if you gave an email address. Five or more days before check-in, submitting also holds your dates for 24 hours while you send the reservation fee; if nothing arrives, the hold is released quietly and nothing is owed. We verify both payment and availability, then send your personal confirmation by email if you gave one, otherwise on Messenger or by call. Your dates are not confirmed until that message arrives. The balance and the refundable security deposit are settled at least a day before check-in &mdash; no surprises. When full payment is made up front (check-in within 5 days), the deposit is handed over on arrival.</p>
+              <p class="faq-answer">Once you send your booking request, you&rsquo;ll receive an Acknowledgement Receipt (AR) by email within 1&ndash;2 hours if you gave an email address. Five or more days before check-in, submitting also holds your dates for 24 hours while you send your payment; if nothing arrives, the hold is released quietly and nothing is owed. We verify both payment and availability, then send your personal confirmation by email if you gave one, otherwise on Messenger or by call. Your dates are not confirmed until that message arrives. Every direct stay is paid in full to confirm. A separate refundable security deposit is paid with your booking or by the day before check-in, and your door PIN is sent once your payment, IDs and the deposit are in. The deposit is returned as soon as possible, within 3 business days of check-out, to the same account or payment mode it came from. Stays of 28 nights or more are arranged with the host: the first month is paid to confirm, then monthly.</p>
             </div>
           </div>
         </details>
@@ -7913,7 +7827,7 @@ body.theme-quiet-luxury #conciergePanel, body.theme-quiet-luxury #conciergeTrigg
           </summary>
           <div class="faq-body-wrap">
             <div class="faq-body">
-              <p class="faq-answer">Cancellations 5 or more days before check-in receive a full refund of the reservation fee. Under 5 days: the reservation fee is retained to cover the reserved dates.</p>
+              <p class="faq-answer">Free cancellation until 5 days before check-in, the same as our Airbnb listing. Changed your mind within 24 hours of paying? Full refund, when check-in is at least 7 days away. You may move your stay once, free, up to 5 days before check-in, subject to availability. Inside 5 days, or for a no-show, we keep 50% of the stay and refund the rest, and your security deposit is returned in full. If a government-declared calamity in General Santos or an airport closure stops your trip, choose new dates or a full refund. Refunds go to the GCash or bank account you paid from, within 3 business days. To cancel or change, use the link in your booking message or e-mail cascadereservations@gmail.com.</p>
             </div>
           </div>
         </details>
@@ -8315,12 +8229,12 @@ body.theme-quiet-luxury #conciergePanel, body.theme-quiet-luxury #conciergeTrigg
         </div>
         <div class="success-step">
           <span class="success-step-num" aria-hidden="true">2</span>
-          <p class="success-step-text">You&rsquo;ll receive a <strong>personal confirmation</strong> with your check-in code, exact address, and any notes.</p>
+          <p class="success-step-text">You&rsquo;ll receive a <strong>personal confirmation</strong> with your exact address and any notes. Your door PIN follows once your payment, IDs and the security deposit are in.</p>
         </div>
         <div class="success-step">
           <span class="success-step-num" aria-hidden="true">3</span>
           <!-- Completion framing: "nothing else to do right now" = task complete, relief -->
-          <p class="success-step-text">Remaining balance and deposit are <strong>collected at least a day before check-in</strong> &mdash; nothing else to do right now.</p>
+          <p class="success-step-text">The refundable &#x20B1;800 security deposit is <strong>sent with your payment or by the day before check-in</strong>. It is returned as soon as possible, within 3 business days of check-out, to the same account or payment mode it came from.</p>
         </div>
       </div>
 
@@ -8446,8 +8360,8 @@ body.theme-quiet-luxury #conciergePanel, body.theme-quiet-luxury #conciergeTrigg
           <h2 class="bs-h" id="bsH3" tabindex="-1">Your dates are held</h2>
           <div style="display:flex;justify-content:space-between;align-items:center;gap:0.5rem"><p class="bs-sub" style="color:var(--gs-ink);font-size:0.9375rem" id="bsHoldLine"></p><span class="bs-held" id="bsHeld" role="timer" hidden></span></div>
           <p class="bs-sub" id="bsHeldNote" role="status" hidden><span id="bsHeldNoteT"></span><a id="bsHeldNoteA" href="https://www.messenger.com/t/699640026568720" target="_blank" rel="noopener">message us on Messenger</a>.</p>
-          <p class="bs-sub" id="bsDepLine">Plus a &#8369;1,000 refundable security deposit with the balance, returned after check-out.</p>
-          <div class="bs-pay"><div><small style="text-align:left" id="bsPayLbl">Pay now (50%)</small><strong id="bsFee"></strong></div><div><small id="bsPayTotal"></small><small id="bsPayLater"></small></div></div>
+          <p class="bs-sub" id="bsDepLine">The refundable security deposit of &#8369;800 is separate from your stay. Send it with your payment or by the day before check-in. Your door PIN is sent once your payment, IDs and the deposit are in. It is returned as soon as possible, within 3 business days of check-out, to the same account or payment mode it came from.</p>
+          <div class="bs-pay"><div><small style="text-align:left" id="bsPayLbl">Your stay, paid in full to confirm</small><strong id="bsFee"></strong></div><div><small id="bsPayTotal"></small><small id="bsPayLater"></small></div></div>
           <div class="bs-seg" role="group" aria-label="Payment method"><button type="button" id="bsG" aria-pressed="true">GCash</button><button type="button" id="bsB" aria-pressed="false">Bank transfer</button></div>
           <div class="bs-acct">
             <img id="bsQr" src="assets/images/qr-gcash.png" alt="GCash QR code" width="220" height="220">
@@ -8461,7 +8375,7 @@ body.theme-quiet-luxury #conciergePanel, body.theme-quiet-luxury #conciergeTrigg
           <p class="bs-sub" id="bsFileName" role="status"></p>
           <div class="bs-actions">
             <p class="bs-err" id="bsErr3" role="alert"></p>
-            <p class="bs-sub" id="bsCancelLine">Free cancellation up to 5 days before check-in; after that the reservation fee is kept. <a href="booking-terms.html#cancellation-and-refunds" target="_blank" rel="noopener">Cancellation terms</a></p>
+            <p class="bs-sub" id="bsCancelLine">Free cancellation until 5 days before check-in. Inside 5 days or for a no-show, we keep 50% of the stay and return your deposit in full. <a href="booking-terms.html#cancellation-and-refunds" target="_blank" rel="noopener">Cancellation terms</a></p>
             <button type="button" class="bs-cta" id="bsNext3">I&#8217;ve sent the payment</button>
           </div>
           <p class="bs-legal" style="padding-bottom:calc(1rem + env(safe-area-inset-bottom))">We use your details only to process and manage this stay. <a href="privacy.html" target="_blank" rel="noopener">Privacy notice</a> &middot; <a href="booking-terms.html" target="_blank" rel="noopener">Booking terms</a></p>
@@ -8472,7 +8386,7 @@ body.theme-quiet-luxury #conciergePanel, body.theme-quiet-luxury #conciergeTrigg
           <p class="bs-sub" id="bsDoneKicker" style="font-weight:600;color:var(--gs-accent-text)">Payment reported</p>
           <h2 class="bs-h bs-h--big" id="bsH4" tabindex="-1">Request sent.</h2>
           <p class="bs-sub" style="font-size:1rem;color:var(--gs-ink)">We confirm personally, usually within a couple of hours. Your smart-lock code and guide arrive before check-in.</p>
-          <div class="bs-card" style="width:100%;box-sizing:border-box"><div><span id="bsDoneRange"></span><strong id="bsDoneTotal"></strong></div><div class="bs-sub"><span id="bsDoneRef"></span><span id="bsDoneFee"></span></div><div class="bs-sub"><span>Check-in 2 PM &middot; Check-out 12 noon</span></div><div class="bs-sub"><span id="bsDoneDep">Plus a &#8369;1,000 refundable security deposit with the balance, returned after check-out.</span></div></div>
+          <div class="bs-card" style="width:100%;box-sizing:border-box"><div><span id="bsDoneRange"></span><strong id="bsDoneTotal"></strong></div><div class="bs-sub"><span id="bsDoneRef"></span><span id="bsDoneFee"></span></div><div class="bs-sub"><span>Check-in 2 PM &middot; Check-out 12 noon</span></div><div class="bs-sub"><span id="bsDoneDep">Security deposit &#8369;800, refundable: send it by the day before check-in if you have not already. It is returned as soon as possible, within 3 business days of check-out, to the same account or payment mode it came from.</span></div></div>
           <p class="bs-sub" id="bsDoneReach" style="font-size:1rem;color:var(--gs-ink)"></p>
           <div class="bs-actions" style="width:100%">
             <p class="bs-sub" id="bsDoneNote" role="status"></p>
@@ -8497,6 +8411,15 @@ body.theme-quiet-luxury #conciergePanel, body.theme-quiet-luxury #conciergeTrigg
   </dialog>
 
   <script src="assets/js/analytics.js" defer></script>
+  <script id="pay-rule">
+    /* D-428/D-429/D-430 payment rule: the one place for the figures the page words. The static copy (FAQ, JSON-LD twin,
+       booking-terms.html, stay.html) states the same figures in words; tests/payment-rule.test.mjs pins them to these values. */
+    window.CASCADE_PAY_RULE = Object.freeze({
+      SECURITY_DEPOSIT_PHP: 800,          /* refundable, separate from the stay amount */
+      DEPOSIT_RETURN_BUSINESS_DAYS: 3,    /* "as soon as possible, within N business days of check-out"; owner confirmed 2026-11-26 */
+      LONG_STAY_NIGHTS: 28                /* this many nights or more is arranged with the host, never auto-quoted */
+    });
+  </script>
   <script>
     /* ── Sticky mobile CTA bar — removed; rate integrated into concierge ── */
     (function () {
@@ -8995,7 +8918,8 @@ body.theme-quiet-luxury #conciergePanel, body.theme-quiet-luxury #conciergeTrigg
          (the same quote() submit-booking stores). CARD below is only today's card, shown while the live one
          loads or if it cannot be read; a request cannot be sent until the live quote for its dates arrives. */
       var EDGE_RATE_CARD = SUPABASE_URL + '/functions/v1/rate-card';
-      var CARD = { base: 1780, deposit_pct: 50,
+      var PAY_RULE = window.CASCADE_PAY_RULE;
+      var CARD = { base: 1780, deposit_pct: 100,   /* payment rule D-428: the whole stay is paid to confirm */
         tiers: [{min_nights:2,pct:5},{min_nights:5,pct:10},{min_nights:7,pct:15},{min_nights:14,pct:20},{min_nights:28,pct:25}],
         promotions: [{ name: 'Anniversary Promotion', first_night: '2026-10-11', last_night: '2026-10-17', nightly_rate: 1543 }] };
       var TIER_NAMES = ['Direct booking', 'Extended stay', 'Weekly rate', 'Fortnightly rate', 'Monthly rate'];
@@ -9048,7 +8972,7 @@ body.theme-quiet-luxury #conciergePanel, body.theme-quiet-luxury #conciergeTrigg
       function curQuote() { return QUOTE && QUOTE.key === quoteKey() ? QUOTE.q : null; }
       /* The server's figures for the chosen dates; until they arrive, today's card by stay length (display only). */
       function calcTotal(n) { var q = curQuote(); return q && q.n === n ? q.total : getTier(n).rate * n; }
-      function calcDeposit(n) { var q = curQuote(); return q && q.n === n ? q.deposit : Math.ceil(calcTotal(n) * CARD.deposit_pct / 100); }
+      function calcDeposit(n) { return calcTotal(n); }   /* amount due to confirm = the stay total (a current server's quote still carries half; it is not used) */
       function ensureQuote() {
         var key = quoteKey();
         if (!key || curQuote() || quoteBusy === key) return;
@@ -9107,7 +9031,7 @@ body.theme-quiet-luxury #conciergePanel, body.theme-quiet-luxury #conciergeTrigg
           banner.hidden = ps.length === 0;
         }
       }
-      /* For the pay-mode toggle and the sticky date bar (separate scripts on this page). */
+      /* For the sticky date bar (a separate script on this page). */
       window._cascadeTotals = function () {
         var s = state; if (!s || !s.checkin || !s.checkout) return null;
         var n = nights(s.checkin, s.checkout);
@@ -9164,7 +9088,7 @@ body.theme-quiet-luxury #conciergePanel, body.theme-quiet-luxury #conciergeTrigg
       var bookingError    = $('bookingErrorBanner');
       var dateError       = $('dateErrorBanner');
       var paySummaryDates = $('paySummaryDates');
-      /* paySummaryAmount removed — now uses breakdown IDs: payBdTotalLabel, payBdTotal, payBdFee, payBdBalance */
+      /* paySummaryAmount removed — now uses breakdown IDs: payBdTotalLabel, payBdTotal, payBdFee, payBdDeposit */
       var receiptFile     = $('receiptFile');
       var receiptDropzone = $('receiptDropzone');
       var receiptPreview  = $('receiptPreview');
@@ -9403,22 +9327,13 @@ body.theme-quiet-luxury #conciergePanel, body.theme-quiet-luxury #conciergeTrigg
         var tier=getTier(n);
         var total=calcTotal(n);
         var q=curQuote();
-        /* Last-minute (D-185, 2026-09-18): less than 5 days away - same boundary as the payment step below,
-           submit-booking's holds and the Messenger Concierge, so no two of them ever quote a different amount. */
-        var selToday = new Date(); selToday.setHours(0,0,0,0);
-        var isLastMinute   = Math.round((new Date(state.checkin + 'T00:00:00').getTime() - selToday.getTime()) / 86400000) <= 4;
-        var dep = isLastMinute ? total : calcDeposit(n);
-        var balance = total - dep;
-        /* Hold-before-pay (D-160 #1, D-162): only an advance booking (5+ days out, the same line as the
-           free-cancellation rule) holds the dates first; anything closer pays first as before. */
-        if (continueBtn) continueBtn.textContent = (!isLastMinute) ? 'Hold my dates & pay' : 'Review price & payment';
+        var dep = calcDeposit(n);
+        if (continueBtn) continueBtn.textContent = 'Hold my dates & pay';
         calSelDates.textContent=fmtDate(state.checkin)+' \u2192 '+fmtDate(state.checkout);
         /* Show discounted total — guest sees exactly what they pay */
         calSelPrice.textContent='\u20B1'+total.toLocaleString('en-PH')+' \u00B7 '+n+' night'+(n!==1?'s':'')+(q&&q.promo_nights?' \u00B7 '+promoLine(q):'');
         /* Deposit line — concrete peso amount removes checkout surprise */
-        var depNote = isLastMinute
-          ? '\u20B1'+dep.toLocaleString('en-PH')+' full payment (check-in under 5 days away) \u00B7 reviewed before confirmation'
-          : '\u20B1'+dep.toLocaleString('en-PH')+' reservation fee for review \u00B7 \u20B1'+balance.toLocaleString('en-PH')+' due a day before check-in';
+        var depNote = '\u20B1'+dep.toLocaleString('en-PH')+' paid in full to confirm \u00B7 plus a separate refundable \u20B1'+PAY_RULE.SECURITY_DEPOSIT_PHP.toLocaleString('en-PH')+' deposit';
         var teaserParts=[];
         if (q&&q.promo_nights) teaserParts.push(q.promo_name+' applied'+(q.promo_nights<n&&tier.disc>0?' · '+tier.disc+'% off the other night'+(n-q.promo_nights===1?'':'s'):''));
         else if (tier.disc>0) teaserParts.push(tier.disc+'% direct discount applied');
@@ -9515,19 +9430,8 @@ body.theme-quiet-luxury #conciergePanel, body.theme-quiet-luxury #conciergeTrigg
 
         var n=nights(state.checkin,state.checkout), total=calcTotal(n);
         track('payment_method_viewed', { payment_method: 'bank_transfer', nights_bucket: nightsBucket(n), lead_time_bucket: leadTimeBucket(state.checkin) });
-        /* Last-minute (D-185, 2026-09-18): check-in less than 5 days away - same day through 4 days out -
-           requires full upfront payment. Same boundary submit-booking uses for holds (daysOut >= 5), and the
-           same one the Messenger Concierge uses, so the two never quote different amounts. Calendar days. */
-        var today = new Date(); today.setHours(0,0,0,0);
-        var daysOut = Math.round((new Date(state.checkin + 'T00:00:00').getTime() - today.getTime()) / 86400000);
-        var isLastMinute   = daysOut <= 4 || curQuote().last_minute;
-        var dep = isLastMinute ? total : calcDeposit(n);
-        var balanceOnly = total - dep;
+        var dep = calcDeposit(n);   /* payment rule D-428: the whole stay is paid to confirm */
         state.dep = dep;
-
-        /* Show / hide last-minute banner */
-        var lmBanner = document.getElementById('lmBanner');
-        if (lmBanner) lmBanner.hidden = !isLastMinute;
 
         var tier        = getTier(n);
         var baseTotal   = BASE_RATE * n;
@@ -9580,45 +9484,21 @@ body.theme-quiet-luxury #conciergePanel, body.theme-quiet-luxury #conciergeTrigg
           baseRow.hidden = (savingsTotal <= 0); /* SPEC-34: a 1-night promo stay saves too */
         }
 
-        /* Zone B: Send Now — full payment vs reservation fee */
-        var payMode = window._payMode || 'deposit'; /* 'deposit' | 'full' */
-        /* Hide mode selector when only full payment is valid (last-minute) */
-        var payModeSelector = document.getElementById('payModeSelector');
-        if (payModeSelector) payModeSelector.hidden = isLastMinute;
+        /* Zone B: the stay, paid in full. The deposit is its own line (Zone C), never added into this amount. */
         var bdFee = document.getElementById('payBdFee');
         var payActionEyebrow = document.getElementById('payActionEyebrow');
         var payActionTitle = document.getElementById('payActionTitle');
         var payActionSub   = document.getElementById('payActionSub');
         var payActionConfirm = document.getElementById('payActionConfirm');
-        var payZoneLater   = document.getElementById('payZoneLater');
-        var payDepositNote = document.getElementById('payDepositNote');
         var gcashHint = document.getElementById('gcashAmountHint');
-
-        if (isLastMinute || payMode === 'full') {
-          /* Full upfront — no separate reservation fee split */
-          var amountDue = total;
-          if (bdFee) bdFee.textContent = amountDue.toLocaleString('en-PH');
-          if (gcashHint) gcashHint.textContent = '\u20B1' + amountDue.toLocaleString('en-PH');
-          if (payActionTitle) payActionTitle.textContent = 'Full Payment';
-          if (payActionSub)   payActionSub.textContent   = 'Priority verification';
-          if (payActionConfirm) payActionConfirm.textContent = 'We verify your payment and availability before confirming your booking.';
-          if (payActionEyebrow) payActionEyebrow.textContent = 'Complete your booking now';
-          if (payZoneLater)   payZoneLater.hidden = true;
-          if (payDepositNote) payDepositNote.hidden = true;
-        } else {
-          if (bdFee) bdFee.textContent = dep.toLocaleString('en-PH');
-          if (gcashHint) gcashHint.textContent = '\u20B1' + dep.toLocaleString('en-PH');
-          if (payActionTitle) payActionTitle.textContent = 'Reservation Fee';
-          if (payActionSub)   payActionSub.textContent   = CARD.deposit_pct + '% of total \u00B7 reviewed before confirmation';
-          if (payActionConfirm) payActionConfirm.textContent = 'We verify your payment and availability before confirming your dates.';
-          if (payActionEyebrow) payActionEyebrow.textContent = 'Send now to secure your dates';
-          if (payZoneLater)   payZoneLater.hidden = false;
-          if (payDepositNote) payDepositNote.hidden = false;
-        }
-
-        /* Zone C */
-        var bdBalanceOnly = document.getElementById('payBdBalanceOnly');
-        if (bdBalanceOnly) bdBalanceOnly.textContent = '\u20B1' + balanceOnly.toLocaleString('en-PH');
+        if (bdFee) bdFee.textContent = dep.toLocaleString('en-PH');
+        if (gcashHint) gcashHint.textContent = '\u20B1' + dep.toLocaleString('en-PH');
+        if (payActionTitle) payActionTitle.textContent = 'Your stay, paid in full';
+        if (payActionSub)   payActionSub.textContent   = 'Reviewed before confirmation';
+        if (payActionConfirm) payActionConfirm.textContent = 'We verify your payment and availability before confirming your booking.';
+        if (payActionEyebrow) payActionEyebrow.textContent = 'Send now to confirm your dates';
+        var bdDep = document.getElementById('payBdDeposit');
+        if (bdDep) bdDep.textContent = '\u20B1' + PAY_RULE.SECURITY_DEPOSIT_PHP.toLocaleString('en-PH');
 
         /* Update bank reference */
         var bankRef=document.getElementById('payBankRef');
@@ -9634,9 +9514,7 @@ body.theme-quiet-luxury #conciergePanel, body.theme-quiet-luxury #conciergeTrigg
 
         /* Hold-before-pay (D-160 #1): for an advance booking the request is created NOW, so the
            guest pays against a real reference and the dates are held (auto-released after 24 h
-           without a receipt). Same-day / last-minute keeps the pay-then-submit flow. */
-        var holdEligible = !isLastMinute;
-        if (!holdEligible) { state._hold = null; applyPayFirst(dep, total); showStep2(); return; }
+           without a receipt). */
         var holdKey = state.checkin + '|' + state.checkout;
         if (state._hold && state._hold._key === holdKey) { applyHold(state._hold); showStep2(); return; }
         continueBtn.disabled = true; continueBtn.textContent = 'Holding your dates\u2026';
@@ -9676,24 +9554,12 @@ body.theme-quiet-luxury #conciergePanel, body.theme-quiet-luxury #conciergeTrigg
           p1.appendChild(b);
           p1.appendChild(document.createTextNode(' One home, one guest at a time \u2014 while the hold stands, nobody else can take ' + fmtDate(state.checkin) + ' to ' + fmtDate(state.checkout) + '.'));
           var p2 = document.createElement('p');
-          p2.textContent = 'Sending the \u20B1' + dep.toLocaleString('en-PH') + ' reservation fee within that window is all it takes; we confirm personally within a couple of hours of your receipt. Prefer to settle everything now? \u20B1' + total.toLocaleString('en-PH') + ' covers the whole stay, and you arrive with only the \u20B11,000 refundable deposit to hand over.';
+          p2.textContent = 'Sending the \u20B1' + dep.toLocaleString('en-PH') + ' for your stay within that window is all it takes; we confirm personally within a couple of hours of your receipt. The refundable \u20B1' + PAY_RULE.SECURITY_DEPOSIT_PHP.toLocaleString('en-PH') + ' security deposit is separate: send it with your payment or by the day before check-in.';
           var p3 = document.createElement('p');
-          p3.textContent = 'If plans change, cancellations five or more days before check-in are refunded in full \u2014 and a hold you let lapse costs nothing at all.';
+          p3.textContent = 'If plans change, cancellation is free until 5 days before check-in, and a hold you let lapse costs nothing at all.';
           nudge.appendChild(p1); nudge.appendChild(p2); nudge.appendChild(p3);
           nudge.hidden = false;
         }
-      }
-
-      /* Within five days of check-in the dates cannot be held; the payment itself reserves them. */
-      function applyPayFirst(dep, total){
-        var nudge = document.getElementById('holdNudge');
-        if (!nudge) return;
-        nudge.textContent = '';
-        var p = document.createElement('p');
-        p.textContent = 'Check-in is close, so we reserve on receipt: send the \u20B1' + dep.toLocaleString('en-PH') + (dep >= total ? ' payment' : ' reservation fee') + ' now and we confirm personally within a couple of hours. Under five days the fee is not refundable, which is exactly why it secures your dates.';
-        nudge.appendChild(p);
-        nudge.hidden = false;
-        if (bookingSubmit) bookingSubmit.textContent = 'Submit reservation request';
       }
 
       function buildPayload(total, dep){
@@ -9716,9 +9582,8 @@ body.theme-quiet-luxury #conciergePanel, body.theme-quiet-luxury #conciergeTrigg
           notes:          (document.getElementById('message') || {}).value
                           ? document.getElementById('message').value.trim() || undefined : undefined,
           total_amount:   total,
-          deposit_amount: dep,
-          /* SPEC-34: the server stores its own total and deposit; the page only says fee or full. */
-          pay_full:       dep >= total, /* a hold is always the fee; Pay in Full on a hold is sent with the receipt (X-Pay-Full) */
+          deposit_amount: total,   /* the amount due to confirm = the stay total */
+          pay_full:       true,    /* a server that still stores half stores the full amount when told so */
           contact_type:   contactTypeVal,
         };
       }
@@ -9758,7 +9623,7 @@ body.theme-quiet-luxury #conciergePanel, body.theme-quiet-luxury #conciergeTrigg
       var copyGcashAmtBtn=document.getElementById('copyGcashAmtBtn');
       if (copyGcashAmtBtn) {
         copyGcashAmtBtn.addEventListener('click', function(){
-          var raw=String((window._payMode==='full'&&window._payAmount)||state.dep||'');
+          var raw=String(state.dep||'');
           copyToClipboard(raw, this, 'Amount');
         });
       }
@@ -9773,7 +9638,7 @@ body.theme-quiet-luxury #conciergePanel, body.theme-quiet-luxury #conciergeTrigg
       var copyBankAmtBtn=document.getElementById('copyBankAmtBtn');
       if (copyBankAmtBtn) {
         copyBankAmtBtn.addEventListener('click', function(){
-          var raw=String((window._payMode==='full'&&window._payAmount)||state.dep||'');
+          var raw=String(state.dep||'');
           copyToClipboard(raw, this, 'Amount');
         });
       }
@@ -9783,7 +9648,7 @@ body.theme-quiet-luxury #conciergePanel, body.theme-quiet-luxury #conciergeTrigg
       if (openGcashBtn) {
         openGcashBtn.addEventListener('click', function(e){
           e.preventDefault();
-          var amt=(window._payMode==='full'&&window._payAmount)||state.dep||'';
+          var amt=state.dep||'';
           var phone='09560115744';
           var isMobile=/Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 
@@ -9983,8 +9848,8 @@ body.theme-quiet-luxury #conciergePanel, body.theme-quiet-luxury #conciergeTrigg
           xhr.setRequestHeader('Authorization', 'Bearer ' + uploadToken);
           xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
           xhr.setRequestHeader('X-Receipt-Filename', file.name);
-          /* SPEC-34 (D-262): a held request was sent with the fee before "Pay in Full" could be picked; the receipt says which. */
-          if (window._payMode === 'full') xhr.setRequestHeader('X-Pay-Full', 'true');
+          /* D-262: a hold made by an earlier version of this page stored half; the receipt says it is paid in full. */
+          xhr.setRequestHeader('X-Pay-Full', 'true');
           xhr.onload  = function() {
             if (xhr.status >= 200 && xhr.status < 300) {
               resolve();
@@ -10318,74 +10183,6 @@ body.theme-quiet-luxury #conciergePanel, body.theme-quiet-luxury #conciergeTrigg
       fetchBlockedDates();
 
     }());
-
-    /* ── Pay-mode toggle (Reservation Fee / Pay in Full) ── */
-    (function () {
-      'use strict';
-      window._payMode = 'deposit'; /* initial default */
-      var btnDeposit = document.getElementById('payModeDeposit');
-      var btnFull    = document.getElementById('payModeFull');
-      var selector   = document.getElementById('payModeSelector');
-      if (!btnDeposit || !btnFull) return;
-
-      function setMode(mode) {
-        window._payMode = mode;
-        btnDeposit.classList.toggle('is-active', mode === 'deposit');
-        btnFull.classList.toggle('is-active',    mode === 'full');
-        /* Re-trigger the booking summary update to recalculate displayed amount */
-        if (typeof window._cascadeUpdateSidebar === 'function') {
-          var s = window._bkState;
-          if (s && s.checkin && s.checkout) {
-            var n = Math.round((new Date(s.checkout) - new Date(s.checkin)) / 86400000);
-            /* Trigger a synthetic state update by calling render path */
-          }
-        }
-        /* Directly update displayed fee amount from current booking state */
-        var s = window._bkState;
-        if (!s || !s.checkin || !s.checkout) return;
-        /* SPEC-34: the booking script's figures (the server's quote for these dates), not a copy of the card. */
-        var tt    = window._cascadeTotals && window._cascadeTotals();
-        if (!tt) return;
-        var total = tt.total;
-        var dep   = tt.dep;
-        var amountDue = (mode === 'full') ? total : dep;
-        window._payAmount = amountDue; /* 2026-09-24: Copy Amount and the GCash link used the 50% fee in full mode */
-        var bdFee = document.getElementById('payBdFee');
-        if (bdFee) bdFee.textContent = amountDue.toLocaleString('en-PH');
-        var gcashHint = document.getElementById('gcashAmountHint');
-        if (gcashHint) gcashHint.textContent = '\u20B1' + amountDue.toLocaleString('en-PH');
-        var payActionTitle   = document.getElementById('payActionTitle');
-        var payActionSub     = document.getElementById('payActionSub');
-        var payActionConfirm = document.getElementById('payActionConfirm');
-        var payActionEyebrow = document.getElementById('payActionEyebrow');
-        var payZoneLater     = document.getElementById('payZoneLater');
-        var payDepositNote   = document.getElementById('payDepositNote');
-        if (mode === 'full') {
-          if (payActionTitle)   payActionTitle.textContent   = 'Full Payment';
-          if (payActionSub)     payActionSub.textContent     = 'Priority verification';
-          if (payActionConfirm) payActionConfirm.textContent = 'We verify your payment and availability before confirming your booking.';
-          if (payActionEyebrow) payActionEyebrow.textContent = 'Complete your booking now';
-          if (payZoneLater)   payZoneLater.hidden   = true;
-          if (payDepositNote) payDepositNote.hidden = true;
-        } else {
-          if (payActionTitle)   payActionTitle.textContent   = 'Reservation Fee';
-          if (payActionSub)     payActionSub.textContent     = ((window._cascadeCard || {}).deposit_pct || 50) + '% of total \u00B7 reviewed before confirmation';
-          if (payActionConfirm) payActionConfirm.textContent = 'We verify your payment and availability before confirming your dates.';
-          if (payActionEyebrow) payActionEyebrow.textContent = 'Send now to secure your dates';
-          if (payZoneLater)   payZoneLater.hidden   = false;
-          if (payDepositNote) payDepositNote.hidden = false;
-        }
-        /* Update bank reference amount if visible */
-        var bankAmt = document.getElementById('payBankAmt');
-        if (bankAmt) bankAmt.textContent = '\u20B1' + amountDue.toLocaleString('en-PH');
-      }
-
-      btnDeposit.addEventListener('click', function(){ setMode('deposit'); });
-      btnFull.addEventListener('click',    function(){ setMode('full'); });
-    }());
-
-
-
 
     /* ── Property gallery carousel — transform-based, smooth auto-advance ── */
     (function () {
@@ -11311,7 +11108,7 @@ body.theme-quiet-luxury #conciergePanel, body.theme-quiet-luxury #conciergeTrigg
 (function () {
   'use strict';
   var KEY = 'cascade.sheet.v1', TIMEOUT_MS = 20000, MAX_FILE = 5 * 1024 * 1024, MAX_GUESTS = 3, MIN_GUESTS = 1;
-  var MESSENGER = 'https://www.messenger.com/t/699640026568720', EMAIL = 'cascadereservations@gmail.com';
+  var MESSENGER = 'https://www.messenger.com/t/699640026568720', EMAIL = 'cascadereservations@gmail.com', RULE = window.CASCADE_PAY_RULE;
   var PAY_NAME = 'Marifel Suzanne Boncales';
   var MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   var MON_L = ['January','February','March','April','May','June','July','August','September','October','November','December'];
@@ -11387,11 +11184,10 @@ body.theme-quiet-luxury #conciergePanel, body.theme-quiet-luxury #conciergeTrigg
   }
   function money() {
     var q = curQ(); if (!q) return null;
-    var n = nightsOf(S.ci, S.co), total = q.total;
-    var daysOut = Math.round((parse(S.ci) - parse(todayISO())) / 86400000);
-    var last = daysOut <= 4 || !!q.last_minute;
-    var dep = last ? total : q.deposit;
-    return { n: n, total: total, dep: dep, later: total - dep, last: last, pct: Math.round(dep / total * 100) };
+    var n = nightsOf(S.ci, S.co); if (n >= RULE.LONG_STAY_NIGHTS) return null;   /* arranged with the host, never auto-quoted */
+    /* payment rule D-428: the whole stay is paid to confirm; dep = the amount due to confirm = the stay total.
+       The server quote's own deposit field is not used (a current server still sends half of it). */
+    return { n: n, total: q.total, dep: q.total, deposit: RULE.SECURITY_DEPOSIT_PHP };
   }
 
   /* ---------- network: one POST helper with the 20 s abort ---------- */
@@ -11409,13 +11205,13 @@ body.theme-quiet-luxury #conciergePanel, body.theme-quiet-luxury #conciergeTrigg
   function phoneFull() { return S.cc + ' ' + (S.cc === '+63' ? S.phone.replace(/^\s*0+/, '') : S.phone).trim(); }
   function buildPayload(m, notes) {
     return { guest_name: S.name.trim(), guest_phone: phoneFull(), guest_email: S.email.trim() || undefined, checkin_date: S.ci, checkout_date: S.co,
-      pax: S.guests, notes: notes || undefined, total_amount: m.total, deposit_amount: m.dep, pay_full: m.dep >= m.total, contact_type: 'phone' };
+      pax: S.guests, notes: notes || undefined, total_amount: m.total, deposit_amount: m.total, pay_full: true, contact_type: 'phone' };   /* deposit_amount = the amount due to confirm = the stay total; pay_full:true makes a server that still stores half store the full amount */
   }
   function postBooking(payload) { return post(sb.url + '/functions/v1/submit-booking', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }); }
   function uploadReceipt(f, token) {
     var ctl = new AbortController(), t = setTimeout(function () { ctl.abort(); }, 60000);
     return fetch(sb.url + '/functions/v1/upload-booking-receipt', { method: 'POST', signal: ctl.signal,
-      headers: { Authorization: 'Bearer ' + token, 'Content-Type': f.type || 'application/octet-stream', 'X-Receipt-Filename': f.name }, body: f })
+      headers: { Authorization: 'Bearer ' + token, 'Content-Type': f.type || 'application/octet-stream', 'X-Receipt-Filename': f.name, 'X-Pay-Full': 'true' }, body: f })
       .then(function (r) { clearTimeout(t); if (!r.ok) { var e = new Error('upload ' + r.status); e.server = true; throw e; } })
       .catch(function (e) { clearTimeout(t); if (e.server) throw e; var x = new Error('network'); x.network = true; throw x; });
   }
@@ -11451,6 +11247,7 @@ body.theme-quiet-luxury #conciergePanel, body.theme-quiet-luxury #conciergeTrigg
   }
 
   /* step 1 */
+  var LONG_NOTE = 'Stays of ' + RULE.LONG_STAY_NIGHTS + ' nights or more are arranged with the host: the first month is paid to confirm, then monthly. We do not quote them here. Message us on Messenger or email ' + EMAIL + '.';
   function viewYM() { var v = S.view || (S.ci || todayISO()).slice(0, 7); return [+v.slice(0, 4), +v.slice(5, 7) - 1]; }
   function paint1() {
     var ym = viewYM(), y = ym[0], m = ym[1], t = todayISO(), grid = $('bsGrid'), a = avail();
@@ -11467,13 +11264,13 @@ body.theme-quiet-luxury #conciergePanel, body.theme-quiet-luxury #conciergeTrigg
     grid.innerHTML = html;
     setText('bsAvailNote', !a.loaded ? 'Checking availability…' : a.failed ? 'Live availability could not be loaded. Our team will double-check before confirming.' : '');
     setText('bsGuests', S.guests); $('bsFewer').disabled = S.guests <= MIN_GUESTS; $('bsMore').disabled = S.guests >= MAX_GUESTS;
-    var has = S.ci && S.co, mn = has ? money() : null, ready = !!mn, failed = has && !mn && qFail === S.ci + '|' + S.co;
+    var has = S.ci && S.co, mn = has ? money() : null, ready = !!mn, longStay = !!has && nightsOf(S.ci, S.co) >= RULE.LONG_STAY_NIGHTS, failed = has && !mn && !longStay && qFail === S.ci + '|' + S.co;
     setText('bsRange', has ? rangeLabel() : S.ci ? 'Now tap your check-out date' : 'Tap your check-in date');
     setText('bsTotal', mn ? peso(mn.total) : '');
     var hard = failed && qFailN >= 2;
-    setText('bsQuoteNote', has && !mn ? (hard ? 'Prices are not loading. Message us and we will quote you.' : failed ? 'We could not confirm the price just now. Tap Continue to try again.' : 'Confirming your price…') : '');
-    $('bsQuoteMsgr').hidden = !hard; if (hard) $('bsQuoteMsgr').href = MESSENGER;
-    $('bsNext1').disabled = !(has && (ready || failed));
+    setText('bsQuoteNote', longStay ? LONG_NOTE : has && !mn ? (hard ? 'Prices are not loading. Message us and we will quote you.' : failed ? 'We could not confirm the price just now. Tap Continue to try again.' : 'Confirming your price…') : '');
+    $('bsQuoteMsgr').hidden = !(hard || longStay); if (hard || longStay) $('bsQuoteMsgr').href = MESSENGER;
+    $('bsNext1').disabled = longStay || !(has && (ready || failed));
   }
   function pick(ds) {
     showErr('bsErr1', '');
@@ -11552,7 +11349,6 @@ body.theme-quiet-luxury #conciergePanel, body.theme-quiet-luxury #conciergeTrigg
   function holdLive() { return S.hold && S.hold._key === holdKey() && !(S.hold.hold_expires_at && new Date(S.hold.hold_expires_at) <= new Date()); }
   function startHold(mn) {
     lastAction = function () { startHold(money() || mn); };
-    if (mn.last) { S.hold = null; go(3); return; }                     /* within five days: no hold, the payment reserves */
     if (holdLive()) { go(3); return; }                                 /* same dates: reuse the hold; if the contact differs step 3 explains (no second POST) */
     setBusy('bsNext2', true, 'Holding your dates…');
     var p = buildPayload(mn); p.hold = true; var c = contactNow();   /* captured now: the guest may edit the fields while the POST is in flight */
@@ -11576,20 +11372,24 @@ body.theme-quiet-luxury #conciergePanel, body.theme-quiet-luxury #conciergeTrigg
     var g = $('gcashNumber'), b = $('bankAcctNumber');
     return { gcash: g ? g.textContent.trim() : '', bank: b ? b.textContent.trim() : '' };
   }
-  var DEP_BALANCE = 'Plus a ₱1,000 refundable security deposit with the balance, returned after check-out.',
-      DEP_ARRIVAL = 'Plus a ₱1,000 refundable security deposit, handed over on arrival and returned after check-out.';
+  /* payment rule D-428/D-429: the deposit is its own line, never added into the stay amount; the figures come from RULE */
+  var DEP_RETURN = 'It is returned as soon as possible, within ' + RULE.DEPOSIT_RETURN_BUSINESS_DAYS + ' business days of check-out, to the same account or payment mode it came from.';
+  function depLine(total) {
+    return 'The refundable security deposit of ' + peso(RULE.SECURITY_DEPOSIT_PHP) + ' is separate from your stay. Send it with your payment (' + peso(total + RULE.SECURITY_DEPOSIT_PHP) + ' in all) or by the day before check-in. Your door PIN is sent once your payment, IDs and the deposit are in. ' + DEP_RETURN;
+  }
+  var DEP_DONE = 'Security deposit ' + peso(RULE.SECURITY_DEPOSIT_PHP) + ', refundable: send it by the day before check-in if you have not already. ' + DEP_RETURN;
   function paint3() {
     var mn = money(), a = acct(), gc = S.method === 'gcash';
     ensureQuote();
     setText('bsFee', mn ? peso(mn.dep) : '…');
     var holdOn = !!(S.hold && S.hold.hold !== false && S.hold.hold_expires_at);
     setText('bsH3', holdOn ? 'Your dates are held' : 'Pay and confirm');
-    if (!busy) setText('bsNext3', mn ? 'I\u2019ve sent ' + peso(mn.dep) : 'I\u2019ve sent the payment');
-    setText('bsPayLbl', mn ? (mn.last ? 'Pay now (full amount)' : 'Pay now (' + mn.pct + '%)') : 'Pay now');
-    setText('bsDepLine', mn && mn.last ? DEP_ARRIVAL : DEP_BALANCE);
-    setText('bsPayTotal', mn ? 'Total ' + peso(mn.total) : ''); setText('bsPayLater', mn && mn.later > 0 ? 'Later ' + peso(mn.later) : '');
-    setText('bsHoldLine', !mn ? '' : mn.last ? 'Check-in is close, so we reserve on receipt. Send the full amount to book ' + rangeLabel() + '.'
-      : 'We’ll hold ' + fmtMd(S.ci) + ' to ' + (S.ci.slice(0, 7) === S.co.slice(0, 7) ? +S.co.slice(8) : fmtMd(S.co)) + ' for 24 hours. Settle half to keep them; the rest is due a day before you arrive.');
+    if (!busy) setText('bsNext3', 'I\u2019ve sent the payment');
+    setText('bsPayLbl', 'Your stay, paid in full to confirm');
+    setText('bsDepLine', mn ? depLine(mn.total) : '');
+    setText('bsPayTotal', 'Security deposit ' + peso(RULE.SECURITY_DEPOSIT_PHP)); setText('bsPayLater', 'Refundable, paid separately');
+    setText('bsHoldLine', !mn ? '' : holdOn ? 'We’ll hold ' + fmtMd(S.ci) + ' to ' + (S.ci.slice(0, 7) === S.co.slice(0, 7) ? +S.co.slice(8) : fmtMd(S.co)) + ' for 24 hours. Pay the full stay amount to confirm.'
+      : 'Send the full stay amount to book ' + rangeLabel() + '.');
     $('bsG').setAttribute('aria-pressed', String(gc)); $('bsB').setAttribute('aria-pressed', String(!gc));
     var qr = $('bsQr'); qr.src = gc ? 'assets/images/qr-gcash.png' : 'assets/images/qr-unionbank.png'; qr.alt = gc ? 'GCash QR code for ' + PAY_NAME : 'UnionBank InstaPay QR code';
     setText('bsAcctT', gc ? 'Scan with GCash' : 'UnionBank InstaPay or bank transfer');
@@ -11647,20 +11447,20 @@ body.theme-quiet-luxury #conciergePanel, body.theme-quiet-luxury #conciergeTrigg
   function summary() {
     var mn = money() || (S.done && S.done.mn), ref = (S.done && S.done.ref) || (S.hold && S.hold.ref) || '';
     return 'Hi Cascade, I would like to book ' + (S.ci && S.co ? rangeLabel() : 'a stay') + ' for ' + S.guests + (S.guests === 1 ? ' guest' : ' guests') + '. Name: ' + S.name +
-      '. Mobile: ' + (S.phone ? phoneFull() : '') + (mn ? '. Total ' + peso(mn.total) + ', due now ' + peso(mn.dep) : '') + (ref ? '. Booking ref ' + ref : '') + (contactChanged() && S.hold._name ? '. Held under ' + S.hold._name : '') + (S.ref.trim() ? '. Payment ref ' + S.ref.trim() : '') + '.';
+      '. Mobile: ' + (S.phone ? phoneFull() : '') + (mn ? '. Stay total ' + peso(mn.total) + ', paid in full to confirm, plus a separate refundable deposit of ' + peso(RULE.SECURITY_DEPOSIT_PHP) : '') + (ref ? '. Booking ref ' + ref : '') + (contactChanged() && S.hold._name ? '. Held under ' + S.hold._name : '') + (S.ref.trim() ? '. Payment ref ' + S.ref.trim() : '') + '.';
   }
   function msgrHref() { return MESSENGER + '?text=' + encodeURIComponent(summary()); }
   function paintDone() {
     var d = S.done || {}, mn = d.mn || money() || { total: 0, dep: 0 }, first = (S.name.trim().split(/\s+/)[0]) || 'there';
     setText('bsH4', 'Request sent, ' + first + '.');
     setText('bsDoneRange', S.ci && S.co ? rangeLabel() : ''); setText('bsDoneTotal', mn.total ? peso(mn.total) : '');
-    setText('bsDoneRef', 'Payment reported' + (d.ref ? ' · ref ' + d.ref : '')); setText('bsDoneFee', mn.dep ? peso(mn.dep) : '');
-    setText('bsDoneDep', d.mn && d.mn.last ? DEP_ARRIVAL : DEP_BALANCE);
+    setText('bsDoneRef', 'Payment reported' + (d.ref ? ' · ref ' + d.ref : '')); setText('bsDoneFee', '');
+    setText('bsDoneDep', DEP_DONE);
     setText('bsDoneNote', d.upload === 'unavailable' ? 'Your screenshot did not upload. Please send it on Messenger.' : d.upload === 'none' ? 'Send your reference number on Messenger so we can match it quickly.' : '');
     var digits = S.phone.replace(/\D/g, ''), em = S.email.trim();
     var ph = S.cc + ' ' + (digits.length >= 4 ? '•••• ' + digits.slice(-4) : '••••');
     setText('bsDoneReach', em ? 'We will confirm by email at ' + em + ', and on Messenger or by call at ' + ph + '.' : 'We will confirm on Messenger or by call at ' + ph + '.');
-    $('bsMsgr').href = MESSENGER + '?text=' + encodeURIComponent('Hi Cascade, I just sent a booking request for ' + (S.ci && S.co ? rangeLabel() : 'a stay') + (d.ref ? ' (ref ' + d.ref + ')' : '') + (mn.dep ? ' and my payment of ' + peso(mn.dep) : '') + (S.ref.trim() ? ', payment ref ' + S.ref.trim() : '') + '.');
+    $('bsMsgr').href = MESSENGER + '?text=' + encodeURIComponent('Hi Cascade, I just sent a booking request for ' + (S.ci && S.co ? rangeLabel() : 'a stay') + (d.ref ? ' (ref ' + d.ref + ')' : '') + (mn.dep ? ' and my payment for the stay (' + peso(mn.dep) + ')' : '') + (S.ref.trim() ? ', payment ref ' + S.ref.trim() : '') + '.');
   }
   function showError() { show('E'); }
   function paintErrState() {
@@ -11684,6 +11484,7 @@ body.theme-quiet-luxury #conciergePanel, body.theme-quiet-luxury #conciergeTrigg
     if (S.done && !o.restore) S = fresh();
     if (o.ci && o.co && (o.ci !== S.ci || o.co !== S.co)) { S.ci = o.ci; S.co = o.co; S.step = 1; S.view = o.ci.slice(0, 7); }
     if (o.guests) S.guests = Math.min(MAX_GUESTS, Math.max(MIN_GUESTS, o.guests));
+    if (S.ci && S.co && nightsOf(S.ci, S.co) >= RULE.LONG_STAY_NIGHTS && S.step > 1) S.step = 1;   /* arranged with the host, never auto-quoted */
     if (!dlg.open) { dlg.showModal(); document.body.classList.add('bs-open'); }
     S.open = true; autoAdvance(); save(); ensureQuote(); show(S.step);
   }
