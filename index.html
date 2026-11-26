@@ -8385,7 +8385,7 @@ body.theme-quiet-luxury #conciergePanel, body.theme-quiet-luxury #conciergeTrigg
           <div class="bs-tick"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 12l4 4 10-10"/></svg></div>
           <p class="bs-sub" id="bsDoneKicker" style="font-weight:600;color:var(--gs-accent-text)">Payment reported</p>
           <h2 class="bs-h bs-h--big" id="bsH4" tabindex="-1">Request sent.</h2>
-          <p class="bs-sub" style="font-size:1rem;color:var(--gs-ink)">We confirm personally, usually within a couple of hours. Your door code is sent by the host once your payment, your IDs and the &#8369;800 deposit are in.</p>
+          <p class="bs-sub" id="bsDoneCode" style="font-size:1rem;color:var(--gs-ink)">We confirm personally, usually within a couple of hours. Your door code is sent by the host once your payment, your IDs and the &#8369;800 deposit are in.</p>
           <div class="bs-card" style="width:100%;box-sizing:border-box"><div><span id="bsDoneRange"></span><strong id="bsDoneTotal"></strong></div><div class="bs-sub"><span id="bsDoneRef"></span><span id="bsDoneFee"></span></div><div class="bs-sub"><span>Check-in 2 PM &middot; Check-out 12 noon</span></div><div class="bs-sub"><span id="bsDoneDep">Security deposit &#8369;800, refundable: send it by the day before check-in if you have not already. It is returned as soon as possible, within 3 business days of check-out, to the same account or payment mode it came from.</span></div></div>
           <p class="bs-sub" id="bsDoneReach" style="font-size:1rem;color:var(--gs-ink)"></p>
           <div class="bs-actions" style="width:100%">
@@ -11432,7 +11432,7 @@ body.theme-quiet-luxury #conciergePanel, body.theme-quiet-luxury #conciergeTrigg
     setText('bsDepLine', mn ? depLine() : '');
     setText('bsPayTotal', 'Security deposit ' + peso(window.cascadeSecDep())); setText('bsPayLater', 'Refundable, paid separately');
     setText('bsHoldLine', !mn ? '' : holdOn ? 'We’ll hold ' + fmtMd(S.ci) + ' to ' + (S.ci.slice(0, 7) === S.co.slice(0, 7) ? +S.co.slice(8) : fmtMd(S.co)) + ' for 24 hours. Pay the full stay amount to confirm.'
-      : 'Your dates are reserved when we receive your payment. Send the full stay amount to book ' + rangeLabel() + '.');
+      : 'We confirm your booking once we have checked your payment. Send the full stay amount to book ' + rangeLabel() + '.');
     $('bsG').setAttribute('aria-pressed', String(gc)); $('bsB').setAttribute('aria-pressed', String(!gc));
     var qr = $('bsQr'); qr.src = gc ? 'assets/images/qr-gcash.png' : 'assets/images/qr-unionbank.png'; qr.alt = gc ? 'GCash QR code for ' + PAY_NAME : 'UnionBank InstaPay QR code';
     setText('bsAcctT', gc ? 'Scan with GCash' : 'UnionBank InstaPay or bank transfer');
@@ -11499,6 +11499,7 @@ body.theme-quiet-luxury #conciergePanel, body.theme-quiet-luxury #conciergeTrigg
     setText('bsDoneRange', S.ci && S.co ? rangeLabel() : ''); setText('bsDoneTotal', mn.total ? peso(mn.total) : '');
     setText('bsDoneRef', 'Payment reported' + (d.ref ? ' · ref ' + d.ref : '')); setText('bsDoneFee', '');
     setText('bsDoneDep', depDone());
+    setText('bsDoneCode', 'We confirm personally, usually within a couple of hours. Your door code is sent by the host once your payment, your IDs and the ' + peso(window.cascadeSecDep()) + ' deposit are in.');
     setText('bsDoneNote', d.upload === 'unavailable' ? 'Your screenshot did not upload. Please send it on Messenger.' : d.upload === 'none' ? 'Send your reference number on Messenger so we can match it quickly.' : '');
     var digits = S.phone.replace(/\D/g, ''), em = S.email.trim();
     var ph = S.cc + ' ' + (digits.length >= 4 ? '•••• ' + digits.slice(-4) : '••••');

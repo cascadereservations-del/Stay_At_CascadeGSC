@@ -81,6 +81,12 @@ test.describe('booking status page', () => {
     await expect(page.locator('#stView')).toContainText('once your payment, your IDs and the ₱800 deposit are in');
   });
 
+  test('confirmed with a status deposit of 900: the gate-code line shows 900, not 800', async ({ page }) => {
+    await mock(page, confirmed({ money: { ...money, security_deposit: 900 } }));
+    await page.goto(`/stay.html#t=${TOKEN}`);
+    await expect(page.locator('#stView')).toContainText('once your payment, your IDs and the ₱900 deposit are in');
+    await expect(page.locator('#stView')).not.toContainText('₱800');
+  });
   test('confirmed with the balance due date already past (Manila date): no balance row, a settled guest owes nothing on screen', async ({ page }) => {
     await mock(page, confirmed({ money: { ...money, balance_due_date: manilaDay(-1) } }));
     await page.goto(`/stay.html#t=${TOKEN}`);

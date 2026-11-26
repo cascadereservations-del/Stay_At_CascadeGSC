@@ -316,7 +316,8 @@
     card.appendChild(el('p', 'st-ref', 'Reference ' + s.ref));
     card.appendChild(el('p', 'st-state', copy[0]));
     if (s.state === 'held' && s.hold_expires_at) card.appendChild(holdLine(s.hold_expires_at, s.server_now));
-    card.appendChild(el('p', '', copy[1]));
+    var dep = s.money && s.money.security_deposit;
+    card.appendChild(el('p', '', typeof dep === 'number' && dep > 0 ? copy[1].replace('₱800', '₱' + dep) : copy[1]));
     var grid = el('dl', 'st-grid');
     row(grid, 'Check-in', day(s.checkin_date) + ' from ' + s.checkin_time);
     row(grid, 'Check-out', day(s.checkout_date) + ' by ' + s.checkout_time);

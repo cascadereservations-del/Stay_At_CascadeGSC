@@ -259,3 +259,25 @@ test('the done card promises the door code only on the payment + IDs + P800 cond
   expect(t).toContain('Your door code is sent by the host once your payment, your IDs and the ₱800 deposit are in.');
   expect(t).not.toContain('arrive before check-in');
 });
+
+/* Polish N1 N2 */
+test('pay-first sheet 2 days out: the line says we confirm once we have checked the payment, and never says dates are reserved on receipt', async ({ page }) => {
+  await mock(page);
+  await toContact(page, plus(2), plus(4));
+  await page.locator('#bsNext2').click();
+  await expect(page.locator('#bsH3')).toHaveText('Pay and confirm');
+  await expect(page.locator('#bsHoldLine')).toContainText('We confirm your booking once we have checked your payment.');
+  expect(await page.locator('#bookSheet').innerText()).not.toContain('reserved when we receive');
+});
+test('rate-card security_deposit 900: the done card door-code line shows 900, not 800', async ({ page }) => {
+  await mock(page, { rate: { security_deposit: 900 } });
+  await toContact(page, plus(2), plus(4));
+  await page.locator('#bsNext2').click();
+  await expect(page.locator('#bsH3')).toHaveText('Pay and confirm');
+  await page.locator('#bsRef').fill('1234567890');
+  await page.locator('#bsNext3').click();
+  await expect(page.locator('#bsH4')).toBeVisible();
+  await expect(page.locator('#bsDoneCode')).toContainText('₱900 deposit');
+  await expect(page.locator('#bsDoneCode')).not.toContainText('₱800');
+  await expect(page.locator('#bsDoneDep')).toContainText('₱900');
+});
