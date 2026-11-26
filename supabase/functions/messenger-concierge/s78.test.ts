@@ -76,9 +76,9 @@ Deno.test('s78 #1 / s138: a booked guest who names another payment timing gets t
   // D-322 / s138: the payment nudge and the payment message say the same - the deposit is due a day before check-in, never on arrival
   for (const l of ['en', 'tl'] as const) {
     const nudge = P.payNudge({ total: '₱5,073', dates: 'Oct 19 to 22', name: 'Angel' }, 'warm', l);
-    assert(/a day before check-in/.test(nudge) && !/hand over|iaabot|balance/.test(nudge), nudge);
-    const pm = P.paymentMessage({ name: 'Angel', dates: 'Oct 19 to 22', ref: 'DIR-1', until: null, rel: '', hold: false, deposit: '₱5,073' }, l);
-    assert(/a day before check-in/.test(pm) && !/hand over|iaabot|balance/.test(pm), pm);
+    assert(/(a|the) day before check-in/.test(nudge) && !/hand over|iaabot|balance/.test(nudge), nudge);
+    const pm = P.paymentMessage({ name: 'Angel', dates: 'Oct 19 to 22', ref: 'DIR-1', until: null, rel: '', hold: false, due: '₱5,073' }, l);
+    assert(/(a|the) day before check-in/.test(pm) && !/hand over|iaabot|balance/.test(pm), pm);
   }
   for (const [say, kind] of [['We will pay po the deposit pag nasa area na po', 'arrival'], ['We will send the deposit tomorrow po', 'later'], ['pwede po ba bayad ng balance upon check-in?', 'arrival']] as const) {
     assertEquals(payTiming(say), kind, say);
@@ -87,7 +87,7 @@ Deno.test('s78 #1 / s138: a booked guest who names another payment timing gets t
       try {
         const r = await turn(say, { flow });
         assertEquals(m.seen.length, 0, `code answers: ${say}`);
-        assert(/a day before check-in/.test(r.reply) && /5,073/.test(r.reply) && /800/.test(r.reply), r.reply);
+        assert(/(a|the) day before check-in/.test(r.reply) && /5,073/.test(r.reply) && /800/.test(r.reply), r.reply);
         assert(!/pagdating ninyo|on arrival is fine|upon arrival|tama po|hand over|iaabot|1,000|balance/i.test(r.reply), r.reply);
         assert(!/exact total|dates na kayo|preferred dates/i.test(r.reply), r.reply);
         assertEquals(r.calls.filter((c) => c.fx === 'handoff').map((c) => c.detail?.risk), kind === 'arrival' ? ['payment'] : [], say);
@@ -96,7 +96,7 @@ Deno.test('s78 #1 / s138: a booked guest who names another payment timing gets t
     }
   }
   const terms = P.payTermsLine('Angel', 'en', { total: '₱5,073', paid: false });
-  assert(terms.includes('the full ₱5,073 covers the whole stay and confirms it') && terms.includes('the ₱800 refundable security deposit is due at least a day before check-in'), terms);
+  assert(terms.includes('the full ₱5,073 covers the whole stay and confirms it') && terms.includes('the ₱800 refundable security deposit may be sent with your payment or by the day before check-in'), terms);
   // not a timing (F1): a paid claim, questions about the deposit or check-in with no pay verb
   for (const t of ['Sent po DP', 'Is the deposit refundable?', 'Is the deposit refundable at check-in?', 'What time is check in? We arrive tonight, is the unit full?', 'anong oras po pwde makacheckin??', 'paid na po']) assertEquals(payTiming(t), null, t);
 });
@@ -110,7 +110,7 @@ Deno.test('s78 #1: a booked guest\'s question is answered from facts with no boo
     try {
       const r = await turn('Hi good morning po may free drinking water na po sa room?', { flow });
       assert(m.seen.length > 0, 'the model answers the fact');
-      assert(m.seen[0].includes('The stay card\'s payment terms are the ONLY terms') && m.seen[0].includes('the PHP 800 refundable security deposit is due at least a day before check-in') && m.seen[0].includes('Never agree to the stay or the deposit being paid on arrival'), m.seen[0].slice(0, 300));
+      assert(m.seen[0].includes('The stay card\'s payment terms are the ONLY terms') && m.seen[0].includes('the PHP 800 refundable security deposit may be sent with the booking payment or by the day before check-in') && m.seen[0].includes('Never agree to the stay or the deposit being paid on arrival'), m.seen[0].slice(0, 300));
       assert(/water dispenser/.test(r.reply), r.reply);
       assert(!/exact total|once may dates|preferred dates|Which dates|kailan po|hold those dates|tinyurl/i.test(r.reply), `${flow.step}: ${r.reply}`);
     } finally { m.restore(); }
@@ -312,4 +312,21 @@ Deno.test('s79 #5: a model sentence carrying "glad" is not dropped for its "enjo
   const live = "Ben, our rate starts at PHP 1,780 per night for a single night, and the nightly rate goes down the longer you stay. We'd be glad to work out the exact direct total for you once your dates are set, so you can enjoy our best rates.\n\nWhich dates are you thinking of staying with us?";
   assertEquals(isCold(live), false);
   assertEquals(isCold("Our rate starts at PHP 1,780 per night, and the nightly rate goes down the longer you stay. The exact direct total depends on the dates, so you can enjoy our best rates.\n\nWhich dates are you thinking of staying with us?"), true);
+});
+
+// s138 fix round 1 (F3): a Messenger flow created before the deploy holds the 50% fee as its deposit (2,536 of 5,073). The QR carries
+// that stored figure (index.ts uses flow.deposit), so every line that states the amount to pay must say the same figure.
+Deno.test('s138 F3: a legacy flow with a half-total deposit is told the amount the QR carries, in the model hint, the ok line and the terms reply', async () => {
+  const legacy = held('await_receipt', 30, { deposit: 2536, total: 5073 });
+  const m = stub('Sige po.');
+  try {
+    await turn('Hi good morning po may free drinking water na po sa room?', { flow: legacy });
+    const seen = m.seen[0];
+    assert(seen.includes('paying the PHP 2,536 by GCash QR') && seen.includes('the PHP 2,536 on the QR is the payment that confirms this booking'), seen.slice(0, 600));
+    assert(!seen.includes('PHP 5,073 by GCash QR') && !seen.includes('the full PHP 5,073 covers'), seen.slice(0, 600));
+  } finally { m.restore(); }
+  const ok = await turn('ok', { flow: legacy });
+  assert(/₱2,536/.test(ok.reply) && !/₱5,073/.test(ok.reply), ok.reply);
+  const terms = await turn('We will pay the deposit when we arrive', { flow: legacy });
+  assert(/2,536/.test(terms.reply) && !/5,073/.test(terms.reply), terms.reply);
 });

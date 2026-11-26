@@ -19,7 +19,7 @@ import { guestContext, guestContextLines } from '../_shared/cascade-core/tools.t
 // v17 (session 55, SPEC-34, D-262): the stored rate card is authoritative. The client's total is ignored; the server
 // stores and returns its own total and deposit. v19 (s138, D-428..D-430): every stay is paid in full to confirm, so
 // deposit_amount = total_amount always; a client pay_full is accepted and harmless; 28+ nights is refused (host arranges).
-import { isLongStay, loadCard, serverAmounts } from '../_shared/cascade-core/pricing.ts';
+import { loadCard, serverAmounts } from '../_shared/cascade-core/pricing.ts';
 import { callerHash, clientIp } from './caller.ts'; // v18 (s78, TASKS #21): the hourly cap per caller
 
 const CORS = {
@@ -108,10 +108,9 @@ Deno.serve(async (req) => {
 
   if (nights < minNights)
     return json({ error: 'below_minimum_nights', min_nights: minNights }, 400);
-  // s138 (D-429): 28+ nights is arranged by the host (first month to confirm, then monthly), never auto-quoted or stored.
-  // The site shows a server error by its `error` code, so the code is stable and `message` is guest-readable.
-  if (isLongStay(nights))
-    return json({ error: 'long_stay_host_arranges', nights, message: 'Stays of 28 nights or more are arranged by our host, with the first month paid to confirm and then monthly. Please message us at cascadereservations@gmail.com or on Messenger.' }, 400);
+  // s138 fix round 1 (F1): a 28+ night request is NOT refused here. The live site can take payment before it calls submit, so a
+  // refusal would leave a paid guest with no booking row. It is stored as asked (amount due = the server total) and the Finance
+  // card opens with a long-stay line (financeCard / longStayLine in inquiry.ts). The site stops these before payment.
   if (nights > maxNights)
     return json({ error: 'above_maximum_nights', max_nights: maxNights }, 400);
 
@@ -303,7 +302,7 @@ Deno.serve(async (req) => {
     }
 
     if (receiptSignedUrl) {
-      await tgSendFile(tgToken, tgFinanceId, receiptSignedUrl, `📎 Deposit receipt — ${guestName} · Ref ${ref}`);
+      await tgSendFile(tgToken, tgFinanceId, receiptSignedUrl, `📎 Payment receipt: ${guestName} · Ref ${ref}`);
     }
   }
 

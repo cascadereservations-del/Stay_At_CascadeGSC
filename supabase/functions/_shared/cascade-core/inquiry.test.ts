@@ -4,7 +4,7 @@ import { assert, assertEquals, assertStringIncludes } from 'https://deno.land/st
 import { lintReply, toneRules } from '../../messenger-concierge/voice.ts';
 import { hasMoney } from '../ops-money.ts';
 import {
-  channelPlan, DECLINE_CODES, declineKeyboard, declineLine, declinePreviewKeyboard, draftKeyboard, financeCard, firstName, fmtClock, fmtUntil, guestTextSince,
+  channelPlan, DECLINE_CODES, declineKeyboard, declineLine, declinePreviewKeyboard, draftKeyboard, financeCard, longStayLine, firstName, fmtClock, fmtUntil, guestTextSince,
   heldLine, holdPreviewKeyboard, inquiryKeyboard, IQ, joinMessage, lastGuestAt, opsCard, parseIqTap, pesoOrNull, siteNotes, staleReason, viaOf, type DeclineCode,
   type InquiryView, type Lang,
 } from './inquiry.ts';
@@ -208,4 +208,13 @@ Deno.test('quotesReason: five words in a row (or the whole short reason) repeate
   assertEquals(quotesReason('Sorry: no pets allowed here ever again.', 'No pets allowed here, ever again!'), true);
   assertEquals(quotesReason('anything', 'ok'), false);
   assertEquals(quotesReason('anything at all', ''), false);
+});
+
+Deno.test('s138 fix round 1 F1: a 28+ night request is stored as asked and the finance card opens with the long-stay line', () => {
+  const t = financeCard(view({ nights: 28, checkout_date: '2026-12-28', total_amount: 37380, deposit_amount: 37380 }));
+  assertEquals(t.split('\n')[0], '🗓️ LONG STAY (28 nights, 28+): host arranges. First month to confirm, then monthly. The quote on this request is not final.');
+  assertStringIncludes(t, 'Request from Ana Cruz · not paid yet');
+  assertEquals(financeCard(view({ nights: 27 })).startsWith('📬'), true); // 27 nights is an ordinary request
+  assertEquals(longStayLine({ nights: null, total_amount: 1 }), null);
+  assert(!/undefined|NaN/.test(t));
 });

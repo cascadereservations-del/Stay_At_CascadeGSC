@@ -359,7 +359,7 @@ export function stayCard(c: CardFacts, lang?: Lang): string {
     `📞 ${c.phone}${c.email ? ` · ${c.email}` : ''}`,
     `💰 Total ${c.total}${c.ref ? ` · reference ${c.ref}` : ''}`,
     ...(c.promo ? [`🏷️ ${c.promo.name}: ${c.promo.nights} night${s(c.promo.nights)} at ${c.promo.rate}`] : []),
-    by(lang, { en: `🔐 ${DEP} refundable security deposit, returned within ${DEP_DAYS} business days after check-out`, tl: `🔐 ${DEP} refundable security deposit, ibabalik within ${DEP_DAYS} business days after check-out`, bis: `🔐 ${DEP} refundable security deposit, i-uli within ${DEP_DAYS} business days after check-out` }),
+    by(lang, { en: `🔐 ${DEP} refundable security deposit: with your payment or by the day before check-in; returned within ${DEP_DAYS} business days after check-out, to the account you paid from`, tl: `🔐 ${DEP} refundable security deposit: kasabay ng payment o bago mag-check-in; ibabalik within ${DEP_DAYS} business days after check-out, sa account na pinagbayaran`, bis: `🔐 ${DEP} refundable security deposit: kauban sa payment o sa wala pa ang check-in; i-uli within ${DEP_DAYS} business days after check-out, sa account nga gibayran` }),
     ...(!c.ref ? [] : c.hold && c.until
       ? [by(lang, { en: `⏳ Held for you for 24 hours, until ${c.until} (${c.rel})`, tl: `⏳ Naka-hold na para sa inyo for 24 hours, until ${c.until} (${c.rel})`, bis: `⏳ Naka-hold na para ninyo for 24 hours, until ${c.until} (${c.rel})` })]
       : [by(lang, { en: `⏳ Yours as soon as the payment arrives`, tl: `⏳ Sa inyo na ito once dumating ang payment`, bis: `⏳ Inyo na ni once muabot ang payment` })]),
@@ -378,17 +378,17 @@ const GCASH = '0956 011 5744';
 export function payNudge(p: PayFacts, tone: Tone, lang?: Lang): string {
   const L = lang ?? 'en', n = p.name, c = n ? `, ${n}` : '';
   const pay = tone === 'brisk' ? by(L, {
-        en: `The full ${p.total} secures these dates: the QR below carries the exact amount, or GCash ${GCASH}. The ${DEP} refundable deposit follows at least a day before check-in.`,
-        tl: `Ang full ${p.total} ang magse-secure ng dates: naka-set na ang exact amount sa QR below, o GCash ${GCASH}. Ang ${DEP} refundable deposit ay due at least a day before check-in.`,
-        bis: `Ang full ${p.total} ang mag-secure sa dates: naka-set na ang exact amount sa QR below, o GCash ${GCASH}. Ang ${DEP} refundable deposit kay due at least a day before check-in.` })
+        en: `The full ${p.total} secures these dates: the QR below carries the exact amount, or GCash ${GCASH}. The ${DEP} refundable deposit comes with your payment or by the day before check-in.`,
+        tl: `Ang full ${p.total} ang magse-secure ng dates: naka-set na ang exact amount sa QR below, o GCash ${GCASH}. Ang ${DEP} refundable deposit ay puwedeng kasabay ng payment o at least a day before check-in.`,
+        bis: `Ang full ${p.total} ang mag-secure sa dates: naka-set na ang exact amount sa QR below, o GCash ${GCASH}. Ang ${DEP} refundable deposit kay pwede kauban sa payment o at least a day before check-in.` })
     : tone === 'gentle' ? by(L, {
-        en: `No rush at all${c}, and nothing is charged until you decide. When you're ready, the full ${p.total} secures ${p.dates} for you: the QR below carries the exact amount, or GCash ${GCASH}, so there's nothing to type.\n\nThe ${DEP} refundable security deposit follows at least a day before check-in, and it is returned after your stay.`,
-        tl: `Walang rush po${c}, at wala pang babayaran hangga't hindi pa kayo decided. Kapag ready na kayo, ang full ${p.total} ang magse-secure ng ${p.dates} para sa inyo: naka-set na ang exact amount sa QR below, o GCash ${GCASH}, so wala nang ita-type.\n\nAng ${DEP} refundable security deposit ay due at least a day before check-in, at ibabalik ito after ng stay ninyo.`,
-        bis: `Walay rush${c}, ug wala pay bayranan hangtod dili pa mo decided. Kung ready na mo, ang full ${p.total} ang mo-secure sa ${p.dates} para ninyo: naka-set na ang exact amount sa QR below, o GCash ${GCASH}, so wala nay i-type.\n\nAng ${DEP} refundable security deposit kay due at least a day before check-in, ug i-uli ni after sa inyong stay.` })
+        en: `No rush at all${c}, and nothing is charged until you decide. When you're ready, the full ${p.total} secures ${p.dates} for you: the QR below carries the exact amount, or GCash ${GCASH}, so there's nothing to type.\n\nThe ${DEP} refundable security deposit may be sent with your payment or by the day before check-in, and it is returned as soon as possible, within ${DEP_DAYS} business days after check-out, to the account you paid from.`,
+        tl: `Walang rush po${c}, at wala pang babayaran hangga't hindi pa kayo decided. Kapag ready na kayo, ang full ${p.total} ang magse-secure ng ${p.dates} para sa inyo: naka-set na ang exact amount sa QR below, o GCash ${GCASH}, so wala nang ita-type.\n\nAng ${DEP} refundable security deposit ay puwedeng kasabay ng payment o at least a day before check-in, at ibabalik ito asap, within ${DEP_DAYS} business days after check-out, sa account na pinagbayaran ninyo.`,
+        bis: `Walay rush${c}, ug wala pay bayranan hangtod dili pa mo decided. Kung ready na mo, ang full ${p.total} ang mo-secure sa ${p.dates} para ninyo: naka-set na ang exact amount sa QR below, o GCash ${GCASH}, so wala nay i-type.\n\nAng ${DEP} refundable security deposit kay pwede kauban sa payment o at least a day before check-in, ug i-uli ni asap, within ${DEP_DAYS} business days after check-out, sa account nga inyong gibayran.` })
     : by(L, {
-        en: `We'd be delighted to have ${p.party ?? 'you'}. The full ${p.total} secures these dates: the QR below carries the exact amount, or GCash ${GCASH}. The ${DEP} refundable security deposit is due at least a day before check-in.`,
-        tl: `Para ma-secure ang dates, ang full ${p.total} ang kailangan ngayon: naka-set na ang exact amount sa QR below, o GCash ${GCASH}. Ang ${DEP} refundable security deposit ay due at least a day before check-in.`,
-        bis: `Para ma-secure ang dates, ang full ${p.total} ang kinahanglan karon: naka-set na ang exact amount sa QR below, o GCash ${GCASH}. Ang ${DEP} refundable security deposit kay due at least a day before check-in.` });
+        en: `We'd be delighted to have ${p.party ?? 'you'}. The full ${p.total} secures these dates: the QR below carries the exact amount, or GCash ${GCASH}. The ${DEP} refundable security deposit may be sent with your payment or by the day before check-in.`,
+        tl: `Para ma-secure ang dates, ang full ${p.total} ang kailangan ngayon: naka-set na ang exact amount sa QR below, o GCash ${GCASH}. Ang ${DEP} refundable security deposit ay puwedeng kasabay ng payment o at least a day before check-in.`,
+        bis: `Para ma-secure ang dates, ang full ${p.total} ang kinahanglan karon: naka-set na ang exact amount sa QR below, o GCash ${GCASH}. Ang ${DEP} refundable security deposit kay pwede kauban sa payment o at least a day before check-in.` });
   const receipt = tone === 'brisk' ? by(L, {
       en: `A screenshot of the receipt here is all we need, and we'll confirm right away.`,
       tl: `Screenshot lang po ng receipt dito, at iko-confirm namin agad.`,
@@ -532,15 +532,29 @@ export const warmClause = (lang?: Lang, booked = false) => booked ? by(lang, {
 export function payTermsLine(name: string | null, lang: Lang, f: { total: string; paid: boolean }): string {
   const c = withName(name);
   const terms = by(lang, {
-        en: `the full ${f.total} covers the whole stay and confirms it, and the ${DEP} refundable security deposit is due at least a day before check-in, so everything is settled before you arrive.`,
-        tl: `ang full ${f.total} ang sumasaklaw sa buong stay at nagko-confirm nito, at ang ${DEP} refundable security deposit ay due at least a day before check-in, para settled na ang lahat bago kayo dumating.`,
-        bis: `the full ${f.total} covers the whole stay and confirms it, and the ${DEP} refundable security deposit is due at least a day before check-in, so everything is settled before you arrive.` });
+        en: `the full ${f.total} covers the whole stay and confirms it, and the ${DEP} refundable security deposit may be sent with your payment or by the day before check-in, so everything is settled before you arrive.`,
+        tl: `ang full ${f.total} ang sumasaklaw sa buong stay at nagko-confirm nito, at ang ${DEP} refundable security deposit ay puwedeng kasabay ng payment o at least a day before check-in, para settled na ang lahat bago kayo dumating.`,
+        bis: `the full ${f.total} covers the whole stay and confirms it, and the ${DEP} refundable security deposit may be sent with your payment or by the day before check-in, so everything is settled before you arrive.` });
   const head = by(lang, { en: `Noted${c}, thank you. Just so it's clear, `, tl: `Noted po${c}, salamat. Para malinaw, `, bis: `Noted${c}, thank you. Just so it's clear, ` });
   const tail = f.paid
     ? by(lang, { en: `Our host is reviewing what you've sent and will confirm everything here.`, tl: `Nire-review na ng host ang na-send ninyo, and they'll confirm everything here.`, bis: `Our host is reviewing what you've sent and will confirm everything here.` })
     : by(lang, { en: `Once it's sent, a screenshot here is all we need. 🌿`, tl: `Once na-send na, screenshot lang dito ang kailangan namin. 🌿`, bis: `Once it's sent, a screenshot here is all we need. 🌿` });
-  return `${head}${terms}\n\n${tail}`;
+  const back = by(lang, { en: `The deposit is returned as soon as possible, within ${DEP_DAYS} business days after check-out, to the account you paid from.`, tl: `Ibabalik ang deposit asap, within ${DEP_DAYS} business days after check-out, sa account na pinagbayaran ninyo.`, bis: `I-uli ang deposit asap, within ${DEP_DAYS} business days after check-out, sa account nga inyong gibayran.` });
+  return `${head}${terms}\n\n${back}\n\n${tail}`;
 }
+
+/** s138 fix round 1 (F7, D-428): the direct-booking cancellation terms, from CANCELLATION-STUDY section 6. facts.ts carries the same facts. */
+export const cancelTermsLine = (lang: Lang | undefined) => by(lang, {
+  en: `Our cancellation terms for direct bookings: free until 5 days before check-in; a full refund if you cancel within 24 hours of paying and check-in is 7 or more days away; one free date move up to 5 days before check-in, subject to availability
+
+Inside 5 days, or for a no-show, we keep 50% of the stay and return the ${DEP} deposit in full; if a government-declared calamity or an airport closure stops your trip, you may choose new dates or a full refund. Refunds are sent within 3 business days.`,
+  tl: `Ang cancellation terms namin sa direct bookings: free hanggang 5 days before check-in; full refund kung magka-cancel within 24 hours ng payment at 7 days or more pa ang check-in; isang free na date move hanggang 5 days before check-in, subject to availability
+
+Sa loob ng 5 days, o kapag no-show, 50% ng stay ang kinukuha namin at full na ibabalik ang ${DEP} deposit; kung calamity na dineklara ng gobyerno o airport closure ang pumigil sa trip, puwede kayong pumili ng bagong dates o full refund. Within 3 business days ang refunds.`,
+  bis: `Ang cancellation terms namo sa direct bookings: free hangtod 5 days before check-in; full refund kung mo-cancel within 24 hours human mabayad ug 7 days or more pa ang check-in; usa ka free nga date move hangtod 5 days before check-in, subject to availability
+
+Sulod sa 5 days, o kung no-show, 50% sa stay among kuhaon ug full nga i-uli ang ${DEP} deposit; kung calamity nga gideklara sa gobyerno o airport closure ang nakapugong sa trip, pwede mo pili ug bag-ong dates o full refund. Within 3 business days ang refunds.`,
+});
 
 /** SPEC-14 (D-184): the cancel / "not now" reply. Nothing is committed, and the dates alone reopen the flow. */
 export const cancelReply = (lang: Lang | undefined) => by(lang, {
@@ -600,8 +614,8 @@ export function paymentMessage(p: PaymentFacts, L: Lang | undefined): string {
   const head = p.hold && p.until
     ? by(L, {
         en: `${n ? `${n}, we've` : `We've`} set aside ${p.dates} for you for 24 hours, until ${p.until} (${p.rel}). Your booking reference is ${p.ref}.`,
-        tl: `${n ? `${n}, na-hold` : `Na-hold`} na po namin ang ${p.dates} for you for 24 hours — until ${p.until} (${p.rel}). Ang booking reference ninyo po ay ${p.ref}.`,
-        bis: `${n ? `${n}, na-hold` : `Na-hold`} na namo ang ${p.dates} for you for 24 hours — until ${p.until} (${p.rel}). Your booking reference is ${p.ref}.` })
+        tl: `${n ? `${n}, na-hold` : `Na-hold`} na po namin ang ${p.dates} for you for 24 hours, until ${p.until} (${p.rel}). Ang booking reference ninyo po ay ${p.ref}.`,
+        bis: `${n ? `${n}, na-hold` : `Na-hold`} na namo ang ${p.dates} for you for 24 hours, until ${p.until} (${p.rel}). Your booking reference is ${p.ref}.` })
     // SPEC-31 s6 (F16): a request with no hold is yours as soon as the payment arrives.
     : by(L, {
         en: `${n ? `${n}, we've` : `We've`} received your request for ${p.dates}, and it is yours as soon as your payment arrives. Your booking reference is ${p.ref}.`,
@@ -612,7 +626,7 @@ export function paymentMessage(p: PaymentFacts, L: Lang | undefined): string {
     en: `To secure the stay, you may send the ${p.due} ${what} through GCash (0956 011 5744) with the QR below - the exact amount is already set. Once done, a screenshot of the receipt here is all we need.`,
     tl: `Para ma-secure ang stay, you may send the ${p.due} ${what} through GCash (0956 011 5744) gamit ang QR below - naka-set na ang exact amount. Once done, screenshot lang ng receipt dito ang kailangan namin.`,
     bis: `Para ma-secure ang stay, pwede na ma-send ang ${p.due} ${what} through GCash (0956 011 5744) gamit ang QR below - naka-set na daan ang exact amount. Once done, screenshot ra sa receipt diri ang among kinahanglan.` });
-  const later = by(L, { en: `The ${DEP} refundable security deposit is due at least a day before check-in.`, tl: `Ang ${DEP} refundable security deposit ay due at least a day before check-in.`, bis: `Ang ${DEP} refundable security deposit kay due at least a day before check-in.` });
+  const later = by(L, { en: `The ${DEP} refundable security deposit may be sent with your payment or by the day before check-in.`, tl: `Ang ${DEP} refundable security deposit ay puwedeng kasabay ng payment o at least a day before check-in.`, bis: `Ang ${DEP} refundable security deposit kay pwede kauban sa payment o at least a day before check-in.` });
   const close = by(L, { en: `Thank you${nm}. We look forward to welcoming you to Cascade Hideaway. 🌿`, tl: `Salamat po${nm}. We look forward to welcoming you to Cascade Hideaway. 🌿`, bis: `Salamat${nm}. Looking forward mi sa inyong stay at Cascade Hideaway. 🌿` });
   return [head, '', pay, '', later, '', close].join('\n');
 }

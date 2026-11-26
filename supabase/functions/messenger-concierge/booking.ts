@@ -439,7 +439,7 @@ export function holdCancelReply(flow: Flow, name: string | null, lang: Lang, cha
 /** s78: the stay card's own payment terms for a booked guest who names another timing (payTiming). Facts from the flow.
  *  s138: always the same terms (full stay amount, then the security deposit a day before check-in); nothing is agreed on arrival. */
 export function payTermsReply(flow: Flow, name: string | null, lang: Lang): string {
-  const total = flow.total ?? quoteTotal(flow.checkin!, flow.checkout!).total;
+  const total = flow.deposit ?? flow.total ?? quoteTotal(flow.checkin!, flow.checkout!).total; // the amount the QR carries
   return P.payTermsLine(P.first(flow.name ?? name) || null, lang, { total: peso(total), paid: flow.step === 'receipt_sent' || flow.step === 'confirmed' || !!flow.photo_at });
 }
 /** SPEC-31 s2 (REVIEW F2): "paid na po?" once a booking exists. No timing promise: nothing measures the host. */
@@ -524,7 +524,7 @@ function cardFacts(flow: Flow, name: string | null, resume: boolean, now: Date):
 export function stayPayMessage(flow: Flow, name: string | null, now = new Date(), resume = false): string {
   const q = quoteTotal(flow.checkin!, flow.checkout!), total = flow.total ?? q.total;
   const nudge = P.payNudge({
-    total: peso(total), dates: dmRange(flow.checkin!, flow.checkout!),
+    total: peso(flow.deposit ?? total), dates: dmRange(flow.checkin!, flow.checkout!),
     name: P.first(flow.name ?? name), party: P.partyName(flow.pax, flow.lang, flow.children ?? 0),
   }, flow.tone ?? 'warm', flow.lang);
   return thinPo(`${P.stayCard(cardFacts(flow, name, resume, now), flow.lang)}\n\n${nudge}`, flow.lang === 'bis' ? 0 : 2);
@@ -736,7 +736,7 @@ function answerStep(flow: Flow, text: string, now = new Date(), name: string | n
         if (e) f.email = e;
         return { flow: f, reply: P.stayCard(cardFacts(f, name, true, now), L), action: 'correct' };
       }
-      if (YES_RE.test(text)) return ask(P.qrAckLine(who, peso(f.total ?? f.deposit ?? 0), L));
+      if (YES_RE.test(text)) return ask(P.qrAckLine(who, peso(f.deposit ?? f.total ?? 0), L));
       return { flow: f, reply: null, action: 'passthrough' };
     }
     default: return { flow: f, reply: null, action: 'passthrough' };
@@ -759,6 +759,6 @@ export function paymentReply(flow: Flow, name: string | null, _siteUrl: string, 
     dates: dmRange(flow.checkin!, flow.checkout!), // SPEC-14: "Oct 20 to 22", "Sep 30 to Oct 2"
     ref: flow.ref, until, rel: flow.hold_expires_at ? relDay(flow.hold_expires_at, now, flow.lang) : '',
     hold: !!flow.hold,
-    due: peso(flow.total ?? flow.deposit!), // s138: the amount due to confirm is the whole stay
+    due: peso(flow.deposit ?? flow.total!), // s138: the amount due to confirm (equals the stay for every new flow; a flow from before the deploy keeps its stored 50% fee, the same figure the QR carries)
   }, flow.lang);
 }

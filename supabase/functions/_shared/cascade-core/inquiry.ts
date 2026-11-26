@@ -5,7 +5,7 @@
 // The cards are written for people: what happened and who acts first, plain sentences, ids last.
 // Guest-facing lines are unsigned and pass lintReply + toneRules in all three registers (inquiry.test.ts).
 // Pronouns: the card never guesses a gender ("the guest", "their"), the guest's own line uses the name.
-import { SECURITY_DEPOSIT_PHP } from './pricing.ts';
+import { SECURITY_DEPOSIT_PHP, isLongStay, LONG_STAY_NIGHTS } from './pricing.ts';
 import { dmRange } from '../../messenger-concierge/booking.ts';
 import { CAPACITY } from '../../messenger-concierge/persona.ts'; // the D-222 disclosure stays one constant
 import { autoKeyboard, BTN, DASH_URL, groups, type Btn } from './format.ts';
@@ -126,6 +126,13 @@ const askedFor = (v: InquiryView, via: string, who: string) =>
   `${who} asked for ${stayLong(v)}${v.nights || v.pax ? ` (${[v.nights ? `${v.nights} night${v.nights === 1 ? '' : 's'}` : '', v.pax ? `${v.pax} guest${v.pax === 1 ? '' : 's'}` : ''].filter(Boolean).join(', ')})` : ''} through ${via}.`;
 
 /** The Finance card: guest money, phone and e-mail included. */
+/** s138 fix round 1 (F1): the first line of the host card for a 28+ night request. The site stops these before payment; one that
+ *  still arrives (a payment taken first, an old tab) is stored as asked and flagged here so the host arranges it. null otherwise. */
+export function longStayLine(v: Pick<InquiryView, 'nights' | 'total_amount'>): string | null {
+  if (!v.nights || !isLongStay(Number(v.nights))) return null;
+  return `🗓️ LONG STAY (${v.nights} nights, ${LONG_STAY_NIGHTS}+): host arranges. First month to confirm, then monthly. The quote on this request is not final.`;
+}
+
 export function financeCard(v: InquiryView, x: CardExtra = {}): string {
   const via = x.via ?? viaOf(v.notes);
   const total = pesoOrNull(v.total_amount), due = pesoOrNull(v.deposit_amount);
@@ -138,7 +145,9 @@ export function financeCard(v: InquiryView, x: CardExtra = {}): string {
   const timer = until
     ? `🗓️ Held until ${fmtUntil(until)}; released if no receipt arrives`
     : 'Dates blocked on our calendar with no timer: nothing releases them until you hold or decline';
+  const long = longStayLine(v);
   return groups(
+    long ? [long] : [],
     [`📬 BOOKING · Request from ${v.guest_name} · not paid yet`],
     [askedFor(v, via, v.guest_name), 'Finance decides: hold the dates for the guest, or decline.'],
     [money, timer, rate, ...(x.moneyNotes ?? [])],
@@ -272,7 +281,7 @@ export function paidPrompt(v: Pick<InquiryView, 'guest_name'> & Partial<Pick<Inq
   return `${firstName(v.guest_name) || 'The guest'}: how was it paid? Reply with the GCash reference and amount, e.g. 1234567890123 5073 - or cash 5073 - or bank <ref> 5073. `
     + (expected ? `Amount can be left out if it is exactly ${peso(expected)}.` : 'Include the amount received.')
     // s138 (D-430): the stay is paid in full; when the P800 deposit came in the same transfer, the amount typed is the stay plus the deposit.
-    + (expected && Number(v.total_amount) > 0 && expected >= Number(v.total_amount) ? ` If the ${peso(SECURITY_DEPOSIT_PHP)} deposit came in the same transfer, type ${peso(expected + SECURITY_DEPOSIT_PHP)}.` : '')
+    + (expected && Number(v.total_amount) > 0 && expected >= Number(v.total_amount) ? ` If the ${peso(SECURITY_DEPOSIT_PHP)} deposit came in the same transfer, type ${peso(expected + SECURITY_DEPOSIT_PHP)} (the stay plus the ${peso(SECURITY_DEPOSIT_PHP)} deposit; the database comparison screen shows a mismatch for it, which is expected).` : '')
     + ' This question closes in 10 minutes.';
 }
 export const PAID_AGAIN = 'Reply to the question again with a GCash reference and amount (1234567890123 5073), cash 5073, or bank <ref> 5073; nothing was confirmed.';

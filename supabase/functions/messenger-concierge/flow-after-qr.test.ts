@@ -13,7 +13,7 @@ const { handle, probeEffects } = await import('./index.ts');
 const now = new Date('2026-09-26T04:00:00Z');
 const ago = (h: number) => new Date(now.getTime() - h * 3_600_000).toISOString();
 const flow = (over: Partial<Flow> = {}): Flow => ({ step: 'await_receipt', checkin: '2026-10-20', checkout: '2026-10-22', pax: 2, name: 'Ben Munez', phone: '09171234567', email: 'ben@example.com',
-  lang: 'en', booking_id: 'b1', ref: 'DIR-1', deposit: 1691, total: 3382, hold: true, hold_expires_at: ago(-23), receipt_token: 't', receipt_expires_at: ago(-23), started_at: ago(2), updated_at: ago(1), ...over });
+  lang: 'en', booking_id: 'b1', ref: 'DIR-1', deposit: 3382, total: 3382, hold: true, hold_expires_at: ago(-23), receipt_token: 't', receipt_expires_at: ago(-23), started_at: ago(2), updated_at: ago(1), ...over });
 
 type Call = { fx: string; text?: string; detail?: any };
 // deno-lint-ignore no-explicit-any

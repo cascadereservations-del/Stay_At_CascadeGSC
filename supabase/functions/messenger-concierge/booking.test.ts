@@ -1,5 +1,5 @@
 import { assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
-import { answer, availabilityLine, dmRange, kidsIn, openWindows, parseDates, parseName, parsePax, parsePhone, prompt, rateLine, start, stayPayMessage, toneOf, trimWindow, type Flow } from './booking.ts';
+import { paymentReply, answer, availabilityLine, dmRange, kidsIn, openWindows, parseDates, parseName, parsePax, parsePhone, prompt, rateLine, start, stayPayMessage, toneOf, trimWindow, type Flow } from './booking.ts';
 
 const now = new Date('2026-09-17T00:00:00Z');
 
@@ -103,7 +103,7 @@ Deno.test('flow: the details are taken progressively, in any order', () => {
 });
 
 // SPEC-39 3.6b (D-300.3): the details complete -> submit at once; the card, the hold, the payment and the QR are one turn.
-const held = (f: Flow, over: Partial<Flow> = {}): Flow => ({ ...f, step: 'await_receipt', booking_id: 'b1', ref: 'DIR-1', deposit: 1691, total: 3382, hold: true,
+const held = (f: Flow, over: Partial<Flow> = {}): Flow => ({ ...f, step: 'await_receipt', booking_id: 'b1', ref: 'DIR-1', deposit: 3382, total: 3382, hold: true,
   hold_expires_at: '2026-09-18T06:00:00Z', receipt_token: 't', receipt_expires_at: '2026-09-18T06:00:00Z', ...over });
 Deno.test('SPEC-39 3.6b: details complete -> submit; the full amount whatever the days to check-in (s138)', () => {
   const far = answer(answer(start('book Nov 17 to 19 for 2', now), 'yes', now).flow, 'Ben Munez 09475977727 ben@example.com', now);
@@ -114,7 +114,7 @@ Deno.test('SPEC-39 3.6b: details complete -> submit; the full amount whatever th
 Deno.test('SPEC-39 3.6b: one message carries the card, the 24-hour hold, the reference, GCash and the QR', () => {
   const f = held(answer(answer(start('book Nov 17 to 19 for 2', now), 'yes', now).flow, 'Ben Munez 09475977727 ben@example.com', now).flow);
   const m = stayPayMessage(f, 'Ben', now);
-  for (const k of ['👤 Ben Munez', '📅 Nov 17 to 19 · 2 nights · 2 guests', '💰 Total ₱3,382 · reference DIR-1', '🔐 ₱800 refundable security deposit, returned within 3 business days after check-out', '⏳ Held for you for 24 hours, until Sep 18 at 2:00 PM (tomorrow)', '0956 011 5744', 'QR below', 'The full ₱3,382 secures these dates', '₱800 refundable security deposit is due at least a day before check-in', 'screenshot of the receipt'])
+  for (const k of ['👤 Ben Munez', '📅 Nov 17 to 19 · 2 nights · 2 guests', '💰 Total ₱3,382 · reference DIR-1', '🔐 ₱800 refundable security deposit: with your payment or by the day before check-in; returned within 3 business days after check-out, to the account you paid from', '⏳ Held for you for 24 hours, until Sep 18 at 2:00 PM (tomorrow)', '0956 011 5744', 'QR below', 'The full ₱3,382 secures these dates', '₱800 refundable security deposit may be sent with your payment or by the day before check-in', 'screenshot of the receipt'])
     assertEquals(m.includes(k), true, `${k}: ${m}`);
   assertEquals(/fee|balance|1,000/.test(m), false); // s138: no fee, balance or P1,000 anywhere in the card
   assertEquals(prompt(f, 'Ben', false, now), m); // one renderer
@@ -303,7 +303,7 @@ Deno.test('SPEC-39 4.4: children count - "2 adults with 1 kid" is three, the car
   assertEquals([s.flow.step, s.flow.pax, s.flow.children], ['offer', 3, 1]);
   assertEquals(s.reply!.startsWith('Your family of three, then,'), true);
   assertEquals(s.reply!.includes('PHP 1,691'), true);
-  const card = stayPayMessage({ ...s.flow, step: 'await_receipt', name: 'Ana Cruz', phone: '09171234567', email: 'a@example.com', ref: 'DIR-1', deposit: 1691, total: 3382, hold: true, hold_expires_at: '2026-10-05T06:00:00Z' }, 'Ana', at);
+  const card = stayPayMessage({ ...s.flow, step: 'await_receipt', name: 'Ana Cruz', phone: '09171234567', email: 'a@example.com', ref: 'DIR-1', deposit: 3382, total: 3382, hold: true, hold_expires_at: '2026-10-05T06:00:00Z' }, 'Ana', at);
   assertEquals(card.includes('3 guests (2 adults, 1 child)'), true);
 });
 Deno.test('SPEC-39 3.6: the yes with a good night or a thank-you is returned before the details ask', () => {
@@ -314,14 +314,14 @@ Deno.test('SPEC-39 3.6: the yes with a good night or a thank-you is returned bef
 });
 Deno.test('SPEC-39 3.7: "Ma." is not the first name; the card keeps the name as typed', () => {
   assertEquals([first('Ma. Elizabeth Reyes'), first('Ben Munez'), first('Ma'), first(null)], ['Elizabeth', 'Ben', 'Ma', '']);
-  const f: Flow = { ...start('book Nov 17 to 19 for 2', now), step: 'await_receipt', name: 'Ma. Elizabeth Reyes', phone: '09171234567', email: 'e@example.com', ref: 'DIR-1', deposit: 1691, total: 3382, hold: true, hold_expires_at: '2026-09-18T06:00:00Z' };
+  const f: Flow = { ...start('book Nov 17 to 19 for 2', now), step: 'await_receipt', name: 'Ma. Elizabeth Reyes', phone: '09171234567', email: 'e@example.com', ref: 'DIR-1', deposit: 3382, total: 3382, hold: true, hold_expires_at: '2026-09-18T06:00:00Z' };
   const m = stayPayMessage(f, 'Maria', now);
   assertEquals(m.includes('👤 Ma. Elizabeth Reyes'), true);
   assertEquals(/\bMa,/.test(m), false);
   assertEquals(answer(f, 'ok', now).reply!.startsWith('Thank you, Elizabeth.'), true);
 });
 Deno.test('SPEC-39 3.6b: "I will pay tomorrow" after the QR is not a date change', () => {
-  const f: Flow = { ...start('book Nov 17 to 19 for 2', now), step: 'await_receipt', ref: 'DIR-1', deposit: 1691, total: 3382, hold: true };
+  const f: Flow = { ...start('book Nov 17 to 19 for 2', now), step: 'await_receipt', ref: 'DIR-1', deposit: 3382, total: 3382, hold: true };
   assertEquals(answer(f, 'I will pay tomorrow po', now).action, 'passthrough');
   assertEquals(answer(f, 'bukas na lang po ako magbabayad', now).action, 'passthrough');
 });
@@ -373,4 +373,14 @@ Deno.test('SPEC-39 audit round 3: usabon / ibalhin are changes; a held date, "th
   assertEquals(answer(f, "move to Oct 25 to 27 and I'll pay the balance", now).action, 'change');
   assertEquals(answer(f, 'pwede ilipat sa Oct 25 to 27, send ko bayad later', now).action, 'change');
   assertEquals(answer(f, 'Pwede Oct 10 na lang bayad instead?', now).action === 'change', false);
+});
+
+Deno.test('s138 F3: a flow from before the deploy (deposit 1,691 of 3,382) states the QR amount in the payment reply and the stay-pay message', () => {
+  const legacy = held(start('book Nov 17 to 19 for 2', now), { deposit: 1691, total: 3382, name: 'Ben Munez', phone: '09475977727', email: 'ben@example.com' });
+  const pay = paymentReply(legacy, 'Ben', 'https://x', now);
+  assertEquals([pay.includes('₱1,691'), pay.includes('₱3,382'), /undefined|NaN/.test(pay)], [true, false, false]);
+  const msg = stayPayMessage(legacy, 'Ben', now);
+  assertEquals(msg.includes('The full ₱1,691 secures') || msg.includes('₱1,691'), true);
+  assertEquals(msg.includes('The full ₱3,382'), false);
+  assertEquals(answer(legacy, 'ok', now, 'Ben').reply!.includes('₱1,691'), true);
 });

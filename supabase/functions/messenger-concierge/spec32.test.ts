@@ -9,7 +9,7 @@ const { draftOrPlain } = await import('./index.ts');
 
 Deno.test('SPEC-32 s1: FACTS follow the site - refresh from 5 nights, full payment and the P800 deposit, Maya scans the QR', () => {
   assertEquals(FACTS.includes('on or before check-in'), false);                                  // D-251
-  assertEquals(FACTS.includes('paid with the booking or at least a day before check-in, and is returned within 3 business days'), true); // s138: P800 deposit
+  assertEquals(FACTS.includes('may be sent together with the booking payment or by the day before check-in, and is returned as soon as possible, within 3 business days'), true); // s138: P800 deposit
   assertEquals(FACTS.includes('Stays of 5+ nights: complimentary mid-stay room refresh'), true);  // D-249
   assertEquals(/7\+ nights|from 7\)/.test(FACTS), false);
   assertEquals(FACTS.includes(MAYA_FACT), true);                                                  // D-252

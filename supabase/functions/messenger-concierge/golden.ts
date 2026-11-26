@@ -259,7 +259,7 @@ export function goldenCases(now = new Date(), bookedRange: string | null = null,
   // The guest saying "on arrival" gets the terms and the host hears about it (a payment card).
   if (soonRange) cases.push({ id: 's78-full-deposit-on-arrival-en', group: 'payment', turns: [f(`${soonRange} available? 2 adults`, 'en'), f('yes', 'en'),
     f(PAY, 'en', { effects: [/"fx":"submit"/] }),
-    { say: 'We will pay the deposit when we arrive', kind: 'code', lang: 'en', must: [/a day before check-in/, /800/], mustNot: [/that's right|hand over/i, LINK], effects: [/"handoff"[^}]*payment/] }] });
+    { say: 'We will pay the deposit when we arrive', kind: 'code', lang: 'en', must: [/(a|the) day before check-in/, /800/], mustNot: [/that's right|hand over/i, LINK], effects: [/"handoff"[^}]*payment/] }] });
   if (soonRange) cases.push({ id: 'flow-offer-fullnow-en', group: 'flow', turns: [
     // s138: there is no last-minute branch ("within the next five days" is gone); the details ask asks for "your full name" (SPEC-39 3.6).
     { say: `Hi, is ${soonRange} available? 2 adults`, kind: 'flow', lang: 'en', mustNot: [/within the next five days/i] },
@@ -279,8 +279,8 @@ export function goldenCases(now = new Date(), bookedRange: string | null = null,
       // s79 (probe 13:43Z: the water answer became the 2:00 PM line): water is answered, and a 3-night stay is not promised it (FACTS: 5+ nights)
       { say: 'Hi good morning po may free drinking water na po sa room?', kind: 'midflow', lang: 'tl', must: [/water|tubig/i, /host/i], mustNot: [/exact total|once may dates|preferred dates|which dates/i, LINK, /2:00 PM/] },
       // s138: one rule for every stay (no 50% path, no pay-in-full path): the deposit is due a day before check-in
-      { say: 'We will pay po the deposit pag nasa area na po', kind: 'code', lang: 'tl', must: [/a day before check-in/], mustNot: [/tama po|on arrival is fine|hand over/i], effects: [/"handoff"[^}]*payment/] },
-      { say: 'Pag dating na lang po namin ibigay ang deposit', kind: 'code', lang: 'tl', must: [/a day before check-in/], mustNot: [/tama po/i] }] });
+      { say: 'We will pay po the deposit pag nasa area na po', kind: 'code', lang: 'tl', must: [/(a|the) day before check-in/], mustNot: [/tama po|on arrival is fine|hand over/i], effects: [/"handoff"[^}]*payment/] },
+      { say: 'Pag dating na lang po namin ibigay ang deposit', kind: 'code', lang: 'tl', must: [/(a|the) day before check-in/], mustNot: [/tama po/i] }] });
   }
   // Incident 2026-10-07 (Angel): a misspelt availability ask after the rate answer starts the flow (the party ask), and a stay that
   // starts on another guest's check-out day says so - check-in from 2:00 PM, no "as soon as you arrive". Three nights from the turnover day.

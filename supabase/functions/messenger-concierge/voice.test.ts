@@ -112,11 +112,11 @@ Deno.test('Taglish register mirrors the guest and passes the lint (Lloyd 11:15)'
   assertEquals(answer(f, 'thanks', now).flow.lang, 'tl'); // one English word does not flip the register
   assertEquals(lintReply(prompt(s.flow, 'Ben')), []);
   s = answer(s.flow, 'Can I change it to 3 guests?', now); assertEquals(s.flow.lang, 'en'); // plain English switches back
-  const tlPay = paymentReply({ ...base, lang: 'tl', step: 'await_receipt', ref: 'DIR-1', deposit: 1691, total: 3382, hold: true, hold_expires_at: '2026-09-18T02:00:00Z' }, 'Ben', 'https://x', now);
-  assertEquals(tlPay.startsWith('Ben, na-hold na po namin ang Oct 3 to 4 for you for 24 hours — until Sep 18 at 10:00 AM (bukas). Ang booking reference ninyo po ay DIR-1.'), true);
+  const tlPay = paymentReply({ ...base, lang: 'tl', step: 'await_receipt', ref: 'DIR-1', deposit: 3382, total: 3382, hold: true, hold_expires_at: '2026-09-18T02:00:00Z' }, 'Ben', 'https://x', now);
+  assertEquals(tlPay.startsWith('Ben, na-hold na po namin ang Oct 3 to 4 for you for 24 hours, until Sep 18 at 10:00 AM (bukas). Ang booking reference ninyo po ay DIR-1.'), true);
   // SPEC-31 s5 (F10): one receipt sentence; the review-and-confirm sentence of 2026-09-18 is gone and the later line is Taglish.
   assertEquals(tlPay.includes('through GCash (0956 011 5744) gamit ang QR below - naka-set na ang exact amount. Once done, screenshot lang ng receipt dito ang kailangan namin.'), true);
-  assertEquals(tlPay.includes('Ang ₱800 refundable security deposit ay due at least a day before check-in.'), true);
+  assertEquals(tlPay.includes('Ang ₱800 refundable security deposit ay puwedeng kasabay ng payment o at least a day before check-in.'), true);
   assertEquals((tlPay.match(/\bpo\b/g) ?? []).length <= 6, true); // section 4: purposeful markers, never every sentence
   assertEquals(lintReply('Rest assured po, lubos kaming nagagalak.'), ['exclaim', 'boilerplate']);
   assertEquals(lintReply(tlPay), []);
@@ -143,8 +143,8 @@ Deno.test('Bisaya register: a Bisaya guest gets English (D-311.8); the Bislish l
   const first =opener(f, 'Ben', availabilityLine(f, new Set())) + prompt(f, 'Ben');
   assertEquals(first.startsWith('Hi Ben! Salamat sa pag-message sa Cascade Hideaway. Available ang Oct 20 to 22, and looking forward mi to have the two of you.'), true);
   assertEquals(lintReply(first, guest, { firstTurn: true }), []);
-  const pay = paymentReply({ ...base, lang: 'bis', step: 'await_receipt', ref: 'DIR-1', deposit: 1691, total: 3382, hold: true, hold_expires_at: '2026-09-18T02:00:00Z' }, 'Ben', 'https://x', now);
-  assertEquals(pay.startsWith('Ben, na-hold na namo ang Oct 3 to 4 for you for 24 hours — until Sep 18 at 10:00 AM (ugma). Your booking reference is DIR-1.'), true);
+  const pay = paymentReply({ ...base, lang: 'bis', step: 'await_receipt', ref: 'DIR-1', deposit: 3382, total: 3382, hold: true, hold_expires_at: '2026-09-18T02:00:00Z' }, 'Ben', 'https://x', now);
+  assertEquals(pay.startsWith('Ben, na-hold na namo ang Oct 3 to 4 for you for 24 hours, until Sep 18 at 10:00 AM (ugma). Your booking reference is DIR-1.'), true);
   assertEquals(pay.endsWith('Salamat, Ben. Looking forward mi sa inyong stay at Cascade Hideaway. 🌿'), true);
   assertEquals(lintReply(pay), []);
   const lines = [pay, first, availabilityLine({ ...base, lang: 'bis' }, new Set(['2026-10-03'])), ...(['dates', 'checkout', 'pax', 'offer', 'contact', 'confirm'] as const).map((step) => prompt({ ...base, lang: 'bis', step }, 'Ben'))];
@@ -159,7 +159,7 @@ Deno.test('Bisaya register: a Bisaya guest gets English (D-311.8); the Bislish l
     assertEquals(promise.includes('Marifel Suzanne Boncales'), true, l);
     if (l === 'bis') assertEquals(/\b(po|opo)\b/i.test(promise), false, 'no Tagalog po in Bisaya');
     // It must stay OUT of paymentReply: merged in, the reply breaks the 700-character too_long cap.
-    const reply = paymentReply({ ...base, lang: l, step: 'await_receipt', ref: 'DIR-1', deposit: 1691, total: 3382, hold: true, hold_expires_at: '2026-09-18T02:00:00Z' }, 'Ben', 'https://x', now);
+    const reply = paymentReply({ ...base, lang: l, step: 'await_receipt', ref: 'DIR-1', deposit: 3382, total: 3382, hold: true, hold_expires_at: '2026-09-18T02:00:00Z' }, 'Ben', 'https://x', now);
     assertEquals(reply.includes('For your peace of mind'), false, 'promise is a separate message: ' + l);
     // s138: the payment reply lost its fee-or-full paragraph, so the merged text no longer exceeds the 700 cap; the promise stays a separate message by design (SPEC-10 control 6).
   }
@@ -281,11 +281,11 @@ Deno.test('SPEC-14: the offer, the details asks, the card and the reserved line 
   // SPEC-39 3.6b: the card carries the name and the deposit; with the hold it also carries the payment, in one message
   const card = prompt({ ...f, step: 'confirm', name: 'Ben Munez', email: 'ben@example.com' }, 'Ben', false, now);
   assertEquals(card.includes('\u{1F464} Ben Munez'), true);
-  assertEquals(card.includes('\u{1F510} \u20B1800 refundable security deposit, returned within 3 business days after check-out'), true);
-  const one = stayPayMessage({ ...f, step: 'await_receipt', name: 'Ben Munez', email: 'ben@example.com', ref: 'DIR-1', deposit: 1691, total: 3382, hold: true, hold_expires_at: '2026-09-18T00:00:00Z' }, 'Ben', now);
-  assertEquals(one.includes('The full \u20B13,382 secures these dates: the QR below carries the exact amount, or GCash 0956 011 5744. The \u20B1800 refundable security deposit is due at least a day before check-in.'), true);
+  assertEquals(card.includes('\u{1F510} \u20B1800 refundable security deposit: with your payment or by the day before check-in; returned within 3 business days after check-out, to the account you paid from'), true);
+  const one = stayPayMessage({ ...f, step: 'await_receipt', name: 'Ben Munez', email: 'ben@example.com', ref: 'DIR-1', deposit: 3382, total: 3382, hold: true, hold_expires_at: '2026-09-18T00:00:00Z' }, 'Ben', now);
+  assertEquals(one.includes('The full \u20B13,382 secures these dates: the QR below carries the exact amount, or GCash 0956 011 5744. The \u20B1800 refundable security deposit may be sent with your payment or by the day before check-in.'), true);
   assertEquals(lintReply(one, '', { cap: STAY_PAY_CAP }), []);
-  const hold = paymentReply({ ...f, step: 'await_receipt', name: 'Ben Munez', ref: 'DIR-1', deposit: 1691, total: 3382, hold: true, hold_expires_at: '2026-09-18T00:00:00Z' }, 'Ben Munez', 'https://x', now);
+  const hold = paymentReply({ ...f, step: 'await_receipt', name: 'Ben Munez', ref: 'DIR-1', deposit: 3382, total: 3382, hold: true, hold_expires_at: '2026-09-18T00:00:00Z' }, 'Ben Munez', 'https://x', now);
   assertEquals(hold.startsWith("Ben, we've set aside Nov 17 to 19 for you for 24 hours"), true);
   assertEquals(hold.includes('Once done, a screenshot of the receipt here is all we need.'), true); // SPEC-31 s5
   assertEquals(lintReply(hold), []);

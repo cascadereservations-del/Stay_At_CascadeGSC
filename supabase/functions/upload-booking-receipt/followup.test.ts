@@ -116,10 +116,24 @@ Deno.test('s138 (D-430): the stay total, or the stay total plus the P800 deposit
   assertEquals(verdictOf({ amount: 4000 }, 3382), 'over');
   assertEquals(verdictOf({ amount: 800 }, 3382), 'short');
   assertEquals(verdictLine('match', 3382, 3382, 3382), '⚖️ Amount matches the ₱3,382 stay - stay paid; ₱800 deposit still due');
-  assertEquals(verdictLine('match_dep', 4182, 3382, 3382), '⚖️ ₱4,182 = ₱3,382 stay + ₱800 deposit - stay and ₱800 deposit received');
+  assertEquals(verdictLine('match_dep', 4182, 3382, 3382), '⚖️ ₱4,182 = ₱3,382 stay + ₱800 deposit - stay and deposit received (the database comparison may show a mismatch: it does not count the ₱800 deposit)');
   assertEquals(verdictLine('short', 1000, 3382, 3382), '⚖️ ₱2,382 SHORT - expected ₱3,382');
   assertEquals(verdictLine('match', 1691, 1691, 3382), '⚖️ Amount matches the ₱1,691 expected'); // a request still holding the old 50% fee
   assertEquals(verdictLine('not_proof', null, 3382, 3382), null);
   assertEquals(guestFollowUp('short', 'en', 'Ben', 3382, 1000).includes('The stay payment is ₱3,382, so ₱2,382 remains.'), true);
   assertEquals(guestFollowUp('match_dep', 'en', 'Ben', 3382, 4182), '');
+});
+
+Deno.test('s138 fix round 1 F4: a legacy 50% row paid fee + 800 is NOT labelled stay paid', () => {
+  const line = verdictLine('match_dep', 2491, 1691, 3382)!;
+  assertEquals(line, '⚖️ ₱2,491 = ₱1,691 + ₱800 - NOT the full stay (₱3,382): the stay is not paid in full');
+  assertEquals(line.includes('stay and deposit received'), false);
+});
+
+Deno.test('s138 fix round 1 F8: guest sample replies carry no em-dash and no undefined', () => {
+  for (const lang of ['en', 'tl', 'bis'] as const) for (const v of ['not_proof', 'short'] as const) {
+    const m = guestFollowUp(v, lang, 'Ben', 3382, 1000);
+    assertEquals(m.includes('—'), false, `${lang}/${v}`);
+    assertEquals(/undefined|NaN/.test(m), false);
+  }
 });

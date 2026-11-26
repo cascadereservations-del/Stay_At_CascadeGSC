@@ -13,7 +13,7 @@ import { scoreReply } from './golden-score.ts';
 
 const LANGS = ['en', 'tl', 'bis'] as const;
 const card: P.CardFacts = { resume: false, who: 'Ben Munez', range: 'Oct 20 to 22', nights: 2, pax: 2, phone: '09171234567', email: 'ben@example.com', total: '₱3,382', promo: null };
-const pay: P.PaymentFacts = { name: 'Ben', dates: 'Oct 20 to 22', ref: 'DIR-1', until: 'Sep 18 at 10:00 AM', rel: 'tomorrow', hold: true, deposit: '₱3,382' };
+const pay: P.PaymentFacts = { name: 'Ben', dates: 'Oct 20 to 22', ref: 'DIR-1', until: 'Sep 18 at 10:00 AM', rel: 'tomorrow', hold: true, due: '₱3,382' };
 
 // ---- D-286: compose() fixtures ----
 const ANSWER: Record<Lang, string> = {
@@ -113,6 +113,7 @@ const SAMPLES: Record<string, (l: Lang) => string[]> = {
   promoLine: (l) => [P.promoLine([PROMO], l), P.promoLine([], l)],
   promoFirst: (l) => [P.promoFirst('We completely understand wanting the best value for your stay.', [PROMO], l)],
   warmClause: (l) => [`Our direct rate starts at PHP 1,780 per night. ${P.warmClause(l)}`, `Yes, there is a water dispenser with complimentary drinking water. ${P.warmClause(l, true)}`], // s78: and the booked variant
+  cancelTermsLine: (l) => [P.cancelTermsLine(l)], // s138 fix round 1 (F7)
   payTermsLine: (l) => [P.payTermsLine('Angel', l, { total: '₱5,073', paid: false }), P.payTermsLine(null, l, { total: '₱5,073', paid: true })], // s78
   // Session 58: the fixed turns index.ts sends.
   HANDOFF: () => Object.values(P.HANDOFF).filter(Boolean),
@@ -161,6 +162,7 @@ Deno.test('every persona export has samples, so a new move cannot skip the tone 
 Deno.test('every persona move passes the lint and the voice rules in all three registers', () => {
   for (const lang of LANGS) for (const [name, make] of Object.entries(SAMPLES)) for (const m of make(lang)) {
     assertEquals([...lintReply(m), ...toneRules(m, lang, APPROVED.has(name))], [], `${name}/${lang}: ${m.slice(0, 90)}`);
+    assert(!/undefined|NaN/.test(m), `${name}/${lang}: a rendered guest line holds undefined or NaN`); // s138 fix round 1 (F6)
   }
 });
 
@@ -318,7 +320,7 @@ Deno.test('SPEC-39 3.6b: the stay-and-payment message passes the gate in 3 tones
     assert(!/reservation fee|balance|1,000|quick "full"/.test(m), `${t}/${l}: no fee, balance or P1,000`);
     assert(!m.includes('!') && (m.match(/\?/g) ?? []).length <= 1, `${t}/${l}`);
   }
-  assert(/secures these dates/.test(P.payNudge(PAYF, 'brisk', 'en')) && /at least a day before check-in/.test(P.payNudge(PAYF, 'brisk', 'en')));
+  assert(/secures these dates/.test(P.payNudge(PAYF, 'brisk', 'en')) && /by the day before check-in/.test(P.payNudge(PAYF, 'brisk', 'en')));
   assert(/No rush at all/.test(P.payNudge(PAYF, 'gentle', 'en')) && /nothing is charged/.test(P.payNudge(PAYF, 'gentle', 'en')));
   assert(/delighted to have the two of you/.test(P.payNudge(PAYF, 'warm', 'en')));
 });
@@ -442,4 +444,11 @@ Deno.test('D-286 golden AFTER #3: a share-your-dates line in the answer goes whe
   assert(P.compose({ answer: en, ask: null }, ctx({ datesKnown: true, siteShown: true })).reply.includes('share them here'));
   // a question is the ask, never dropped as a nudge
   assert(P.cleanAnswer('Which dates do you have in mind?', { greeted: false, followUp: true, datesAsked: true }).text.includes('Which dates'));
+});
+
+Deno.test('s138 F6: payment messages built from the real PaymentFacts shape carry the amount and never undefined or NaN', () => {
+  for (const l of LANGS) for (const hold of [true, false]) {
+    const m = P.paymentMessage({ ...pay, hold, until: hold ? pay.until : null }, l);
+    assert(m.includes('₱3,382') && !/undefined|NaN/.test(m), `${l}/${hold}: ${m}`);
+  }
 });

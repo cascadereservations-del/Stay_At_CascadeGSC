@@ -29,7 +29,11 @@ export function verdictLine(v: Verdict, amount: number | null, expected: number,
   if (amount === null || v === 'not_proof' || v === 'unread') return null;
   const stayFull = total > 0 && expected >= total - 0.5;
   if (v === 'match') return stayFull ? `⚖️ Amount matches the ${peso(expected)} stay - stay paid; ${peso(SECURITY_DEPOSIT_PHP)} deposit still due` : `⚖️ Amount matches the ${peso(expected)} expected`;
-  if (v === 'match_dep') return `⚖️ ${peso(amount)} = ${peso(expected)} stay + ${peso(SECURITY_DEPOSIT_PHP)} deposit - stay and ${peso(SECURITY_DEPOSIT_PHP)} deposit received`;
+  // F4: the stay-plus-deposit label is only true when the amount due is the whole stay; a legacy 50% row paid fee + 800 leaves the stay open.
+  // F5: the database comparison screen only knows the stay total, so it may show this amount as a mismatch; the line says why.
+  if (v === 'match_dep') return stayFull
+    ? `⚖️ ${peso(amount)} = ${peso(expected)} stay + ${peso(SECURITY_DEPOSIT_PHP)} deposit - stay and deposit received (the database comparison may show a mismatch: it does not count the ${peso(SECURITY_DEPOSIT_PHP)} deposit)`
+    : `⚖️ ${peso(amount)} = ${peso(expected)} + ${peso(SECURITY_DEPOSIT_PHP)} - NOT the full stay (${peso(total)}): the stay is not paid in full`;
   return `⚖️ ${peso(Math.abs(amount - expected))} ${amount < expected ? 'SHORT' : 'over'} - expected ${peso(expected)}`;
 }
 
@@ -37,12 +41,12 @@ export function verdictLine(v: Verdict, amount: number | null, expected: number,
 export function guestFollowUp(v: Verdict, lang: Lang, name: string, expected: number, received = 0): string {
   const n = name.trim().split(/\s+/)[0] || 'there';
   if (v === 'not_proof') return {
-    en: `Hi ${n}, thank you for sending this. The image doesn't show a completed payment yet — it looks like the screen just before sending. Once the ${peso(expected)} transfer is done, simply send the confirmation screenshot here and we'll take care of the rest.`,
-    tl: `Hi ${n}! Salamat sa pag-send. Hindi po nakikita sa image ang completed payment — it looks like the screen just before sending. Once done ang ${peso(expected)} transfer, send lang po the confirmation screenshot here at kami na ang bahala sa confirmation.`,
-    bis: `Hi ${n}! Salamat sa pag-send. The image doesn't show a completed payment yet — murag ang screen before sending. Once done ang ${peso(expected)} transfer, send lang ang confirmation screenshot diri and we'll take care of the confirmation.`,
+    en: `Hi ${n}, thank you for sending this. The image doesn't show a completed payment yet, it looks like the screen just before sending. Once the ${peso(expected)} transfer is done, simply send the confirmation screenshot here and we'll take care of the rest.`,
+    tl: `Hi ${n}! Salamat sa pag-send. Hindi po nakikita sa image ang completed payment, it looks like the screen just before sending. Once done ang ${peso(expected)} transfer, send lang po the confirmation screenshot here at kami na ang bahala sa confirmation.`,
+    bis: `Hi ${n}! Salamat sa pag-send. The image doesn't show a completed payment yet, murag ang screen before sending. Once done ang ${peso(expected)} transfer, send lang ang confirmation screenshot diri and we'll take care of the confirmation.`,
   }[lang];
   if (v === 'short') return {
-    en: `Hi ${n}, thank you — we've received ${peso(received)}. The stay payment is ${peso(expected)}, so ${peso(expected - received)} remains. You may send the difference through the same GCash QR whenever convenient, and we'll confirm the reservation right after.`,
+    en: `Hi ${n}, thank you, we've received ${peso(received)}. The stay payment is ${peso(expected)}, so ${peso(expected - received)} remains. You may send the difference through the same GCash QR whenever convenient, and we'll confirm the reservation right after.`,
     tl: `Hi ${n}! Salamat, received po ang ${peso(received)}. The stay payment is ${peso(expected)}, so ${peso(expected - received)} ang remaining. Puwede po ninyong i-send ang difference through the same GCash QR once convenient, at iko-confirm namin ang reservation right after.`,
     bis: `Hi ${n}! Salamat, received na ang ${peso(received)}. The stay payment is ${peso(expected)}, so ${peso(expected - received)} ang remaining. Pwede i-send ang difference through the same GCash QR once convenient, and amo dayon i-confirm ang reservation.`,
   }[lang];
