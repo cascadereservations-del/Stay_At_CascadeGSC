@@ -1,7 +1,7 @@
 -- Session 67: release stay_chains_20261002 (D-290). A same-guest chain (one stay ends the day the next begins, same guest) is one stay:
 -- no turnover to verify, no missed cleaning, no checkout or after-departure message on the first booking, the booking check shows the
 -- final checkout. A real turnover (different guests) is never a chain. Synthetic fixtures only; they go with the closing rollback.
--- Dates are offsets from current_date. Property P is private to this suite, so the restored production rows never interfere.
+-- Dates are offsets from the Manila date (public.manila_today()), the clock the staff functions use; current_date is UTC in CI. Property P is private to this suite, so the restored production rows never interfere.
 --   -13..-9   chain A   two Airbnb reservations, same guest_id (the HMYDBYKYPC / HM3EXQ5Z8D shape), junction -11
 --   -8..-4    pair B    two Airbnb reservations, DIFFERENT guest_ids, identical names: a turnover, guest_id decides
 --   +20..+24  direct    two direct inquiries, same guest_id, different event names, junction +22
@@ -14,11 +14,11 @@ begin;
 select plan(57);
 
 create function pg_temp.at(n int, hm text) returns timestamptz language sql stable as
-$$ select ((current_date + n) + hm::time) at time zone 'Asia/Manila' $$;
+$$ select ((public.manila_today() + n) + hm::time) at time zone 'Asia/Manila' $$;
 create function pg_temp.due(id uuid, k text, t timestamptz) returns boolean language sql as
 $$ select exists (select 1 from public.due_guest_messages_v1(t) d where d.booking_id = id and d.message_key = k) $$;
 create function pg_temp.cont(n int) returns boolean language sql as
-$$ select public.stay_continues_v1('e1000000-0000-4000-8000-000000000067', current_date + n) $$;
+$$ select public.stay_continues_v1('e1000000-0000-4000-8000-000000000067', public.manila_today() + n) $$;
 
 insert into public.properties(id, name, is_active) values ('e1000000-0000-4000-8000-000000000067', 'Synthetic Stay Chains 67', true);
 insert into public.guests(id, property_id, name) values
@@ -31,40 +31,40 @@ insert into public.guests(id, property_id, name) values
   ('e6700000-0000-4000-8000-0000000000a7', 'e1000000-0000-4000-8000-000000000067', 'Synthetic Gus');
 
 insert into public.airbnb_reservations(id, property_id, confirmation_code, status, guest_id, guest_name, checkin_date, checkout_date) values
-  ('e6700000-0000-4000-8000-0000000000b1', 'e1000000-0000-4000-8000-000000000067', 'HMSYNTH671', 'completed', 'e6700000-0000-4000-8000-0000000000a1', 'Synthetic Alpha', current_date - 13, current_date - 11),
-  ('e6700000-0000-4000-8000-0000000000b2', 'e1000000-0000-4000-8000-000000000067', 'HMSYNTH672', 'completed', 'e6700000-0000-4000-8000-0000000000a1', 'Synthetic Alpha', current_date - 11, current_date - 9),
-  ('e6700000-0000-4000-8000-0000000000b3', 'e1000000-0000-4000-8000-000000000067', 'HMSYNTH673', 'completed', 'e6700000-0000-4000-8000-0000000000a2', 'Synthetic Twin',  current_date - 8,  current_date - 6),
-  ('e6700000-0000-4000-8000-0000000000b4', 'e1000000-0000-4000-8000-000000000067', 'HMSYNTH674', 'completed', 'e6700000-0000-4000-8000-0000000000a3', 'Synthetic Twin',  current_date - 6,  current_date - 4);
+  ('e6700000-0000-4000-8000-0000000000b1', 'e1000000-0000-4000-8000-000000000067', 'HMSYNTH671', 'completed', 'e6700000-0000-4000-8000-0000000000a1', 'Synthetic Alpha', public.manila_today() - 13, public.manila_today() - 11),
+  ('e6700000-0000-4000-8000-0000000000b2', 'e1000000-0000-4000-8000-000000000067', 'HMSYNTH672', 'completed', 'e6700000-0000-4000-8000-0000000000a1', 'Synthetic Alpha', public.manila_today() - 11, public.manila_today() - 9),
+  ('e6700000-0000-4000-8000-0000000000b3', 'e1000000-0000-4000-8000-000000000067', 'HMSYNTH673', 'completed', 'e6700000-0000-4000-8000-0000000000a2', 'Synthetic Twin',  public.manila_today() - 8,  public.manila_today() - 6),
+  ('e6700000-0000-4000-8000-0000000000b4', 'e1000000-0000-4000-8000-000000000067', 'HMSYNTH674', 'completed', 'e6700000-0000-4000-8000-0000000000a3', 'Synthetic Twin',  public.manila_today() - 6,  public.manila_today() - 4);
 
 insert into public.booking_inquiries(id, property_id, guest_id, guest_name, guest_email, guest_phone, checkin_date, checkout_date, status, source, submitted_at, total_amount, deposit_amount) values
-  ('c0de1111-0000-4000-8000-000000000001', 'e1000000-0000-4000-8000-000000000067', 'e6700000-0000-4000-8000-0000000000a4', 'Synthetic Dee', 'dee1@example.com', '09170000671', current_date + 20, current_date + 22, 'confirmed', 'direct', now() - interval '5 days', 3560, 1780),
-  ('c0de2222-0000-4000-8000-000000000002', 'e1000000-0000-4000-8000-000000000067', 'e6700000-0000-4000-8000-0000000000a4', 'Synthetic Dee', 'dee2@example.com', '09170000671', current_date + 22, current_date + 24, 'confirmed', 'direct', now() - interval '1 day',  3560, 1780),
-  ('c0de3333-0000-4000-8000-000000000003', 'e1000000-0000-4000-8000-000000000067', 'e6700000-0000-4000-8000-0000000000a5', 'Synthetic Eve', 'eve@example.com',  '09170000672', current_date + 30, current_date + 32, 'confirmed', 'direct', now() - interval '5 days', 3560, 1780),
-  ('c0de4444-0000-4000-8000-000000000004', 'e1000000-0000-4000-8000-000000000067', 'e6700000-0000-4000-8000-0000000000a6', 'Synthetic Fay', 'fay@example.com',  '09170000673', current_date + 32, current_date + 34, 'confirmed', 'direct', now() - interval '1 day',  3560, 1780),
-  ('c0de5555-0000-4000-8000-000000000005', 'e1000000-0000-4000-8000-000000000067', 'e6700000-0000-4000-8000-0000000000a7', 'Synthetic Gus', 'gus1@example.com', '09170000674', current_date + 40, current_date + 42, 'confirmed', 'direct', now(),                    3560, 1780),
-  ('c0de6666-0000-4000-8000-000000000006', 'e1000000-0000-4000-8000-000000000067', 'e6700000-0000-4000-8000-0000000000a7', 'Synthetic Gus', 'gus2@example.com', '09170000674', current_date + 42, current_date + 44, 'confirmed', 'direct', now() - interval '3 days', 3560, 1780);
+  ('c0de1111-0000-4000-8000-000000000001', 'e1000000-0000-4000-8000-000000000067', 'e6700000-0000-4000-8000-0000000000a4', 'Synthetic Dee', 'dee1@example.com', '09170000671', public.manila_today() + 20, public.manila_today() + 22, 'confirmed', 'direct', now() - interval '5 days', 3560, 1780),
+  ('c0de2222-0000-4000-8000-000000000002', 'e1000000-0000-4000-8000-000000000067', 'e6700000-0000-4000-8000-0000000000a4', 'Synthetic Dee', 'dee2@example.com', '09170000671', public.manila_today() + 22, public.manila_today() + 24, 'confirmed', 'direct', now() - interval '1 day',  3560, 1780),
+  ('c0de3333-0000-4000-8000-000000000003', 'e1000000-0000-4000-8000-000000000067', 'e6700000-0000-4000-8000-0000000000a5', 'Synthetic Eve', 'eve@example.com',  '09170000672', public.manila_today() + 30, public.manila_today() + 32, 'confirmed', 'direct', now() - interval '5 days', 3560, 1780),
+  ('c0de4444-0000-4000-8000-000000000004', 'e1000000-0000-4000-8000-000000000067', 'e6700000-0000-4000-8000-0000000000a6', 'Synthetic Fay', 'fay@example.com',  '09170000673', public.manila_today() + 32, public.manila_today() + 34, 'confirmed', 'direct', now() - interval '1 day',  3560, 1780),
+  ('c0de5555-0000-4000-8000-000000000005', 'e1000000-0000-4000-8000-000000000067', 'e6700000-0000-4000-8000-0000000000a7', 'Synthetic Gus', 'gus1@example.com', '09170000674', public.manila_today() + 40, public.manila_today() + 42, 'confirmed', 'direct', now(),                    3560, 1780),
+  ('c0de6666-0000-4000-8000-000000000006', 'e1000000-0000-4000-8000-000000000067', 'e6700000-0000-4000-8000-0000000000a7', 'Synthetic Gus', 'gus2@example.com', '09170000674', public.manila_today() + 42, public.manila_today() + 44, 'confirmed', 'direct', now() - interval '3 days', 3560, 1780);
 
 insert into public.calendar_events(id, property_id, uid, source, status, checkin_date, checkout_date, guest_name, guest_phone, raw_description, linked_reservation_id) values
-  ('e6700000-0000-4000-8000-0000000000c1', 'e1000000-0000-4000-8000-000000000067', 'synth-67-a1@airbnb.com', 'airbnb', 'confirmed', current_date - 13, current_date - 11, 'Synthetic Alpha', null, null, 'e6700000-0000-4000-8000-0000000000b1'),
-  ('e6700000-0000-4000-8000-0000000000c2', 'e1000000-0000-4000-8000-000000000067', 'synth-67-a2@airbnb.com', 'airbnb', 'confirmed', current_date - 11, current_date - 9, 'Synthetic Alpha', null, null, 'e6700000-0000-4000-8000-0000000000b2'),
-  ('e6700000-0000-4000-8000-0000000000c3', 'e1000000-0000-4000-8000-000000000067', 'synth-67-b1@airbnb.com', 'airbnb', 'confirmed', current_date - 8,  current_date - 6, 'Synthetic Twin',  null, null, 'e6700000-0000-4000-8000-0000000000b3'),
-  ('e6700000-0000-4000-8000-0000000000c4', 'e1000000-0000-4000-8000-000000000067', 'synth-67-b2@airbnb.com', 'airbnb', 'confirmed', current_date - 6,  current_date - 4, 'Synthetic Twin',  null, null, 'e6700000-0000-4000-8000-0000000000b4'),
-  ('e6700000-0000-4000-8000-0000000000d1', 'e1000000-0000-4000-8000-000000000067', 'direct:c0de1111-0000-4000-8000-000000000001', 'direct', 'confirmed', current_date + 20, current_date + 22, 'Synthetic Dee',  '09170000671', null, null),
-  ('e6700000-0000-4000-8000-0000000000d2', 'e1000000-0000-4000-8000-000000000067', 'direct:c0de2222-0000-4000-8000-000000000002', 'direct', 'confirmed', current_date + 22, current_date + 24, 'Synthetic D.',   '09170000671', null, null),
-  ('e6700000-0000-4000-8000-0000000000e1', 'e1000000-0000-4000-8000-000000000067', 'synth-67-l4a@airbnb.com', 'airbnb', 'confirmed', current_date + 30, current_date + 32, 'Synthetic Lee', null, E'Reservation URL: x\nPhone Number (Last 4 Digits): 4242', null),
-  ('e6700000-0000-4000-8000-0000000000e2', 'e1000000-0000-4000-8000-000000000067', 'synth-67-l4b@airbnb.com', 'airbnb', 'confirmed', current_date + 32, current_date + 34, 'Synthetic Mar', null, E'Reservation URL: y\nPhone Number (Last 4 Digits): 4242', null),
-  ('e6700000-0000-4000-8000-0000000000e3', 'e1000000-0000-4000-8000-000000000067', 'synth-67-l4c@airbnb.com', 'airbnb', 'confirmed', current_date + 40, current_date + 42, 'Synthetic Ned', null, E'Phone Number (Last 4 Digits): 1111', null),
-  ('e6700000-0000-4000-8000-0000000000e4', 'e1000000-0000-4000-8000-000000000067', 'synth-67-l4d@airbnb.com', 'airbnb', 'confirmed', current_date + 42, current_date + 44, 'Synthetic Oma', null, E'Phone Number (Last 4 Digits): 2222', null),
-  ('e6700000-0000-4000-8000-0000000000f1', 'e1000000-0000-4000-8000-000000000067', 'synth-67-n1@airbnb.com', 'airbnb', 'confirmed', current_date + 50, current_date + 52, 'Synthetic Pip',   null, null, null),
-  ('e6700000-0000-4000-8000-0000000000f2', 'e1000000-0000-4000-8000-000000000067', 'synth-67-n2@airbnb.com', 'airbnb', 'confirmed', current_date + 52, current_date + 54, ' synthetic pip ', null, null, null),
-  ('e6700000-0000-4000-8000-000000000101', 'e1000000-0000-4000-8000-000000000067', 'synth-67-p1@airbnb.com', 'airbnb', 'confirmed', current_date + 60, current_date + 62, 'Reserved', null, null, null),
-  ('e6700000-0000-4000-8000-000000000102', 'e1000000-0000-4000-8000-000000000067', 'synth-67-p2@airbnb.com', 'airbnb', 'confirmed', current_date + 62, current_date + 64, 'Reserved', null, null, null),
-  ('e6700000-0000-4000-8000-000000000111', 'e1000000-0000-4000-8000-000000000067', 'synth-67-bl1@airbnb.com', 'airbnb', 'confirmed', current_date + 70, current_date + 72, 'Synthetic Quin', null, null, null),
-  ('e6700000-0000-4000-8000-000000000112', 'e1000000-0000-4000-8000-000000000067', 'synth-67-bl2@airbnb.com', 'airbnb', 'blocked',   current_date + 72, current_date + 74, 'Synthetic Quin', null, null, null),
-  ('e6700000-0000-4000-8000-000000000121', 'e1000000-0000-4000-8000-000000000067', 'synth-67-cx1@airbnb.com', 'airbnb', 'confirmed', current_date + 80, current_date + 82, 'Synthetic Rae', null, null, null),
-  ('e6700000-0000-4000-8000-000000000122', 'e1000000-0000-4000-8000-000000000067', 'synth-67-cx2@airbnb.com', 'airbnb', 'cancelled', current_date + 82, current_date + 84, 'Synthetic Rae', null, null, null),
-  ('e6700000-0000-4000-8000-000000000131', 'e1000000-0000-4000-8000-000000000067', 'synth-67-cx3@airbnb.com', 'airbnb', 'cancelled', current_date + 90, current_date + 92, 'Synthetic Sol', null, null, null),
-  ('e6700000-0000-4000-8000-000000000132', 'e1000000-0000-4000-8000-000000000067', 'synth-67-cx4@airbnb.com', 'airbnb', 'confirmed', current_date + 92, current_date + 94, 'Synthetic Sol', null, null, null);
+  ('e6700000-0000-4000-8000-0000000000c1', 'e1000000-0000-4000-8000-000000000067', 'synth-67-a1@airbnb.com', 'airbnb', 'confirmed', public.manila_today() - 13, public.manila_today() - 11, 'Synthetic Alpha', null, null, 'e6700000-0000-4000-8000-0000000000b1'),
+  ('e6700000-0000-4000-8000-0000000000c2', 'e1000000-0000-4000-8000-000000000067', 'synth-67-a2@airbnb.com', 'airbnb', 'confirmed', public.manila_today() - 11, public.manila_today() - 9, 'Synthetic Alpha', null, null, 'e6700000-0000-4000-8000-0000000000b2'),
+  ('e6700000-0000-4000-8000-0000000000c3', 'e1000000-0000-4000-8000-000000000067', 'synth-67-b1@airbnb.com', 'airbnb', 'confirmed', public.manila_today() - 8,  public.manila_today() - 6, 'Synthetic Twin',  null, null, 'e6700000-0000-4000-8000-0000000000b3'),
+  ('e6700000-0000-4000-8000-0000000000c4', 'e1000000-0000-4000-8000-000000000067', 'synth-67-b2@airbnb.com', 'airbnb', 'confirmed', public.manila_today() - 6,  public.manila_today() - 4, 'Synthetic Twin',  null, null, 'e6700000-0000-4000-8000-0000000000b4'),
+  ('e6700000-0000-4000-8000-0000000000d1', 'e1000000-0000-4000-8000-000000000067', 'direct:c0de1111-0000-4000-8000-000000000001', 'direct', 'confirmed', public.manila_today() + 20, public.manila_today() + 22, 'Synthetic Dee',  '09170000671', null, null),
+  ('e6700000-0000-4000-8000-0000000000d2', 'e1000000-0000-4000-8000-000000000067', 'direct:c0de2222-0000-4000-8000-000000000002', 'direct', 'confirmed', public.manila_today() + 22, public.manila_today() + 24, 'Synthetic D.',   '09170000671', null, null),
+  ('e6700000-0000-4000-8000-0000000000e1', 'e1000000-0000-4000-8000-000000000067', 'synth-67-l4a@airbnb.com', 'airbnb', 'confirmed', public.manila_today() + 30, public.manila_today() + 32, 'Synthetic Lee', null, E'Reservation URL: x\nPhone Number (Last 4 Digits): 4242', null),
+  ('e6700000-0000-4000-8000-0000000000e2', 'e1000000-0000-4000-8000-000000000067', 'synth-67-l4b@airbnb.com', 'airbnb', 'confirmed', public.manila_today() + 32, public.manila_today() + 34, 'Synthetic Mar', null, E'Reservation URL: y\nPhone Number (Last 4 Digits): 4242', null),
+  ('e6700000-0000-4000-8000-0000000000e3', 'e1000000-0000-4000-8000-000000000067', 'synth-67-l4c@airbnb.com', 'airbnb', 'confirmed', public.manila_today() + 40, public.manila_today() + 42, 'Synthetic Ned', null, E'Phone Number (Last 4 Digits): 1111', null),
+  ('e6700000-0000-4000-8000-0000000000e4', 'e1000000-0000-4000-8000-000000000067', 'synth-67-l4d@airbnb.com', 'airbnb', 'confirmed', public.manila_today() + 42, public.manila_today() + 44, 'Synthetic Oma', null, E'Phone Number (Last 4 Digits): 2222', null),
+  ('e6700000-0000-4000-8000-0000000000f1', 'e1000000-0000-4000-8000-000000000067', 'synth-67-n1@airbnb.com', 'airbnb', 'confirmed', public.manila_today() + 50, public.manila_today() + 52, 'Synthetic Pip',   null, null, null),
+  ('e6700000-0000-4000-8000-0000000000f2', 'e1000000-0000-4000-8000-000000000067', 'synth-67-n2@airbnb.com', 'airbnb', 'confirmed', public.manila_today() + 52, public.manila_today() + 54, ' synthetic pip ', null, null, null),
+  ('e6700000-0000-4000-8000-000000000101', 'e1000000-0000-4000-8000-000000000067', 'synth-67-p1@airbnb.com', 'airbnb', 'confirmed', public.manila_today() + 60, public.manila_today() + 62, 'Reserved', null, null, null),
+  ('e6700000-0000-4000-8000-000000000102', 'e1000000-0000-4000-8000-000000000067', 'synth-67-p2@airbnb.com', 'airbnb', 'confirmed', public.manila_today() + 62, public.manila_today() + 64, 'Reserved', null, null, null),
+  ('e6700000-0000-4000-8000-000000000111', 'e1000000-0000-4000-8000-000000000067', 'synth-67-bl1@airbnb.com', 'airbnb', 'confirmed', public.manila_today() + 70, public.manila_today() + 72, 'Synthetic Quin', null, null, null),
+  ('e6700000-0000-4000-8000-000000000112', 'e1000000-0000-4000-8000-000000000067', 'synth-67-bl2@airbnb.com', 'airbnb', 'blocked',   public.manila_today() + 72, public.manila_today() + 74, 'Synthetic Quin', null, null, null),
+  ('e6700000-0000-4000-8000-000000000121', 'e1000000-0000-4000-8000-000000000067', 'synth-67-cx1@airbnb.com', 'airbnb', 'confirmed', public.manila_today() + 80, public.manila_today() + 82, 'Synthetic Rae', null, null, null),
+  ('e6700000-0000-4000-8000-000000000122', 'e1000000-0000-4000-8000-000000000067', 'synth-67-cx2@airbnb.com', 'airbnb', 'cancelled', public.manila_today() + 82, public.manila_today() + 84, 'Synthetic Rae', null, null, null),
+  ('e6700000-0000-4000-8000-000000000131', 'e1000000-0000-4000-8000-000000000067', 'synth-67-cx3@airbnb.com', 'airbnb', 'cancelled', public.manila_today() + 90, public.manila_today() + 92, 'Synthetic Sol', null, null, null),
+  ('e6700000-0000-4000-8000-000000000132', 'e1000000-0000-4000-8000-000000000067', 'synth-67-cx4@airbnb.com', 'airbnb', 'confirmed', public.manila_today() + 92, public.manila_today() + 94, 'Synthetic Sol', null, null, null);
 
 -- 1-5 stay_continues_v1: what is a chain
 select ok(pg_temp.cont(-11), 'airbnb to airbnb, same guest_id: the checkout is a continuation');
@@ -85,35 +85,35 @@ select ok(public.stay_same_guest_v1('e6700000-0000-4000-8000-0000000000c1', 'e67
       and not public.stay_same_guest_v1('e6700000-0000-4000-8000-0000000000c1', gen_random_uuid()), 'stay_same_guest_v1: same guest true, different false, unknown row false');
 
 -- 13-15 stay_chains_v1
-select is((select array_agg(junction_date order by junction_date) from public.stay_chains_v1('e1000000-0000-4000-8000-000000000067', current_date - 14, current_date + 100)),
-  array[current_date - 11, current_date + 22, current_date + 32, current_date + 52], 'stay_chains_v1: exactly the four same-guest junctions, no turnover, block or cancelled row');
-select is((select array_agg(junction_date) from public.stay_chains_v1('e1000000-0000-4000-8000-000000000067', current_date + 30, current_date + 40)),
-  array[current_date + 32], 'stay_chains_v1: the range limits the junctions');
+select is((select array_agg(junction_date order by junction_date) from public.stay_chains_v1('e1000000-0000-4000-8000-000000000067', public.manila_today() - 14, public.manila_today() + 100)),
+  array[public.manila_today() - 11, public.manila_today() + 22, public.manila_today() + 32, public.manila_today() + 52], 'stay_chains_v1: exactly the four same-guest junctions, no turnover, block or cancelled row');
+select is((select array_agg(junction_date) from public.stay_chains_v1('e1000000-0000-4000-8000-000000000067', public.manila_today() + 30, public.manila_today() + 40)),
+  array[public.manila_today() + 32], 'stay_chains_v1: the range limits the junctions');
 select is((select row(guest_id, first_uid, first_source, first_code, first_checkin, next_uid, next_code, next_checkout)::text
-             from public.stay_chains_v1('e1000000-0000-4000-8000-000000000067', current_date - 14, current_date - 1)),
-  row('e6700000-0000-4000-8000-0000000000a1'::uuid, 'synth-67-a1@airbnb.com', 'airbnb', 'HMSYNTH671', current_date - 13, 'synth-67-a2@airbnb.com', 'HMSYNTH672', current_date - 9)::text,
+             from public.stay_chains_v1('e1000000-0000-4000-8000-000000000067', public.manila_today() - 14, public.manila_today() - 1)),
+  row('e6700000-0000-4000-8000-0000000000a1'::uuid, 'synth-67-a1@airbnb.com', 'airbnb', 'HMSYNTH671', public.manila_today() - 13, 'synth-67-a2@airbnb.com', 'HMSYNTH672', public.manila_today() - 9)::text,
   'stay_chains_v1: guest, both uids, both Airbnb confirmation codes, first check-in and final checkout');
-select is((select row(first_code, first_source, next_code)::text from public.stay_chains_v1('e1000000-0000-4000-8000-000000000067', current_date + 22, current_date + 22)),
+select is((select row(first_code, first_source, next_code)::text from public.stay_chains_v1('e1000000-0000-4000-8000-000000000067', public.manila_today() + 22, public.manila_today() + 22)),
   row('c0de1111', 'direct', 'c0de2222')::text, 'stay_chains_v1: a direct stay is coded by the first 8 characters of its inquiry id');
 
 -- 17-19 verify_turnover
-select is(public.verify_turnover(current_date - 11, 'e1000000-0000-4000-8000-000000000067'),
+select is(public.verify_turnover(public.manila_today() - 11, 'e1000000-0000-4000-8000-000000000067'),
   jsonb_build_object('check_passed', true, 'session_id', null, 'cleaner_name', null, 'total_photo_count', null, 'is_complete', null,
                      'incomplete_reasons', null, 'issues', array['no_checkout_scheduled', 'stay_continues']),
   'verify_turnover: a continued checkout passes with no_checkout_scheduled + stay_continues (turnover-verifier stays silent)');
-select is(public.verify_turnover(current_date - 9, 'e1000000-0000-4000-8000-000000000067') -> 'issues', '["no_session_found"]'::jsonb,
+select is(public.verify_turnover(public.manila_today() - 9, 'e1000000-0000-4000-8000-000000000067') -> 'issues', '["no_session_found"]'::jsonb,
   'verify_turnover: the end of the chain with no cleaning session still fails no_session_found');
-select is(public.verify_turnover(current_date - 6, 'e1000000-0000-4000-8000-000000000067') -> 'issues', '["no_session_found"]'::jsonb,
+select is(public.verify_turnover(public.manila_today() - 6, 'e1000000-0000-4000-8000-000000000067') -> 'issues', '["no_session_found"]'::jsonb,
   'verify_turnover: a real turnover (different guests) still fails no_session_found');
-select is(public.verify_turnover(current_date - 1, 'e1000000-0000-4000-8000-000000000067') -> 'issues', '["no_checkout_scheduled"]'::jsonb,
+select is(public.verify_turnover(public.manila_today() - 1, 'e1000000-0000-4000-8000-000000000067') -> 'issues', '["no_checkout_scheduled"]'::jsonb,
   'verify_turnover: a day with no checkout is unchanged');
 
 -- 21-23 get_missed_cleanings
 select is((select array_agg(checkout_date order by checkout_date desc) from public.get_missed_cleanings('e1000000-0000-4000-8000-000000000067', 14)),
-  array[current_date - 4, current_date - 6, current_date - 9], 'get_missed_cleanings: the continued checkout is not missing; the chain end and both turnover checkouts are');
-select ok(not exists (select 1 from public.get_missed_cleanings('e1000000-0000-4000-8000-000000000067', 14) where checkout_date = current_date - 11),
+  array[public.manila_today() - 4, public.manila_today() - 6, public.manila_today() - 9], 'get_missed_cleanings: the continued checkout is not missing; the chain end and both turnover checkouts are');
+select ok(not exists (select 1 from public.get_missed_cleanings('e1000000-0000-4000-8000-000000000067', 14) where checkout_date = public.manila_today() - 11),
   'get_missed_cleanings: nothing is reported for the continued checkout');
-select is((select days_overdue from public.get_missed_cleanings('e1000000-0000-4000-8000-000000000067', 14) where checkout_date = current_date - 9), 9,
+select is((select days_overdue from public.get_missed_cleanings('e1000000-0000-4000-8000-000000000067', 14) where checkout_date = public.manila_today() - 9), 9,
   'get_missed_cleanings: days_overdue is unchanged');
 
 -- 24-31 due_guest_messages_v1 (direct chain c0de1111 -> c0de2222; control c0de3333 -> c0de4444, two guests; reversed c0de5555 -> c0de6666)
@@ -140,24 +140,24 @@ select is((select count(*)::int from public.due_guest_messages_v1(pg_temp.at(22,
   'direct chain: nothing at all is due for the pair on the junction morning');
 
 -- 32-38 verify_booking
-select is((select (public.verify_booking(current_date + 20, null, 'e1000000-0000-4000-8000-000000000067') ->> 'checkout_date')::date), current_date + 24,
+select is((select (public.verify_booking(public.manila_today() + 20, null, 'e1000000-0000-4000-8000-000000000067') ->> 'checkout_date')::date), public.manila_today() + 24,
   'verify_booking: a chain reports the final checkout date');
-select is((select (public.verify_booking(current_date + 20, null, 'e1000000-0000-4000-8000-000000000067') ->> 'nights')::int), 4, 'verify_booking: and the summed nights');
-select ok(public.verify_booking(current_date + 20, 's', 'e1000000-0000-4000-8000-000000000067') @> jsonb_build_object('match', true, 'full_name', 'Synthetic Dee')
-      and (public.verify_booking(current_date + 20, 's', 'e1000000-0000-4000-8000-000000000067') ->> 'checkout_date')::date = current_date + 24,
+select is((select (public.verify_booking(public.manila_today() + 20, null, 'e1000000-0000-4000-8000-000000000067') ->> 'nights')::int), 4, 'verify_booking: and the summed nights');
+select ok(public.verify_booking(public.manila_today() + 20, 's', 'e1000000-0000-4000-8000-000000000067') @> jsonb_build_object('match', true, 'full_name', 'Synthetic Dee')
+      and (public.verify_booking(public.manila_today() + 20, 's', 'e1000000-0000-4000-8000-000000000067') ->> 'checkout_date')::date = public.manila_today() + 24,
   'verify_booking: the initial step still matches and shows the final checkout');
-select is((public.verify_booking(current_date + 20, 'z', 'e1000000-0000-4000-8000-000000000067') - 'checkin_date' - 'checkout_date' - 'nights'),
+select is((public.verify_booking(public.manila_today() + 20, 'z', 'e1000000-0000-4000-8000-000000000067') - 'checkin_date' - 'checkout_date' - 'nights'),
   '{"found": true, "expired": false, "match": false}'::jsonb, 'verify_booking: a wrong initial still returns no name');
-select is((select (public.verify_booking(current_date + 30, null, 'e1000000-0000-4000-8000-000000000067') ->> 'checkout_date')::date), current_date + 34,
+select is((select (public.verify_booking(public.manila_today() + 30, null, 'e1000000-0000-4000-8000-000000000067') ->> 'checkout_date')::date), public.manila_today() + 34,
   'verify_booking: the last-4 chain reports its final checkout too');
-select is((select (public.verify_booking(current_date + 70, null, 'e1000000-0000-4000-8000-000000000067') ->> 'checkout_date')::date), current_date + 72,
+select is((select (public.verify_booking(public.manila_today() + 70, null, 'e1000000-0000-4000-8000-000000000067') ->> 'checkout_date')::date), public.manila_today() + 72,
   'verify_booking: a stay followed by a block is not extended');
-select is((select (public.verify_booking(current_date - 8, null, 'e1000000-0000-4000-8000-000000000067') ->> 'checkout_date')::date), current_date - 6,
+select is((select (public.verify_booking(public.manila_today() - 8, null, 'e1000000-0000-4000-8000-000000000067') ->> 'checkout_date')::date), public.manila_today() - 6,
   'verify_booking: a stay followed by another guest is not extended');
-select ok(public.verify_booking(current_date - 13, 's', 'e1000000-0000-4000-8000-000000000067') = jsonb_build_object(
-    'found', true, 'expired', true, 'checkin_date', current_date - 13, 'checkout_date', current_date - 9, 'nights', 4),
+select ok(public.verify_booking(public.manila_today() - 13, 's', 'e1000000-0000-4000-8000-000000000067') = jsonb_build_object(
+    'found', true, 'expired', true, 'checkin_date', public.manila_today() - 13, 'checkout_date', public.manila_today() - 9, 'nights', 4),
   'verify_booking: an expired chain expires on its FINAL checkout and returns dates only, no name');
-select is(public.verify_booking(current_date + 999, null, 'e1000000-0000-4000-8000-000000000067'), '{"found": false}'::jsonb, 'verify_booking: not found is unchanged');
+select is(public.verify_booking(public.manila_today() + 999, null, 'e1000000-0000-4000-8000-000000000067'), '{"found": false}'::jsonb, 'verify_booking: not found is unchanged');
 
 -- 41-47 grants and security
 select ok(has_function_privilege('service_role', 'public.stay_chains_v1(uuid, date, date)', 'execute')
@@ -222,7 +222,7 @@ select ok(has_function_privilege('service_role', 'public.guests_missing_details_
       and (select prosecdef from pg_proc where oid = 'public.guests_missing_details_v1(uuid[])'::regprocedure), 'guests_missing_details_v1 is a definer function for service_role only');
 
 -- stay_chains_v1 contract for its callers (daily-digest, PostgREST): uids exactly as stored, dates as type date
-select is((select array[first_uid, next_uid] from public.stay_chains_v1('e1000000-0000-4000-8000-000000000067', current_date + 22, current_date + 22)),
+select is((select array[first_uid, next_uid] from public.stay_chains_v1('e1000000-0000-4000-8000-000000000067', public.manila_today() + 22, public.manila_today() + 22)),
   array[(select uid from public.calendar_events where id = 'e6700000-0000-4000-8000-0000000000d1'),
         (select uid from public.calendar_events where id = 'e6700000-0000-4000-8000-0000000000d2')],
   'stay_chains_v1: first_uid and next_uid equal calendar_events.uid exactly (direct rows keep direct:<id>)');
@@ -230,8 +230,8 @@ select is(pg_get_function_result('public.stay_chains_v1(uuid, date, date)'::regp
   'TABLE(junction_date date, guest_id uuid, guest_name text, first_uid text, first_source text, first_code text, first_checkin date, next_uid text, next_code text, next_checkout date)',
   'stay_chains_v1: the date columns are type date and the rest are as documented');
 select is((select to_jsonb(x) ->> 'junction_date' || ' ' || (to_jsonb(x) ->> 'first_checkin') || ' ' || (to_jsonb(x) ->> 'next_checkout')
-             from public.stay_chains_v1('e1000000-0000-4000-8000-000000000067', current_date + 22, current_date + 22) x),
-  (current_date + 22)::text || ' ' || (current_date + 20)::text || ' ' || (current_date + 24)::text,
+             from public.stay_chains_v1('e1000000-0000-4000-8000-000000000067', public.manila_today() + 22, public.manila_today() + 22) x),
+  (public.manila_today() + 22)::text || ' ' || (public.manila_today() + 20)::text || ' ' || (public.manila_today() + 24)::text,
   'stay_chains_v1: dates serialise as YYYY-MM-DD');
 
 select * from finish();
