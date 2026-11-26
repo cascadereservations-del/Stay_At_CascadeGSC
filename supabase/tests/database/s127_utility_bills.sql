@@ -167,9 +167,10 @@ select pg_temp.set_ub(pg_temp.ub_open(date '2020-10-21'));
 insert into _t select 'e1120', public.utility_bill_estimate_v1(pg_temp.id('b1'), date '2020-11-20');
 insert into _t select 'e1121', public.utility_bill_estimate_v1(pg_temp.id('b1'), date '2020-11-21');
 insert into _t select 'e1122', public.utility_bill_estimate_v1(pg_temp.id('b1'), date '2020-11-22');
--- the cycle ending 21 Oct needs the cycle to start 21 Sep, and the 2019 scenario one that starts 21 Apr 2019 (billed in May 2019, which no rate precedes)
-select pg_temp.set_ub(pg_temp.ub_open(date '2020-09-21'));
-insert into _t select 'e1015', public.utility_bill_estimate_v1(pg_temp.id('b1'), date '2020-10-21');
+-- s143: a cycle that ends in October can no longer be read on its last day (cycle_to is always after p_on), so the October-rate scenario starts the cycle on 30 Sep (open_from) and reads it on 25 Oct: it ends 30 Oct, billed in October.
+-- And the 2019 scenario one that starts 21 Apr 2019 (billed in May 2019, which no rate precedes)
+select pg_temp.set_ub(pg_temp.ub_open(date '2020-09-30'));
+insert into _t select 'e1015', public.utility_bill_estimate_v1(pg_temp.id('b1'), date '2020-10-25');
 select pg_temp.set_ub(pg_temp.ub_open(date '2019-04-21'));
 insert into _t select 'e1905', public.utility_bill_estimate_v1(pg_temp.id('b1'), date '2019-05-15');
 select pg_temp.set_ub(pg_temp.ub_open(date '2020-10-21'));
@@ -195,25 +196,26 @@ select ok((select (v -> 'electric' ->> 'rate')::numeric = 12 and (v -> 'electric
 select ok((select (v -> 'electric' ->> 'forecast_kwh')::numeric = 108.5 and (v -> 'electric' ->> 'forecast_php')::numeric = 1307.60 and (v -> 'electric' ->> 'per_day_kwh')::numeric = 3.5
                   and (v -> 'electric' ->> 'per_day_php')::numeric = 42 from _t where k = 'e1120'), 'the 20th: forecast 108.5 kWh = 1307.60, per day 3.5 kWh = 42.00');
 select ok((select (v -> 'electric' ->> 'last_reading_at')::timestamptz = timestamptz '2020-11-20 09:00+08' from _t where k = 'e1120'), 'last_reading_at is the latest counted reading inside the cycle (c4, 20 Nov)');
--- the 21st (the expected reading day itself) takes c5's 21 Nov day: 20 + 55 + 30 + 10 = 115 kWh over 31 days; so far 115 x 12 + 5.60 = 1385.60; per day 115 / 31 = 3.7097 -> 3.71 kWh x 12 = 44.516 -> 44.52; forecast 3.7097 x 31 = 115 kWh = 1385.60
-select ok((select v -> 'electric' ->> 'cycle_to' = '2020-11-21' and (v -> 'electric' ->> 'days')::int = 31 and (v -> 'electric' ->> 'days_in_cycle')::int = 31 and (v -> 'electric' ->> 'kwh')::numeric = 115
-             and (v -> 'electric' ->> 'so_far_php')::numeric = 1385.60 and (v -> 'electric' ->> 'forecast_kwh')::numeric = 115 and (v -> 'electric' ->> 'forecast_php')::numeric = 1385.60
-             and (v -> 'electric' ->> 'per_day_kwh')::numeric = 3.71 and (v -> 'electric' ->> 'per_day_php')::numeric = 44.52 and (v -> 'electric' ->> 'overdue')::boolean is false from _t where k = 'e1121'),
-          'the 21st: the expected reading day takes c5''s 21 Nov day (115 kWh over 31 days = 1385.60 so far and forecast), not overdue');
+-- s143: the 21st is the assumed boundary itself, so the cycle that began on 21 Oct is over and a new one begins today: cycle_from 21 Nov, cycle_to 21 Dec (30 days), nothing counted yet (c5's 21 Nov day lands ON the boundary and is not in it):
+-- 0 kWh, 0 days, so far = the fixed charge 5.60 at the rate of the billed month December (the latest earlier rate, 12), no forecast, never overdue
+select ok((select v -> 'electric' ->> 'cycle_from' = '2020-11-21' and v -> 'electric' ->> 'cycle_to' = '2020-12-21' and (v -> 'electric' ->> 'days')::int = 0 and (v -> 'electric' ->> 'days_in_cycle')::int = 30 and (v -> 'electric' ->> 'kwh')::numeric = 0
+             and (v -> 'electric' ->> 'so_far_php')::numeric = 5.60 and v -> 'electric' -> 'forecast_kwh' = 'null'::jsonb and v -> 'electric' -> 'forecast_php' = 'null'::jsonb
+             and v -> 'electric' -> 'per_day_kwh' = 'null'::jsonb and v -> 'electric' -> 'per_day_php' = 'null'::jsonb and v -> 'electric' ->> 'billed_month' = '2020-12' and (v -> 'electric' ->> 'overdue')::boolean is false from _t where k = 'e1121'),
+          's143: the 21st: the assumed boundary is reached, so a new cycle begins on 21 Nov (to 21 Dec, 30 days): nothing counted yet (c5''s 21 Nov day lands on the boundary), 5.60 so far, no forecast, not overdue');
 
--- the 22nd: the expected reading day 21 Nov has passed and the same bill is still open (no cut at the 21st): it counts to p_on, overdue, still billed in November (rate 12).
--- c5 gives 21 and 22 Nov (2 x 10): 20 + 55 + 30 + 20 = 125 kWh; covered days 21 Oct -> 22 Nov = 32 and the cycle runs to p_on (32 days); so far 125 x 12 + 5.60 = 1505.60; per day 125 / 32 = 3.90625 -> 3.91 kWh x 12 = 46.875 -> 46.88;
--- forecast 3.90625 x 32 = 125 kWh = 1505.60
-select ok((select v -> 'electric' ->> 'cycle_from' = '2020-10-21' and v -> 'electric' ->> 'cycle_to' = '2020-11-21' and (v -> 'electric' ->> 'days')::int = 32 and (v -> 'electric' ->> 'days_in_cycle')::int = 32
-             and (v -> 'electric' ->> 'kwh')::numeric = 125 and v -> 'electric' ->> 'billed_month' = '2020-11' and (v -> 'electric' ->> 'overdue')::boolean from _t where k = 'e1122'),
-          'the 22nd: still the same open bill, overdue, billed in November: 125 kWh over 32 days (c5 gives 2 of its 4 days)');
-select ok((select (v -> 'electric' ->> 'rate')::numeric = 12 and (v -> 'electric' ->> 'so_far_php')::numeric = 1505.60 from _t where k = 'e1122'), 'the 22nd: November rate 12: 125 x 12 + 5.60 = 1505.60 so far');
-select ok((select (v -> 'electric' ->> 'forecast_kwh')::numeric = 125 and (v -> 'electric' ->> 'forecast_php')::numeric = 1505.60 and (v -> 'electric' ->> 'per_day_kwh')::numeric = 3.91
-                  and (v -> 'electric' ->> 'per_day_php')::numeric = 46.88 from _t where k = 'e1122'), 'the 22nd: forecast 125 kWh = 1505.60, per day 3.91 kWh = 46.88');
--- c1 alone in a cycle that starts 21 Sep and ends 21 Oct (p_on 21 Oct; it has no previous reading, so it lands on 21 Oct): 10 kWh, billed in October at the October rate 10 -> 10 x 10 + 5.60 = 105.60; covered days 21 Sep -> 21 Oct = 30
-select ok((select (v -> 'electric' ->> 'kwh')::numeric = 10 and (v -> 'electric' ->> 'rate')::numeric = 10 and (v -> 'electric' ->> 'so_far_php')::numeric = 105.60 and (v -> 'electric' ->> 'days')::int = 30
-             and v -> 'electric' ->> 'billed_month' = '2020-10' from _t where k = 'e1015'),
-          'a cycle that ends 21 Oct is billed at the October rate 10 (the month the cycle ends in, not the rate of the day it is read): 10 x 10 + 5.60 = 105.60');
+-- s143: the 22nd: the same cycle, one day in. c5 gives 22 Nov 10 kWh: 10 kWh over 1 day, 30 days in the cycle, billed in December (rate 12, the latest earlier rate), never overdue.
+-- so far 10 x 12 + 5.60 = 125.60; per day 10 kWh x 12 = 120.00; forecast 10 x 30 = 300 kWh = 300 x 12 + 5.60 = 3605.60
+select ok((select v -> 'electric' ->> 'cycle_from' = '2020-11-21' and v -> 'electric' ->> 'cycle_to' = '2020-12-21' and (v -> 'electric' ->> 'days')::int = 1 and (v -> 'electric' ->> 'days_in_cycle')::int = 30
+             and (v -> 'electric' ->> 'kwh')::numeric = 10 and v -> 'electric' ->> 'billed_month' = '2020-12' and (v -> 'electric' ->> 'overdue')::boolean is false from _t where k = 'e1122'),
+          's143: the 22nd: the cycle that began 21 Nov is one day old: 10 kWh over 1 day (c5 gives its 22 Nov day), 30 days in the cycle, billed in December, never overdue');
+select ok((select (v -> 'electric' ->> 'rate')::numeric = 12 and (v -> 'electric' ->> 'so_far_php')::numeric = 125.60 from _t where k = 'e1122'), 's143: the 22nd: December rate 12 (the latest earlier rate): 10 x 12 + 5.60 = 125.60 so far');
+select ok((select (v -> 'electric' ->> 'forecast_kwh')::numeric = 300 and (v -> 'electric' ->> 'forecast_php')::numeric = 3605.60 and (v -> 'electric' ->> 'per_day_kwh')::numeric = 10
+                  and (v -> 'electric' ->> 'per_day_php')::numeric = 120 from _t where k = 'e1122'), 's143: the 22nd: forecast 300 kWh = 3605.60, per day 10 kWh = 120.00');
+-- s143: the cycle 30 Sep .. 30 Oct read on 25 Oct (it ends in October, so the OCTOBER rate 10 applies, not the rate of the day it is read or of the month after): c1 lands on 21 Oct (10 kWh), c2 gives 22 .. 25 Oct (4 x 5 = 20 kWh) = 30 kWh over the 25 days to p_on;
+-- so far 30 x 10 + 5.60 = 305.60
+select ok((select (v -> 'electric' ->> 'kwh')::numeric = 30 and (v -> 'electric' ->> 'rate')::numeric = 10 and (v -> 'electric' ->> 'so_far_php')::numeric = 305.60 and (v -> 'electric' ->> 'days')::int = 25
+             and v -> 'electric' ->> 'cycle_to' = '2020-10-30' and v -> 'electric' ->> 'billed_month' = '2020-10' from _t where k = 'e1015'),
+          's143: a cycle that ends 30 Oct is billed at the October rate 10 (the month the cycle ends in, not the rate of the day it is read): 30 x 10 + 5.60 = 305.60 over 25 days');
 
 -- no rate at all for the billed month or before it: null, never a guess; no reading: zeros and no forecast
 select ok((select v -> 'electric' -> 'rate' = 'null'::jsonb and v -> 'electric' -> 'so_far_php' = 'null'::jsonb and v -> 'electric' -> 'forecast_php' = 'null'::jsonb and v -> 'electric' -> 'per_day_php' = 'null'::jsonb
@@ -230,10 +232,10 @@ select ok((select (v -> 'water' ->> 'm3')::numeric = 12 and (v -> 'water' ->> 's
           'water, the 20th: 12 m3 = 258.10, forecast 12.4 m3 = 267.32 (a flagged 40 m3 reading is ignored)');
 select ok((select (v -> 'water' ->> 'min_php')::numeric = 212 and (v -> 'water' ->> 'min_m3')::numeric = 10 and (v -> 'water' ->> 'next_php')::numeric = 23.05 and (v -> 'water' ->> 'next_upto')::numeric = 20 from _t where k = 'e1120'),
           'water: minimum 212 for 10 m3, next 23.05 up to 20');
--- the 22nd (the same open bill, overdue): c5 gives 2 x 1.0 = 2.0 m3 more: 14.0 m3 in 32 days = 212 + 4 x 23.05 = 304.20; per day 14 / 32 = 0.4375 -> 0.44; forecast 0.4375 x 32 = 14 m3 = 304.20
-select ok((select (v -> 'water' ->> 'm3')::numeric = 14 and (v -> 'water' ->> 'days')::int = 32 and (v -> 'water' ->> 'forecast_m3')::numeric = 14 and (v -> 'water' ->> 'forecast_php')::numeric = 304.20
-             and (v -> 'water' ->> 'so_far_php')::numeric = 304.20 and (v -> 'water' ->> 'per_day_m3')::numeric = 0.44 and (v -> 'water' ->> 'overdue')::boolean from _t where k = 'e1122'),
-          'water, the 22nd: the same open bill, overdue: 14.0 m3 in 32 days = 304.20');
+-- s143: the 22nd (the cycle from 21 Nov, one day in): c5 gives 22 Nov 1.0 m3: 1.0 m3 in 1 day = the 212 minimum; per day 1.0 m3; forecast 1.0 x 30 = 30 m3 = 709.00 (the tiers above 20 m3 apply)
+select ok((select (v -> 'water' ->> 'm3')::numeric = 1 and (v -> 'water' ->> 'days')::int = 1 and (v -> 'water' ->> 'forecast_m3')::numeric = 30 and (v -> 'water' ->> 'forecast_php')::numeric = 709.00
+             and (v -> 'water' ->> 'so_far_php')::numeric = 212.00 and (v -> 'water' ->> 'per_day_m3')::numeric = 1 and not (v -> 'water' ->> 'overdue')::boolean and v -> 'water' ->> 'cycle_from' = '2020-11-21' from _t where k = 'e1122'),
+          's143: water, the 22nd: the cycle from 21 Nov is one day old: 1.0 m3 = the 212 minimum, forecast 30 m3 = 709.00, never overdue');
 
 -- bad settings never raise and the bill is the one the settings they fall back to give (open_from stays valid so the 2020 cycle is the same)
 select pg_temp.set_ub('{"electric":{"cycle_day":"x","fixed_php":"abc","open_from":"2020-10-21"},"water":{"min_php":"abc","cycle_day":[1],"tiers":"none","open_from":"2020-10-21"}}'::jsonb);
@@ -380,6 +382,8 @@ insert into public.app_settings(key, value) values ('power_watch_rate_day', '{"c
 -- today's reading of its own property (b7): the first reading of its chain lands on today only, so today's cycle holds exactly 35 kWh and 3.5 m3 whatever day of the month it is
 insert into public.meter_readings(id, session_id, property_id, recorded_at, electric_prev, electric_curr, water_prev, electric_delta, water_delta, meter_flag) values
   (pg_temp.id('17'), null, pg_temp.id('b7'), (public.manila_today() + time '00:10') at time zone 'Asia/Manila', 2000, 2035, 3, 35, 3.5, null);
+-- s143: the open cycle of b7 begins on the assumed boundary (open_from + whole months, on or before today); on the 21st it would begin today and today's reading would land on the boundary, outside it. So the suite anchors the cycle on yesterday, whatever day of the month it runs.
+select pg_temp.set_ub(pg_temp.ub_open(public.manila_today() - 1));
 
 -- non-admin callers read the payload as themselves
 select pg_temp.as_user(pg_temp.id('a1'));
@@ -388,6 +392,9 @@ insert into _t select 'tb_cleaner', pg_temp.try($$select public.today_bills_v1('
 select pg_temp.as_user(pg_temp.id('a3'));
 insert into _t select 'k_laundry', pg_temp.try($$select public.kpi_tab_v1('e1270000-0000-4000-8000-0000000000b3')$$);
 insert into _t select 'tb_laundry', pg_temp.try($$select public.today_bills_v1('e1270000-0000-4000-8000-0000000000b7')$$);
+reset role;
+-- s143: back to the default setting (the kpi_tab_v1 checks below compare against the estimate of the default cycle)
+select pg_temp.set_ub(public.utility_billing_default_v1());
 -- the refused roles: a signed-in user with no staff profile, a cleaner of ANOTHER property, a DISABLED cleaner of the property, a null property, anon
 select pg_temp.as_user(pg_temp.id('a4'));
 insert into _t select 'tb_nostaff', pg_temp.try($$select public.today_bills_v1('e1270000-0000-4000-8000-0000000000b7')$$);
@@ -415,12 +422,15 @@ select ok((select v ->> 'err' = '42501' from _t where k = 'tb_other'), 'today_bi
 select ok((select v ->> 'err' = '42501' from _t where k = 'tb_disabled'), 'today_bills_v1: a disabled cleaner of the property is refused (42501)');
 select ok((select v ->> 'err' = '42501' from _t where k = 'tb_anon') and (select v ->> 'err' = '42501' from _t where k = 'tb_null'), 'today_bills_v1: anon and a null property are refused (42501)');
 select ok((select (v ? 'err') is not true and v ?& array['since', 'water_since', 'waiting_for', 'water_waiting_for', 'last_reading_at', 'electric', 'water', 'can_pay_list', 'check_bills', 'due'] and (select count(*) = 10 from jsonb_object_keys(v)) from _t where k = 'tb_cleaner')
-          and (select (v ? 'err') is not true from _t where k = 'tb_laundry'), 'today_bills_v1: allowed for a cleaner and for laundry, with exactly the ten keys of the s131 body (the four contract keys, due from s127, and water_since, waiting_for, water_waiting_for, can_pay_list, check_bills)');
+          and (select (v ? 'err') is not true from _t where k = 'tb_laundry'), 'today_bills_v1: allowed for a cleaner and for laundry, with exactly the ten keys of the s131 body for a payer-less role (the four contract keys, due from s127, and water_since, waiting_for, water_waiting_for, can_pay_list, check_bills; last_paid is for a payer only)');
 select ok((select (v -> 'electric' ->> 'kwh')::numeric = 35 and (v -> 'electric' ->> 'php')::numeric = 425.60 and (v -> 'water' ->> 'm3')::numeric = 3.5 and (v -> 'water' ->> 'php')::numeric = 212
-             and (select array_agg(key order by key) from jsonb_object_keys(v -> 'electric') key) = array['kwh', 'php'] and (select array_agg(key order by key) from jsonb_object_keys(v -> 'water') key) = array['m3', 'php']
-             from _t where k = 'tb_cleaner'), 'today_bills_v1: 35 kWh = 425.60, 3.5 m3 = 212');
-select ok((select (v ->> 'since')::date = date '2026-10-21' and (v ->> 'water_since')::date = date '2026-10-21' and (v ->> 'last_reading_at')::timestamptz = (public.manila_today() + time '00:10') at time zone 'Asia/Manila' from _t where k = 'tb_cleaner'),
-          'today_bills_v1: since and water_since are the open_from 2026-10-21 (no paid bill of b7 yet) and last_reading_at the latest counted reading');
+             -- s143: each meter also carries its open cycle (cycle_from, cycle_from_assumed, next_reading); a cleaner gets no last_bill
+             and (select array_agg(key order by key) from jsonb_object_keys(v -> 'electric') key) = array['cycle_from', 'cycle_from_assumed', 'kwh', 'next_reading', 'php']
+             and (select array_agg(key order by key) from jsonb_object_keys(v -> 'water') key) = array['cycle_from', 'cycle_from_assumed', 'm3', 'next_reading', 'php']
+             from _t where k = 'tb_cleaner'), 's143: today_bills_v1: 35 kWh = 425.60, 3.5 m3 = 212, and the cycle keys of each meter');
+select ok((select (v ->> 'since')::date = public.manila_today() - 1 and (v ->> 'water_since')::date = public.manila_today() - 1 and (v #>> '{electric,cycle_from_assumed}') = 'false'
+                   and (v ->> 'last_reading_at')::timestamptz = (public.manila_today() + time '00:10') at time zone 'Asia/Manila' from _t where k = 'tb_cleaner'),
+          's143: today_bills_v1: since and water_since are the open_from the suite set (yesterday: the setting itself, not an assumed date; no paid bill of b7 yet) and last_reading_at the latest counted reading');
 
 -- the rate rule reads nothing dated after today: the 99 on the first day of next month is absent from the by-month list, and a cycle that ends next month (p_on = the 3rd of next month) falls back to this month's 12
 select ok((select count(*) = 3 and not bool_or(r.php_per_kwh = 99) from public.utility_rate_by_month_v1() r)

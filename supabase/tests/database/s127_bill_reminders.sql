@@ -198,8 +198,8 @@ select ok((select count(*) = 21 and bool_and(p.proconfig = array['search_path=""
 select ok((select relrowsecurity from pg_class where oid = 'public.utility_bills'::regclass)
           and not has_table_privilege('anon', 'public.utility_bills', 'select,insert,update,delete') and not has_table_privilege('authenticated', 'public.utility_bills', 'select,insert,update,delete')
           and has_table_privilege('service_role', 'public.utility_bills', 'select,insert,update'), 'utility_bills: RLS on, no table privilege for anon or authenticated, service_role has it');
-select ok(md5(replace((select p.prosrc from pg_proc p where p.oid = 'public.today_bills_v1(uuid)'::regprocedure), chr(13), '')) = '7fca3fd12b7e372010f8f20b12c491a4',
-          'today_bills_v1 is exactly the body the s131 release pins (it replaced the s127 body 70302291... : adds water_since, waiting_for, can_pay_list and check_bills)');
+select ok(md5(replace((select p.prosrc from pg_proc p where p.oid = 'public.today_bills_v1(uuid)'::regprocedure), chr(13), '')) = '563053ef8469130428e9d35f09cc7762',
+          's143: today_bills_v1 is exactly the body the s143 release pins (it replaced the s131 body 7fca3fd1..., which replaced the s127 body 70302291...)');
 select ok(md5(replace((select p.prosrc from pg_proc p where p.oid = 'public.staff_pay_admin_settle_v1(uuid,jsonb)'::regprocedure), chr(13), '')) = '9035d0051294fcef4ff538fd65517524'
           and has_function_privilege('authenticated', 'public.staff_pay_admin_settle_v1(uuid,jsonb)', 'execute') and not has_function_privilege('anon', 'public.staff_pay_admin_settle_v1(uuid,jsonb)', 'execute')
           and not has_function_privilege('service_role', 'public.staff_pay_admin_settle_v1(uuid,jsonb)', 'execute')
@@ -254,8 +254,8 @@ select ok((select v = '0'::jsonb from _t where k = 'pol_fin_bill') and (select v
 -- 5. bill_due_open_v1. Property b1, March 2020. Rate 10 PHP/kWh (manual, March) and two counted readings.
 -- r1 21 Feb 2020 (first reading, 10 kWh, 1.0 m3) lands on its own day 21 Feb = the cycle start, so it is outside the cycle (21 Feb, 21 Mar].
 -- r2 1 Mar 2020 (60 kWh, 6.0 m3) is spread over the days after r1's day up to its own: 22 Feb..29 Feb (8 days, 2020 is a leap year) + 1 Mar = 9 days.
--- Electric: 60 kWh in 9 days; days in the cycle 21 Feb -> 21 Mar = 29; per day 60/9 = 6.6667; forecast 6.6667 x 29 = 193.3333 kWh; x 10 + 5.60 fixed = 1938.9333 -> 1938.93.
--- Water: 6.0 m3 in 9 days -> forecast 6/9 x 29 = 19.3333 m3 = 212 (minimum, 0-10) + (19.3333 - 10) x 23.05 = 212 + 215.1333 = 427.1333 -> 427.13.
+-- s143: the estimate at open is what the closed cycle used so far (counted use in the bill's own span up to least(row_to, p_on)), no longer a forecast to the end of the cycle.
+-- Electric: 60 kWh counted in the span 21 Feb -> 21 Mar; x 10 + 5.60 fixed = 605.60. Water: 6.0 m3 counted, inside the 10 m3 minimum = 212.
 insert into public.utility_rates(provider, php_per_kwh, effective_from, source) values ('socoteco2', 10, date '2020-03-01', 'manual');
 insert into public.meter_readings(id, session_id, property_id, recorded_at, electric_prev, electric_curr, water_prev, electric_delta, water_delta, meter_flag) values
   (pg_temp.id('c1'), null, pg_temp.id('b1'), timestamptz '2020-02-21 09:00+08', 1000, 1010, 50, 10, 1.0, null),
@@ -280,9 +280,9 @@ insert into _t select 'o1', public.bill_due_open_v1(pg_temp.id('b1'), date '2020
 select ok((select (select jsonb_agg(e ->> 'kind') from jsonb_array_elements(v -> 'new') e) = '["electric","water","internet","netflix"]'::jsonb from _t where k = 'o1')
           and (select count(*) = 4 and bool_and(status = 'due') from public.utility_bills where property_id = pg_temp.id('b1') and period = '2020-03'),
           'the 27th: four rows open (electric, water, internet, netflix, all due)');
-select ok((select (select jsonb_agg(e -> 'estimate_php') from jsonb_array_elements(v -> 'new') e) = '[1938.93, 427.13, 1500, 449]'::jsonb from _t where k = 'o1')
-          and (select array_agg(estimate_php order by kind) = array[1938.93, 1500, 449, 427.13]::numeric[] from public.utility_bills where property_id = pg_temp.id('b1') and period = '2020-03'),
-          'estimates: electric 1938.93 and water 427.13 (the cycle that CLOSES on 21 Mar, started at open_from 21 Feb), internet 1500 and netflix 449 (the fixed amounts)');
+select ok((select (select jsonb_agg(e -> 'estimate_php') from jsonb_array_elements(v -> 'new') e) = '[605.60, 212, 1500, 449]'::jsonb from _t where k = 'o1')
+          and (select array_agg(estimate_php order by kind) = array[605.60, 1500, 449, 212]::numeric[] from public.utility_bills where property_id = pg_temp.id('b1') and period = '2020-03'),
+          'estimates: electric 605.60 and water 212 (s143: the counted use of the cycle that CLOSES on 21 Mar, started at open_from 21 Feb), internet 1500 and netflix 449 (the fixed amounts)');
 select pg_temp.ub_open(null);
 select ok((select (v -> 'new' -> 2) ?& array['id', 'ref', 'kind', 'period', 'label', 'status', 'estimate_php', 'paid_php', 'paid_at', 'paid_by_name', 'paying_by_name', 'remind_day']
                  and v -> 'new' -> 2 ->> 'kind' = 'internet' and v -> 'new' -> 2 ->> 'period' = '2020-03' and v -> 'new' -> 2 ->> 'label' = 'Internet' and v -> 'new' -> 2 ->> 'remind_day' = '27'
@@ -336,7 +336,7 @@ select ok((select (select jsonb_agg((e ->> 'kind') || ':' || (e ->> 'period')) f
           and (select (select e ->> 'remind_day' from jsonb_array_elements(v -> 'new') e where e ->> 'kind' = 'internet') = '5' from _t where k = 'rd'),
           'remind_day is a real setting: internet with remind_day 5 opens June on the 6th while the other three (default 25) open May; the bill carries its remind_day');
 
--- 6. bill_step_v1 (internal core) on b1, March: electric (1938.93), water (427.13), internet (1500), netflix (449). Actors: admin a2 "Zz Admin", finance a4 "Zz Finance", finance a7 "Zz Guest".
+-- 6. bill_step_v1 (internal core) on b1, March: electric (605.60), water (212), internet (1500), netflix (449). Actors: admin a2 "Zz Admin", finance a4 "Zz Finance", finance a7 "Zz Guest".
 insert into _t select 'g4', pg_temp.gst(pg_temp.bid('water', 'b1', '2020-03'), 'pay');
 insert into _t select 'g5', pg_temp.fin(pg_temp.bid('netflix', 'b1', '2020-03'), 'pay');
 select ok((select v ->> 'ok' = 'true' and v -> 'bill' ->> 'status' = 'paying' and v -> 'bill' ->> 'paying_by_name' = 'Zz Guest' from _t where k = 'g4')
@@ -365,29 +365,29 @@ insert into _t select 's3', pg_temp.adm(pg_temp.bid('netflix', 'b2', '2020-06'),
 select ok((select v ->> 'ok' = 'true' and v -> 'bill' ->> 'status' = 'skipped' from _t where k = 's1') and (select v ->> 'ok' = 'true' from _t where k = 's2') and (select v ->> 'reason' = 'bad_step' from _t where k = 's3')
           and (select count(*) = 0 from public.transactions where source = 'bill' and property_id = pg_temp.id('b2')),
           'skip marks the bill skipped (twice is fine), writes no transaction, and a skipped bill cannot be paid');
--- paid: electric. Pay first (admin), then the screenshot read 1960.50. Band for estimate 1938.93 is 969.465 .. 3877.86, so 1960.50 is inside.
+-- paid: electric. Pay first (admin), then the screenshot read 610.00. s143: the band for the estimate 605.60 is 302.80 .. 1211.20, so 610.00 is inside (1960.50 was inside the old forecast band and would now ask).
 insert into _t select 'e0', pg_temp.adm(pg_temp.bid('electric', 'b1', '2020-03'), 'pay');
 insert into _t select 'e1', pg_temp.adm(pg_temp.bid('electric', 'b1', '2020-03'), 'paid',
-  '{"file_unique_id":"zz128-u1","file_id":"zz128-f1","sha256":"zz128-s1","amount":1960.5,"reference":"ZZREF1","read":{"amount":1960.5},"verdict":"read","unknown_key":1}'::jsonb);
-select ok((select v ->> 'ok' = 'true' and (v ->> 'paid_php')::numeric = 1960.5 and v -> 'bill' ->> 'status' = 'paid' and v -> 'bill' ->> 'paid_by_name' = 'Zz Admin' and v -> 'bill' ->> 'paying_by_name' = 'Zz Admin' from _t where k = 'e1'),
-          'paid with a read screenshot: ok, paid_php 1960.5 (the amount read, fee included, not the estimate 1938.93), status paid, settled by Zz Admin');
+  '{"file_unique_id":"zz128-u1","file_id":"zz128-f1","sha256":"zz128-s1","amount":610,"reference":"ZZREF1","read":{"amount":610},"verdict":"read","unknown_key":1}'::jsonb);
+select ok((select v ->> 'ok' = 'true' and (v ->> 'paid_php')::numeric = 610 and v -> 'bill' ->> 'status' = 'paid' and v -> 'bill' ->> 'paid_by_name' = 'Zz Admin' and v -> 'bill' ->> 'paying_by_name' = 'Zz Admin' from _t where k = 'e1'),
+          'paid with a read screenshot: ok, paid_php 610 (the amount read, fee included, not the estimate 605.60), status paid, settled by Zz Admin');
 select ok((select count(*) = 1 from public.transactions where external_ref = 'bill:electric:2020-03')
-          and (select t.txn_type = 'expense' and t.category = 'utilities' and t.status = 'confirmed' and t.source = 'bill' and t.gross_amount = 1960.50 and t.payee_name = 'Electricity (SOCOTECO II)'
+          and (select t.txn_type = 'expense' and t.category = 'utilities' and t.status = 'confirmed' and t.source = 'bill' and t.gross_amount = 610.00 and t.payee_name = 'Electricity (SOCOTECO II)'
                       and t.property_id = pg_temp.id('b1') and t.transaction_date = public.manila_today() and t.logged_by = 'Staff app: Zz Admin'
                       and t.notes = 'Utility bill electric 2020-03 (Electricity (SOCOTECO II)). Bill ' || (select ref from public.utility_bills where id = pg_temp.bid('electric', 'b1', '2020-03')) || '.'
                  from public.transactions t where t.external_ref = 'bill:electric:2020-03'),
-          'exactly ONE transactions row: expense, utilities, confirmed, source bill, 1960.50, payee the bill label, Manila today, logged by Staff app: Zz Admin, notes naming kind, period and ref');
+          'exactly ONE transactions row: expense, utilities, confirmed, source bill, 610.00, payee the bill label, Manila today, logged by Staff app: Zz Admin, notes naming kind, period and ref');
 select ok((select b.txn_id = (select id from public.transactions where external_ref = 'bill:electric:2020-03') and b.proof_verdict = 'read' and b.proof_sha256 = 'zz128-s1' and b.proof_file_unique_id = 'zz128-u1'
-                  and b.proof_file_id = 'zz128-f1' and b.proof_amount = 1960.50 and b.proof_reference = 'ZZREF1' and b.paid_php = 1960.50 and b.paid_by = pg_temp.id('a2') and b.paid_at is not null
+                  and b.proof_file_id = 'zz128-f1' and b.proof_amount = 610.00 and b.proof_reference = 'ZZREF1' and b.paid_php = 610.00 and b.paid_by = pg_temp.id('a2') and b.paid_at is not null
              from public.utility_bills b where b.id = pg_temp.bid('electric', 'b1', '2020-03')),
           'the bill row stores txn_id, the verdict read, the screenshot ids and sha256, the amount read, the reference and who paid (the user id)');
 insert into _t select 'e2', pg_temp.adm(pg_temp.bid('electric', 'b1', '2020-03'), 'paid', pg_temp.rp(1999));
 insert into _t select 'e3', pg_temp.adm(pg_temp.bid('electric', 'b1', '2020-03'), 'paid',
-  '{"file_unique_id":"zz128-u1","file_id":"zz128-f1","sha256":"zz128-s1","amount":1960.5,"verdict":"read"}'::jsonb);
-select ok((select v ->> 'reason' = 'already_paid' and v ->> 'ok' = 'false' and v -> 'bill' ->> 'status' = 'paid' and (v -> 'bill' ->> 'paid_php')::numeric = 1960.5 from _t where k = 'e2')
+  '{"file_unique_id":"zz128-u1","file_id":"zz128-f1","sha256":"zz128-s1","amount":610,"verdict":"read"}'::jsonb);
+select ok((select v ->> 'reason' = 'already_paid' and v ->> 'ok' = 'false' and v -> 'bill' ->> 'status' = 'paid' and (v -> 'bill' ->> 'paid_php')::numeric = 610 from _t where k = 'e2')
           and (select v ->> 'reason' = 'already_paid' and v -> 'bill' ->> 'status' = 'paid' from _t where k = 'e3')
           and (select count(*) = 1 from public.transactions where external_ref = 'bill:electric:2020-03')
-          and (select paid_php = 1960.50 from public.utility_bills where id = pg_temp.bid('electric', 'b1', '2020-03')),
+          and (select paid_php = 610.00 from public.utility_bills where id = pg_temp.bid('electric', 'b1', '2020-03')),
           'a repeat paid (new screenshot or the same one) is already_paid and still carries the bill: still one transaction and the amount is unchanged');
 insert into _t select 'x1', pg_temp.adm(pg_temp.bid('electric', 'b1', '2020-03'), 'pay');
 insert into _t select 'x2', pg_temp.adm(pg_temp.bid('electric', 'b1', '2020-03'), 'cancel');
@@ -403,11 +403,11 @@ select ok((select v ->> 'reason' = 'duplicate_proof' and v ->> 'other_ref' = (se
           and (select status = 'paying' and proof_sha256 is null from public.utility_bills where id = pg_temp.bid('water', 'b1', '2020-03'))
           and (select count(*) = 0 from public.transactions where external_ref = 'bill:water:2020-03'),
           'the electric screenshot used on the water bill is duplicate_proof by sha256 or by file id, naming the other bill; the water bill is unchanged and nothing is written');
-insert into _t select 'w1', pg_temp.gst(pg_temp.bid('water', 'b1', '2020-03'), 'paid', '{"file_unique_id":"zz128-u3","file_id":"zz128-f3","sha256":"zz128-s3","amount":430,"verdict":"read"}'::jsonb);
-select ok((select v ->> 'ok' = 'true' and (v ->> 'paid_php')::numeric = 430 from _t where k = 'w1')
+insert into _t select 'w1', pg_temp.gst(pg_temp.bid('water', 'b1', '2020-03'), 'paid', '{"file_unique_id":"zz128-u3","file_id":"zz128-f3","sha256":"zz128-s3","amount":220,"verdict":"read"}'::jsonb);
+select ok((select v ->> 'ok' = 'true' and (v ->> 'paid_php')::numeric = 220 from _t where k = 'w1')
           and (select paying_by_name = 'Zz Guest' and paid_by_name = 'Zz Guest' and paid_by = pg_temp.id('a7') from public.utility_bills where id = pg_temp.bid('water', 'b1', '2020-03'))
-          and (select count(*) = 1 from public.transactions where external_ref = 'bill:water:2020-03' and gross_amount = 430 and payee_name = 'Water (Gensan Water District)'),
-          'water paid 430 (inside 213.565 .. 854.26 around the estimate 427.13): the person who tapped pay (Zz Guest) settles it and is recorded as payer and settler');
+          and (select count(*) = 1 from public.transactions where external_ref = 'bill:water:2020-03' and gross_amount = 220 and payee_name = 'Water (Gensan Water District)'),
+          's143: water paid 220 (inside 106 .. 424 around the estimate 212): the person who tapped pay (Zz Guest) settles it and is recorded as payer and settler');
 -- bad amounts on internet (due): 0, -5, 100000.01 (over the 100,000 cap), "abc", missing, "12.345" (three decimals), 0.004 (rounds to 0.00), and 100000.01 with confirmed true
 insert into _t select 'ba', jsonb_build_array(
   pg_temp.adm(pg_temp.bid('internet', 'b1', '2020-03'), 'paid', '{"file_unique_id":"zz-b1","sha256":"zz-b1","amount":0}'),
@@ -487,8 +487,8 @@ select ok((select v ->> 'ok' = 'true' from _t where k = 'or') and (select count(
           'an existing non-void ledger row for the ref is linked, not duplicated (one row, untouched)');
 -- the ledger invariant for b1 March: four paid bills (electric, water, internet, netflix) and exactly four bill transactions, one per kind
 select ok((select count(*) = 4 from public.utility_bills where property_id = pg_temp.id('b1') and period = '2020-03' and status = 'paid')
-          and (select count(*) = 4 and count(distinct external_ref) = 4 and sum(gross_amount) = 1960.50 + 430 + 1510 + 600 from public.transactions where property_id = pg_temp.id('b1') and source = 'bill' and external_ref like 'bill:%:2020-03'),
-          'b1 March: four paid bills and exactly four bill transactions, one per ref, totalling 1960.50 + 430 + 1510 + 600 = 4500.50');
+          and (select count(*) = 4 and count(distinct external_ref) = 4 and sum(gross_amount) = 610 + 220 + 1510 + 600 from public.transactions where property_id = pg_temp.id('b1') and source = 'bill' and external_ref like 'bill:%:2020-03'),
+          'b1 March: four paid bills and exactly four bill transactions, one per ref, totalling 610 + 220 + 1510 + 600 = 2940.00');
 -- Addendum 3.1 ledger link. b2 netflix 2021-01 .. 2021-06 (estimate 449, band 449 .. 499, so a screenshot reading 449 passes the band and reaches the ledger check).
 -- The ledger already holds a row for the ref of 2021-01 (amount 400, not 449), 2021-02 (another property, b1), 2021-03 (source manual) and 2021-04 (status void; the unique index counts void rows).
 -- None may be linked or doubled: each paid is a plain 55000 sentence naming the ref (and what differs), and the bill stays due. 2021-05 serves the payer test, 2021-06 the staff-pay screenshot test.
@@ -612,17 +612,22 @@ select pg_temp.as_user(pg_temp.id('a4'));
 insert into _t select 'op3', pg_temp.c1('bill_pay_open_v1', pg_temp.bi('el10'));
 insert into _t select 'op4', pg_temp.c1('bill_pay_open_v1', pg_temp.bi('in10'));
 reset role;
-select ok((select v = jsonb_build_object('ok', true,
+-- s143: the answer gains bill.from / to / to_assumed / paid_on / reading_date / reading_date_assumed and pay.method_default. from, to and reading_date follow the cycle of the Manila day the suite runs on (nothing is read for this old period), so they are checked by shape, not by value.
+select ok((select (v #- '{bill,from}' #- '{bill,to}' #- '{bill,reading_date}') = jsonb_build_object('ok', true,
               'bill', jsonb_build_object('id', pg_temp.bi('el10'), 'kind', 'electric', 'label', 'Electricity (SOCOTECO II)', 'period', '2020-10', 'status', 'paying', 'estimate_php', 1000, 'paid_php', null,
-                                         'is_estimate', true, 'due_day', 27, 'paying_by_name', 'Zz Admin', 'paid_by_name', null, 'paid_at', null, 'can_pay', true),
-              'pay', jsonb_build_object('payee_name', 'Zz Power', 'number_label', 'Account number', 'number', 'ZZ-ACCT-1', 'note', 'Zz October 2020 bill', 'amount_php', 1000, 'amount_editable', true),
-              'can_edit', true) from _t where k = 'op1')
+                                         'is_estimate', true, 'due_day', 27, 'paying_by_name', 'Zz Admin', 'paid_by_name', null, 'paid_at', null, 'can_pay', true,
+                                         'to_assumed', true, 'paid_on', null, 'reading_date_assumed', true),
+              'pay', jsonb_build_object('payee_name', 'Zz Power', 'number_label', 'Account number', 'number', 'ZZ-ACCT-1', 'note', 'Zz October 2020 bill', 'amount_php', 1000, 'amount_editable', true, 'method_default', 'gcash'),
+              'can_edit', true)
+                  and (v #>> '{bill,from}')::date < (v #>> '{bill,to}')::date and (v #>> '{bill,reading_date}')::date = (v #>> '{bill,to}')::date from _t where k = 'op1')
           and (select status = 'paying' and paying_by = pg_temp.id('a2') and paying_by_name = 'Zz Admin' from public.utility_bills where id = pg_temp.bi('el10')),
           'bill_pay_open_v1 as admin: the exact answer (bill entry, pay details with the month filled in, amount_editable true, can_edit true) and the bill is paying by the caller');
 select ok((select (select v from _t where k = 'op2') = (select v from _t where k = 'op1')), 'calling pay open again as the same payer returns the same answer');
 select ok((select v = '{"ok":false,"reason":"paying_by_other","name":"Zz Admin"}'::jsonb from _t where k = 'op3'), 'another finance user opening a bill someone else is paying gets paying_by_other with the payer''s name');
 -- internet: payee and number come from the pay-to settings, number_label "GCash number", the default note is the label and the month, the amount is fixed, a finance user cannot edit
-select ok((select v -> 'pay' = jsonb_build_object('payee_name', 'Zz Net', 'number_label', 'GCash number', 'number', '0900-000-0000', 'note', 'Internet October 2020', 'amount_php', 1500, 'amount_editable', false)
+-- s143: an internet bill has no meter span: from / to / reading_date are null, reading_date_assumed false, and the pay block gains method_default 'gcash'
+select ok((select v -> 'pay' = jsonb_build_object('payee_name', 'Zz Net', 'number_label', 'GCash number', 'number', '0900-000-0000', 'note', 'Internet October 2020', 'amount_php', 1500, 'amount_editable', false, 'method_default', 'gcash')
+                  and v -> 'bill' @> '{"from": null, "to": null, "to_assumed": false, "paid_on": null, "reading_date": null, "reading_date_assumed": false}'::jsonb
                   and v -> 'bill' ->> 'status' = 'paying' and v -> 'bill' ->> 'paying_by_name' = 'Zz Finance' and v -> 'bill' ->> 'can_pay' = 'true' and v -> 'bill' ->> 'is_estimate' = 'false'
                   and v ->> 'can_edit' = 'false' from _t where k = 'op4'),
           'internet pay open as finance: GCash number label, the default note names the month, the amount is fixed, can_edit false (no manage_staff)');
@@ -826,7 +831,8 @@ insert into _t select 'tb_nostaff', pg_temp.try($$select public.today_bills_v1('
 select pg_temp.as_anon();
 insert into _t select 'tb_anon', pg_temp.try($$select public.today_bills_v1('e1280000-0000-4000-8000-0000000000b3')$$);
 reset role;
-select ok((select (select jsonb_agg(e - 'id' - 'paid_at' order by o) from jsonb_array_elements(v -> 'due') with ordinality t(e, o)) = jsonb_build_array(
+-- s143: due[] holds the due and paying rows only (the paid one of this month is gone, it shows in last_paid); each entry has 17 keys (the 13 old ones plus from, to, to_assumed, paid_on). The cycle dates follow the Manila day the suite runs on, so they are checked by shape.
+select ok((select (select jsonb_agg(e - 'id' - 'paid_at' - 'from' - 'to' - 'to_assumed' - 'paid_on' order by o) from jsonb_array_elements(v -> 'due') with ordinality t(e, o)) = jsonb_build_array(
              jsonb_build_object('kind', 'electric', 'label', 'Electricity (SOCOTECO II)', 'period', '2020-01', 'status', 'due', 'estimate_php', 999, 'paid_php', null, 'is_estimate', true, 'due_day', 27,
                                 'paying_by_name', null, 'paid_by_name', null, 'can_pay', true),
              jsonb_build_object('kind', 'netflix', 'label', 'Netflix', 'period', to_char(public.manila_today() - interval '1 month', 'YYYY-MM'), 'status', 'paying', 'estimate_php', 449, 'paid_php', null, 'is_estimate', false, 'due_day', 27,
@@ -834,26 +840,26 @@ select ok((select (select jsonb_agg(e - 'id' - 'paid_at' order by o) from jsonb_
              jsonb_build_object('kind', 'electric', 'label', 'Electricity (SOCOTECO II)', 'period', to_char(public.manila_today(), 'YYYY-MM'), 'status', 'due', 'estimate_php', 1000.55, 'paid_php', null, 'is_estimate', true, 'due_day', 27,
                                 'paying_by_name', null, 'paid_by_name', null, 'can_pay', true),
              jsonb_build_object('kind', 'internet', 'label', 'Internet', 'period', to_char(public.manila_today(), 'YYYY-MM'), 'status', 'due', 'estimate_php', 1500, 'paid_php', null, 'is_estimate', false, 'due_day', 27,
-                                'paying_by_name', null, 'paid_by_name', null, 'can_pay', true),
-             jsonb_build_object('kind', 'water', 'label', 'Water (Gensan Water District)', 'period', to_char(public.manila_today(), 'YYYY-MM'), 'status', 'paid', 'estimate_php', 300, 'paid_php', 321.4, 'is_estimate', true, 'due_day', 27,
-                                'paying_by_name', null, 'paid_by_name', 'Zz Admin', 'can_pay', false))
-           and (select count(*) = 5 and count(*) filter (where e ->> 'id' is not null) = 5 and count(*) filter (where e ->> 'status' = 'paid' and e ->> 'paid_at' is not null) = 1 from jsonb_array_elements(v -> 'due') e)
+                                'paying_by_name', null, 'paid_by_name', null, 'can_pay', true))
+           and (select count(*) = 4 and count(*) filter (where e ->> 'id' is not null) = 4 and count(*) filter (where e ->> 'status' = 'paid') = 0
+                       and bool_and((select count(*) = 17 from jsonb_object_keys(e)) and e ?& array['from', 'to', 'to_assumed', 'paid_on'] and (e ->> 'to_assumed')::boolean = (e ->> 'kind' in ('electric', 'water'))
+                                    and ((e -> 'from') = 'null'::jsonb) = (e ->> 'kind' not in ('electric', 'water')) and (e -> 'paid_on') = 'null'::jsonb) from jsonb_array_elements(v -> 'due') e)
            from _t where k = 'tb_admin'),
-          'an admin (who can pay) sees, in the contract order, every unpaid bill (older first) then this month''s paid one, each with exactly the fourteen entry keys, can_pay true on the unpaid ones and false on the paid one; skipped and older paid rows are left out');
-select ok((select (select jsonb_agg(e -> 'can_pay' order by o) from jsonb_array_elements(v -> 'due') with ordinality t(e, o)) = '[true, true, true, true, false]'::jsonb from _t where k = 'tb_admin')
-          and (select (select jsonb_agg(e -> 'can_pay' order by o) from jsonb_array_elements(v -> 'due') with ordinality t(e, o)) = '[true, false, true, true, false]'::jsonb from _t where k = 'tb_fin')
+          'an admin (who can pay) sees, in the contract order, every unpaid bill (older first) and no paid one, each with exactly the seventeen entry keys (s143), can_pay true on each; paid and skipped rows are left out');
+select ok((select (select jsonb_agg(e -> 'can_pay' order by o) from jsonb_array_elements(v -> 'due') with ordinality t(e, o)) = '[true, true, true, true]'::jsonb from _t where k = 'tb_admin')
+          and (select (select jsonb_agg(e -> 'can_pay' order by o) from jsonb_array_elements(v -> 'due') with ordinality t(e, o)) = '[true, false, true, true]'::jsonb from _t where k = 'tb_fin')
           and (select v -> 'due' = '[]'::jsonb and (v ->> 'can_pay_list')::boolean is false from _t where k = 'tb_laundry')
           and (select v -> 'due' = '[]'::jsonb and (v ->> 'can_pay_list')::boolean is false from _t where k = 'tb_cleaner'),
-          'can_pay: admin true for due rows and for the bill it is paying, false once paid; a finance user is false on a bill another person is paying; laundry and a cleaner get no list at all (s131: due = [], can_pay_list false)');
+          'can_pay (s143: the paid row is no longer in due[]): admin true for due rows and for the bill it is paying; a finance user is false on a bill another person is paying; laundry and a cleaner get no list at all (s131: due = [], can_pay_list false)');
 select ok((select v::text !~ '"(number|payee_name|note|account|account_name|pay_to_name|pay_to_number)"' and v::text !~ 'ZZACCT123|09990000000|ZzPayeeName' from _t where k = 'tb_admin')
           and (select v::text !~ '"(number|payee_name|note|account|account_name|pay_to_name|pay_to_number)"' and v::text !~ 'ZZACCT123|09990000000|ZzPayeeName' from _t where k = 'tb_cleaner'),
           'no key named number, payee_name, note or account (nor any account or payee value from the settings) is in the Today payload');
-select ok((select jsonb_array_length(v -> 'due') = 5 from _t where k = 'tb_fin') and (select jsonb_array_length(v -> 'due') = 0 from _t where k = 'tb_laundry'), 'finance sees the same five rows; laundry sees none (s131: only a role that can pay gets the list)');
+select ok((select jsonb_array_length(v -> 'due') = 4 from _t where k = 'tb_fin') and (select jsonb_array_length(v -> 'due') = 0 from _t where k = 'tb_laundry'), 's143: finance sees the same four rows; laundry sees none (s131: only a role that can pay gets the list)');
 -- b1 has no row in the current month; its March rows are all paid; April electric is due and April internet is paying; May has four rows, all due (set up in section 5)
 select ok((select (select jsonb_agg(jsonb_build_object('k', e ->> 'kind', 'p', e ->> 'period', 's', e ->> 'status') order by o) from jsonb_array_elements(v -> 'due') with ordinality t(e, o))
                   = '[{"k":"electric","p":"2020-04","s":"due"},{"k":"internet","p":"2020-04","s":"paying"},{"k":"electric","p":"2020-05","s":"due"},{"k":"water","p":"2020-05","s":"due"},{"k":"internet","p":"2020-05","s":"due"},{"k":"netflix","p":"2020-05","s":"due"}]'::jsonb
-                  and v ?& array['due', 'electric', 'last_reading_at', 'since', 'water'] and (select count(*) = 10 from jsonb_object_keys(v)) from _t where k = 'tb_b1'),
-          'a property with no bill row this month still lists its unpaid bills of earlier months (paid and skipped ones do not show), oldest first (read as an admin), and the four lane A keys are all still there among the ten keys of the s131 body');
+                  and v ?& array['due', 'electric', 'last_reading_at', 'since', 'water'] and (select count(*) = 11 from jsonb_object_keys(v)) from _t where k = 'tb_b1'),
+          'a property with no bill row this month still lists its unpaid bills of earlier months (paid and skipped ones do not show), oldest first (read as an admin), and the four lane A keys are all still there among the eleven keys of the s143 body (s143: last_paid is added for a payer)');
 select ok((select v ->> 'err' = '42501' from _t where k = 'tb_nostaff') and (select v ->> 'err' = '42501' from _t where k = 'tb_anon'), 'a user with no staff profile and anon are still refused (42501)');
 select pg_temp.cfg_set(pg_temp.cfg_default()) is not null as reset4;
 
