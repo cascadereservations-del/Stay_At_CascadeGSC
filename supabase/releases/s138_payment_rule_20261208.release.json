@@ -1,0 +1,81 @@
+{
+  "schema_version": 1,
+  "release_id": "s138_payment_rule_20261208",
+  "phase": "expand",
+  "source": {
+    "branch": "s138/payment-rule-sql",
+    "commit": "b390ce4ae77233244bfa9b695f080e39dee23ab2"
+  },
+  "migrations": [
+    "20261208000000_s138_rate_card_deposit_pct.sql",
+    "20261208000100_s138_house_facts_pin_rule.sql"
+  ],
+  "migration_sha256": {
+    "20261208000000_s138_rate_card_deposit_pct.sql": "ed8503267751ebe9eb236e6d7276d7f1ae1daaeab814d651e563170b984a737f",
+    "20261208000100_s138_house_facts_pin_rule.sql": "53c803de5a7278752c8f3002290c99ab74d7542308333bba3fcfa895f45906f1"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20261126T061604Z",
+    "verified_at": "2026-11-26T06:20:57.400Z",
+    "production_rule": "Pay-in-full rule (D-428 to D-430). 20261208000000 sets terms.deposit_pct from 50 to 100 on the Cascade property's live and scheduled booking_rate_policy_versions rows (past versions keep 50) and writes terms.s138_prev_deposit_pct = 50 on each row it changes (the rollback's marker); no other column changes. 20261208000100 replaces one sentence in three house_facts rows (smart-lock-prospect, smart-lock-staff, smart-lock): the door PIN follows payment, IDs and the PHP 800 refundable deposit instead of 'IDs and the balance'. Both are guarded updates that stop (55000) unless the rows hold the expected old value (a non-numeric deposit_pct also stops, with a clear message); no table, function or grant changes; no stored booking changes.",
+    "notes": "Apply together with or after the edge deploy of the s138 functions (the code ignores deposit_pct for the amount due, so order does not change any charge). The migrations carry no begin/commit (the runner wraps them)."
+  },
+  "forward_verification": [
+    {
+      "name": "no_live_or_scheduled_version_below_100",
+      "query": "select not exists (select 1 from public.booking_rate_policy_versions where property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd' and (effective_to is null or effective_to >= (now() at time zone 'Asia/Manila')::date) and coalesce(case when jsonb_typeof(terms -> 'deposit_pct') = 'number' then (terms ->> 'deposit_pct')::numeric end, -1) <> 100)",
+      "expect": true
+    },
+    {
+      "name": "rate_card_reports_100",
+      "query": "select (public.get_rate_card_v1('6ae230f4-c189-4547-84b1-cb6e0b2cc9bd') ->> 'deposit_pct')::numeric = 100",
+      "expect": true
+    },
+    {
+      "name": "pin_rows_name_the_deposit_not_the_balance",
+      "query": "select count(*) = 3 and bool_and(body like '%PHP 800%' and body not like '%the balance%') from public.house_facts where topic in ('smart-lock-prospect', 'smart-lock-staff', 'smart-lock')",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "Rate card: any time; the rollback restores exactly the rows that carry the s138 marker (rows re-edited since lose the marker and are left alone). House facts: any time while the three rows still hold this release's text; an edited row stops it (55000).",
+    "steps": [
+      {
+        "name": "restore_house_facts",
+        "action": "apply supabase/rollbacks/20261208_s138_house_facts_pin_rule.sql with run-sql-on-host.sh"
+      },
+      {
+        "name": "restore_deposit_pct",
+        "action": "apply supabase/rollbacks/20261208_s138_rate_card_deposit_pct.sql with run-sql-on-host.sh"
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "no_flag_the_app_follows_the_sql",
+      "required_state": "None. The edge code already treats the amount due as the whole stay whatever deposit_pct says."
+    }
+  ],
+  "compatibility": {
+    "mode": "widening",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": true,
+    "evidence": "Rehearsed 2026-11-26 with migration-rehearsal-on-host.sh on a restored copy of backup cascade-supabase-20261125T054901Z: 2 migrations applied, forward verification 3 of 3, pgTAP s138_payment_rule 30 of 30, cleanup leftovers 0. Rehearsed again after the apply with the test fixture added (suite only changed; migrations byte-identical) on backup cascade-supabase-20261126T061604Z: same result, 30 of 30."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour, or restore_point / verified_at are still the placeholders",
+    "a migration guard raises 55000 (the live row is not the one this release was cut from)",
+    "the pgTAP suite s138_payment_rule has not passed on this commit",
+    "the Opus 5.5 review of this SQL lane has not passed"
+  ]
+}
