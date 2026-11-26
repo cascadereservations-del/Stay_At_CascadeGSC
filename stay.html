@@ -62,10 +62,10 @@
   <section class="st-card" id="stPolicy" hidden>
     <h2>Good to know</h2>
     <p>Check-in begins at 2:00 PM. Check-out is at 12:00 PM (noon).</p>
-    <p>A 50% reservation fee, reviewed against availability, secures your requested dates once verified. The remaining balance and a &#x20B1;1,000 refundable security deposit are due at least one day before check-in.</p>
+    <p>Your stay is paid in full to confirm. A separate, refundable security deposit of &#x20B1;800 is paid with your booking or by the day before check-in; your door PIN is sent once your payment, IDs and the deposit are in. The deposit is returned as soon as possible, within 3 business days of check-out, to the same account or payment mode it came from.</p>
     <ul>
-      <li>5 or more days before check-in: the reservation fee is fully refunded.</li>
-      <li>Under 5 days before check-in: the reservation fee is retained to cover the reserved dates.</li>
+      <li>Free cancellation until 5 days before check-in.</li>
+      <li>Inside 5 days, or for a no-show, we keep 50% of the stay and your deposit is returned in full.</li>
     </ul>
     <p class="st-note">Full terms: <a href="booking-terms.html">Booking terms</a>.</p>
   </section>
@@ -85,10 +85,10 @@
   var intakeSeq = 0;
   var timers = [];
   var TEXT = {
-    held: ['Your dates are held', 'We are holding your dates while you send the reservation fee. Once you have paid, upload your receipt below. If nothing arrives before the hold ends, the hold is released and nothing is owed.'],
+    held: ['Your dates are held', 'We are holding your dates while you send your payment. Once you have paid, upload your receipt below. If nothing arrives before the hold ends, the hold is released and nothing is owed.'],
     awaiting_payment: ['Waiting for your payment', 'Your request is in. Send your payment, then upload your receipt below so we can review it.'],
     under_review: ['We have your receipt', 'We are matching it against your booking and current availability. This page refreshes on its own.'],
-    confirmed: ['Your booking is confirmed', 'Your reservation payment has been verified. Your exact address, gate code and directions arrive in your personal confirmation message.'],
+    confirmed: ['Your booking is confirmed', 'Your reservation payment has been verified. Your exact address and directions arrive in your personal confirmation message. The host sends your gate code once your payment, your IDs and the ₱800 deposit are in.'],
     released: ['This hold has ended', 'The hold ended before a payment reached us, so the dates were released. If you would still like to stay, book again or message us and we will check the dates for you.'],
     cancelled: ['This request is closed', 'This booking request was cancelled. If that is a surprise, contact us with your reference.']
   };
@@ -316,7 +316,8 @@
     card.appendChild(el('p', 'st-ref', 'Reference ' + s.ref));
     card.appendChild(el('p', 'st-state', copy[0]));
     if (s.state === 'held' && s.hold_expires_at) card.appendChild(holdLine(s.hold_expires_at, s.server_now));
-    card.appendChild(el('p', '', copy[1]));
+    var dep = s.money && s.money.security_deposit;
+    card.appendChild(el('p', '', typeof dep === 'number' && dep > 0 ? copy[1].replace('₱800', '₱' + dep) : copy[1]));
     var grid = el('dl', 'st-grid');
     row(grid, 'Check-in', day(s.checkin_date) + ' from ' + s.checkin_time);
     row(grid, 'Check-out', day(s.checkout_date) + ' by ' + s.checkout_time);
@@ -330,11 +331,11 @@
       pay.appendChild(el('h2', '', 'Payment'));
       var g = el('dl', 'st-grid');
       row(g, 'Total stay', peso(m.total));
-      row(g, 'Reservation payment', peso(m.reservation_payment) + (s.state === 'confirmed' ? ' — verified' : s.state === 'under_review' ? ' — under review' : ' — due now'));
+      row(g, 'Payment for your stay', peso(m.reservation_payment) + (s.state === 'confirmed' ? ', verified' : s.state === 'under_review' ? ', under review' : ', due now'));
       var rest = (typeof m.total === 'number' && typeof m.reservation_payment === 'number') ? Math.max(0, m.total - m.reservation_payment) : null;
       var today = new Date(isFinite(Date.parse(s.server_now)) ? Date.parse(s.server_now) : Date.now()).toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' });
       var settled = s.state === 'confirmed' && typeof m.balance_due_date === 'string' && m.balance_due_date < today; /* due date passed: a settled guest is not told they owe */
-      if (!settled) row(g, s.state === 'confirmed' ? 'Balance due' : 'Remaining balance', rest === null ? '—' : (rest === 0 ? 'None' : peso(rest) + ' by ' + day(m.balance_due_date)));
+      if (!settled && rest !== 0) row(g, s.state === 'confirmed' ? 'Balance due' : 'Remaining balance', rest === null ? 'to be confirmed' : peso(rest) + ' by ' + day(m.balance_due_date));   /* paid in full (rest 0): no balance row; a part-paid booking made before the rule change still shows one */
       row(g, 'Security deposit', peso(m.security_deposit) + ' refundable' + (m.balance_due_date ? ', by ' + day(m.balance_due_date) : ''));
       pay.appendChild(g);
       frag.appendChild(pay);
@@ -346,7 +347,7 @@
       var ol = el('ol', 'st-steps');
       s.timeline.forEach(function (step) {
         var li = el('li', step.done ? 'done' : '', STEPS[step.key] || step.key);
-        if (step.key === 'arrival') li.appendChild(el('small', '', ' — sent to you personally once your booking is confirmed'));
+        if (step.key === 'arrival') li.appendChild(el('small', '', ': sent by the host once your payment, your IDs and the deposit are in'));
         ol.appendChild(li);
       });
       tl.appendChild(ol);

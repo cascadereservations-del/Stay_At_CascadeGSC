@@ -7,7 +7,7 @@ const TOKEN = 'A'.repeat(43);
 const NOW = Date.now();
 const iso = (ms) => new Date(ms).toISOString();
 const manilaDay = (offsetDays) => new Date(NOW + offsetDays * 86_400_000).toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' });
-const money = { total: 4000, reservation_payment: 2000, balance_due_date: manilaDay(5), security_deposit: 1000 };
+const money = { total: 4000, reservation_payment: 2000, balance_due_date: manilaDay(5), security_deposit: 800 };
 const status = (over) => ({
   ok: true,
   status: {
@@ -36,11 +36,11 @@ test.describe('booking status page', () => {
     await expect(page.locator('.st-hold')).toContainText('Held until');
     await expect(page.locator('#stView')).toContainText('Reference ABCD1234');
     await expect(page.locator('#stView')).toContainText('₱4,000');
-    await expect(page.locator('#stView')).toContainText('₱1,000 refundable');
+    await expect(page.locator('#stView')).toContainText('₱800 refundable');
     await expect(page.getByRole('button', { name: 'Upload receipt' })).toBeVisible();
     await expect(page.locator('#stPolicy')).toBeVisible();
-    await expect(page.locator('#stPolicy')).toContainText('A 50% reservation fee, reviewed against availability, secures your requested dates once verified.');
-    await expect(page.locator('#stPolicy')).toContainText('5 or more days before check-in: the reservation fee is fully refunded.');
+    await expect(page.locator('#stPolicy')).toContainText('Your stay is paid in full to confirm.');
+    await expect(page.locator('#stPolicy')).toContainText('Free cancellation until 5 days before check-in.');
     expect(seen).toHaveLength(1);
     expect(seen[0].body).toEqual({ token: TOKEN, view: 'status' });
     expect(seen[0].url).not.toContain(TOKEN);
@@ -68,6 +68,25 @@ test.describe('booking status page', () => {
     await expect(page.locator('#stView')).not.toContainText('Remaining balance');
   });
 
+  test('confirmed and paid in full (payment = total, new rule): no balance row at all, the P800 deposit shown, and the gate code promised only with its condition', async ({ page }) => {
+    await mock(page, confirmed({ money: { total: 4000, reservation_payment: 4000, balance_due_date: manilaDay(5), security_deposit: 800 } }));
+    await page.goto(`/stay.html#t=${TOKEN}`);
+    await expect(page.locator('#stView .st-state').first()).toHaveText('Your booking is confirmed');
+    await expect(page.locator('#stView')).toContainText('Payment for your stay');
+    await expect(page.locator('#stView')).toContainText('₱4,000');
+    await expect(page.locator('#stView')).toContainText('₱800 refundable');
+    await expect(page.locator('#stView')).not.toContainText('Balance due');
+    await expect(page.locator('#stView')).not.toContainText('Remaining balance');
+    await expect(page.locator('#stView')).not.toContainText('1,000');
+    await expect(page.locator('#stView')).toContainText('once your payment, your IDs and the ₱800 deposit are in');
+  });
+
+  test('confirmed with a status deposit of 900: the gate-code line shows 900, not 800', async ({ page }) => {
+    await mock(page, confirmed({ money: { ...money, security_deposit: 900 } }));
+    await page.goto(`/stay.html#t=${TOKEN}`);
+    await expect(page.locator('#stView')).toContainText('once your payment, your IDs and the ₱900 deposit are in');
+    await expect(page.locator('#stView')).not.toContainText('₱800');
+  });
   test('confirmed with the balance due date already past (Manila date): no balance row, a settled guest owes nothing on screen', async ({ page }) => {
     await mock(page, confirmed({ money: { ...money, balance_due_date: manilaDay(-1) } }));
     await page.goto(`/stay.html#t=${TOKEN}`);

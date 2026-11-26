@@ -1,6 +1,7 @@
 -- Session 77 lane L2: calendar_day_flags, calendar_day_flag_set_v1 / _clear_v1 and the staff_home_v1 calendar contract
 -- (block_reason, block_label, day_flags). Synthetic property e7700000-...-b0; everything rolls back. Fixtures insert as the owner
 -- (service_role has no BYPASSRLS); roles are impersonated with request.jwt.claims as staff_home_v1.sql does.
+-- Dates are offsets from the Manila date (public.manila_today()), the clock the staff functions use; current_date is UTC in CI.
 begin;
 select plan(56);
 -- the suite reads the audit log as the test session (same pattern as d301_pay_rates_tasks.sql); rolled back with everything else
@@ -36,15 +37,15 @@ insert into public.staff_property_access(user_id, property_id) values
   ('e7700000-0000-4000-8000-000000000002', 'e7700000-0000-4000-8000-0000000000b0'),
   ('e7700000-0000-4000-8000-000000000004', 'e7700000-0000-4000-8000-0000000000b0');
 insert into public.calendar_events(property_id, uid, source, status, guest_name, checkin_date, checkout_date, block_reason, block_note) values
-  ('e7700000-0000-4000-8000-0000000000b0', 'zz-cf-conf',  'airbnb', 'confirmed', 'Zz Cf Guest', current_date + 1,  current_date + 3,  null, null),
-  ('e7700000-0000-4000-8000-0000000000b0', 'zz-cf-dir',   'airbnb', 'blocked',   null,          current_date + 4,  current_date + 6,  'direct', 'DIR bd296460 confirmed, guest 0917 123 4567 paid P500'),
-  ('e7700000-0000-4000-8000-0000000000b0', 'zz-cf-dir2',  'airbnb', 'blocked',   null,          current_date + 7,  current_date + 8,  'direct', 'direct booking, ref unknown'),
-  ('e7700000-0000-4000-8000-0000000000b0', 'zz-cf-brown', 'airbnb', 'blocked',   null,          current_date + 10, current_date + 12, 'brownout', 'SOCOTECO II feeder 14-3 Oct 15 06:00 for 11h'),
-  ('e7700000-0000-4000-8000-0000000000b0', 'zz-cf-maint', 'airbnb', 'blocked',   null,          current_date + 14, current_date + 15, 'maintenance', 'aircon service by Mang Tony 0918 555 1234'),
-  ('e7700000-0000-4000-8000-0000000000b0', 'zz-cf-owner', 'airbnb', 'blocked',   null,          current_date + 17, current_date + 18, 'owner_use', 'family'),
-  ('e7700000-0000-4000-8000-0000000000b0', 'zz-cf-none',  'airbnb', 'blocked',   null,          current_date + 20, current_date + 21, null, null),
-  ('e7700000-0000-4000-8000-0000000000b0', 'zz-cf-far',   'airbnb', 'blocked',   null,          current_date + 150, current_date + 151, 'brownout', null),
-  ('e7700000-0000-4000-8000-0000000000b0', 'zz-cf-old',   'airbnb', 'blocked',   null,          current_date - 80, current_date - 79, 'maintenance', null);
+  ('e7700000-0000-4000-8000-0000000000b0', 'zz-cf-conf',  'airbnb', 'confirmed', 'Zz Cf Guest', public.manila_today() + 1,  public.manila_today() + 3,  null, null),
+  ('e7700000-0000-4000-8000-0000000000b0', 'zz-cf-dir',   'airbnb', 'blocked',   null,          public.manila_today() + 4,  public.manila_today() + 6,  'direct', 'DIR bd296460 confirmed, guest 0917 123 4567 paid P500'),
+  ('e7700000-0000-4000-8000-0000000000b0', 'zz-cf-dir2',  'airbnb', 'blocked',   null,          public.manila_today() + 7,  public.manila_today() + 8,  'direct', 'direct booking, ref unknown'),
+  ('e7700000-0000-4000-8000-0000000000b0', 'zz-cf-brown', 'airbnb', 'blocked',   null,          public.manila_today() + 10, public.manila_today() + 12, 'brownout', 'SOCOTECO II feeder 14-3 Oct 15 06:00 for 11h'),
+  ('e7700000-0000-4000-8000-0000000000b0', 'zz-cf-maint', 'airbnb', 'blocked',   null,          public.manila_today() + 14, public.manila_today() + 15, 'maintenance', 'aircon service by Mang Tony 0918 555 1234'),
+  ('e7700000-0000-4000-8000-0000000000b0', 'zz-cf-owner', 'airbnb', 'blocked',   null,          public.manila_today() + 17, public.manila_today() + 18, 'owner_use', 'family'),
+  ('e7700000-0000-4000-8000-0000000000b0', 'zz-cf-none',  'airbnb', 'blocked',   null,          public.manila_today() + 20, public.manila_today() + 21, null, null),
+  ('e7700000-0000-4000-8000-0000000000b0', 'zz-cf-far',   'airbnb', 'blocked',   null,          public.manila_today() + 150, public.manila_today() + 151, 'brownout', null),
+  ('e7700000-0000-4000-8000-0000000000b0', 'zz-cf-old',   'airbnb', 'blocked',   null,          public.manila_today() - 80, public.manila_today() - 79, 'maintenance', null);
 -- The guest in the house: a direct stay (uid cascade-direct-<inquiry>) whose Messenger thread is found through the inquiry.
 insert into public.guests(id, property_id, name, phone, email) values
   ('e7700000-0000-4000-8000-0000000000c1', 'e7700000-0000-4000-8000-0000000000b0', 'Zz Cf Current', '0917 000 0099', 'zzcf@example.com');
@@ -52,13 +53,13 @@ insert into public.guests(id, property_id, name, phone, email) values
 select set_config('cascade.cf_phone', (select coalesce(g.phone_e164, g.phone) from public.guests g where g.id = 'e7700000-0000-4000-8000-0000000000c1'), true);
 insert into public.booking_inquiries(id, property_id, guest_id, guest_name, guest_email, guest_phone, checkin_date, checkout_date, pax, status, source, total_amount, deposit_amount)
 values ('e7700000-0000-4000-8000-0000000000d1', 'e7700000-0000-4000-8000-0000000000b0', 'e7700000-0000-4000-8000-0000000000c1', 'Zz Cf Current',
-        'zzcf@example.com', '0917 000 0099', current_date - 1, current_date + 2, 2, 'pending', 'direct', 2000, 1000);
+        'zzcf@example.com', '0917 000 0099', public.manila_today() - 1, public.manila_today() + 2, 2, 'pending', 'direct', 2000, 1000);
 insert into public.concierge_threads(psid, guest_name, history, booking_flow, updated_at)
 values ('zz-cf-psid', 'Zz Cf Current', '[]'::jsonb, '{"booking_id":"e7700000-0000-4000-8000-0000000000d1"}'::jsonb, now());
 insert into public.guest_profile_details(guest_id, property_id, messenger_link)
 values ('e7700000-0000-4000-8000-0000000000c1', 'e7700000-0000-4000-8000-0000000000b0', 'https://business.facebook.com/latest/inbox/messenger?selected_item_id=zz-cf');
 insert into public.calendar_events(property_id, uid, source, status, guest_name, checkin_date, checkout_date) values
-  ('e7700000-0000-4000-8000-0000000000b0', 'cascade-direct-e7700000-0000-4000-8000-0000000000d1', 'direct', 'confirmed', 'Zz Cf Current', current_date - 1, current_date + 2);
+  ('e7700000-0000-4000-8000-0000000000b0', 'cascade-direct-e7700000-0000-4000-8000-0000000000d1', 'direct', 'confirmed', 'Zz Cf Current', public.manila_today() - 1, public.manila_today() + 2);
 insert into public.verifier_findings(key, check_id, severity, title, status, detail) values
   ('zz-cf-v6', 'V6', 'yellow', 'zz-cf ops finding', 'open',
    '{"booking":"bd296460-0fd2-434f-aa3a-7e89dc90c14e","guest":"Zz Cf Guest","arrives":"2026-10-08","phone":"0917 123 4567","amount":650,"email":"a@b.com"}'),
@@ -66,9 +67,9 @@ insert into public.verifier_findings(key, check_id, severity, title, status, det
   ('zz-cf-v1', 'V1', 'red', 'zz-cf finance finding', 'open', '{}');
 -- A notice on the same night as the brownout block (de-duplicated: the notice label wins), one on its own night, one inactive.
 insert into public.ops_notices(property_id, notice_type, title, effective_date, is_active, audience, source) values
-  ('e7700000-0000-4000-8000-0000000000b0', 'brownout', 'zz-cf notice same night', current_date + 10, true, 'all', 'socoteco'),
-  ('e7700000-0000-4000-8000-0000000000b0', 'brownout', 'zz-cf notice own night',  current_date + 25, true, 'staff', 'ngcp'),
-  ('e7700000-0000-4000-8000-0000000000b0', 'brownout', 'zz-cf notice inactive',   current_date + 30, false, 'staff', 'staff');
+  ('e7700000-0000-4000-8000-0000000000b0', 'brownout', 'zz-cf notice same night', public.manila_today() + 10, true, 'all', 'socoteco'),
+  ('e7700000-0000-4000-8000-0000000000b0', 'brownout', 'zz-cf notice own night',  public.manila_today() + 25, true, 'staff', 'ngcp'),
+  ('e7700000-0000-4000-8000-0000000000b0', 'brownout', 'zz-cf notice inactive',   public.manila_today() + 30, false, 'staff', 'staff');
 
 -- staff_verifier_facts_v1 (internal helper, called as the owner): the allow-list only
 select is(public.staff_verifier_facts_v1('V10', '{"check":"ledger_duplicates","n":2,"d":[{"n":3,"payee":"Honey","amount":650}],"label":"x","note":"y"}'::jsonb),
@@ -133,29 +134,29 @@ select is((select count(*)::int from jsonb_array_elements(public.staff_home_v1('
             where x->>'kind' = 'brownout'), 3,
   'brownout: two nights of the block (one shared with a notice) plus the other notice night; the far block and the inactive notice are out');
 select is((select x->>'label' from jsonb_array_elements(public.staff_home_v1('e7700000-0000-4000-8000-0000000000b0')->'day_flags') x
-            where x->>'kind' = 'brownout' and x->>'date' = (current_date + 10)::text), 'Brownout (SOCOTECO)',
+            where x->>'kind' = 'brownout' and x->>'date' = (public.manila_today() + 10)::text), 'Brownout (SOCOTECO)',
   'a notice and a block on the same night give one flag, and the notice label wins');
 select is((select x->>'label' from jsonb_array_elements(public.staff_home_v1('e7700000-0000-4000-8000-0000000000b0')->'day_flags') x
-            where x->>'kind' = 'brownout' and x->>'date' = (current_date + 11)::text), 'Brownout', 'the second night of the block is an auto flag');
+            where x->>'kind' = 'brownout' and x->>'date' = (public.manila_today() + 11)::text), 'Brownout', 'the second night of the block is an auto flag');
 select is((select count(*)::int from jsonb_array_elements(public.staff_home_v1('e7700000-0000-4000-8000-0000000000b0')->'day_flags') x
             where x->>'kind' = 'maintenance'), 1, 'maintenance: one night from the block; the block 80 days ago is outside the window');
 select is((select count(*)::int from jsonb_array_elements(public.staff_home_v1('e7700000-0000-4000-8000-0000000000b0')->'day_flags') x
             where x->>'source' = 'manual'), 0, 'no manual flag before one is set');
 
 -- the cleaner cannot write ---------------------------------------------------------------------------------------------
-select throws_ok($$select public.calendar_day_flag_set_v1('e7700000-0000-4000-8000-0000000000b0', current_date + 2, 'other', 'x')$$, '42501', null,
+select throws_ok($$select public.calendar_day_flag_set_v1('e7700000-0000-4000-8000-0000000000b0', public.manila_today() + 2, 'other', 'x')$$, '42501', null,
   'a cleaner cannot set a flag');
 select throws_ok($$select public.calendar_day_flag_clear_v1('e7700000-0000-4000-8000-0000000000b0', gen_random_uuid())$$, '42501', null,
   'a cleaner cannot clear a flag');
 
 -- maintenance staff cannot write either --------------------------------------------------------------------------------
 select set_config('request.jwt.claims', json_build_object('sub','e7700000-0000-4000-8000-000000000004','role','authenticated','aal','aal1','iat',extract(epoch from now())::bigint)::text, true);
-select throws_ok($$select public.calendar_day_flag_set_v1('e7700000-0000-4000-8000-0000000000b0', current_date + 2, 'other', 'x')$$, '42501', null,
+select throws_ok($$select public.calendar_day_flag_set_v1('e7700000-0000-4000-8000-0000000000b0', public.manila_today() + 2, 'other', 'x')$$, '42501', null,
   'a maintenance user cannot set a flag');
 
 -- anon -------------------------------------------------------------------------------------------------------------------
 select set_config('role', 'anon', true);
-select throws_ok($$select public.calendar_day_flag_set_v1('e7700000-0000-4000-8000-0000000000b0', current_date + 2, 'other', 'x')$$, '42501', null,
+select throws_ok($$select public.calendar_day_flag_set_v1('e7700000-0000-4000-8000-0000000000b0', public.manila_today() + 2, 'other', 'x')$$, '42501', null,
   'anon cannot set a flag');
 select throws_ok($$select public.calendar_day_flag_clear_v1('e7700000-0000-4000-8000-0000000000b0', gen_random_uuid())$$, '42501', null,
   'anon cannot clear a flag');
@@ -165,25 +166,25 @@ select throws_ok($$select count(*) from public.calendar_day_flags$$, '42501', nu
 select set_config('role', 'authenticated', true);
 select set_config('request.jwt.claims', json_build_object('sub','e7700000-0000-4000-8000-000000000002','role','authenticated','aal','aal1','iat',extract(epoch from now())::bigint)::text, true);
 
-select ok((public.calendar_day_flag_set_v1('e7700000-0000-4000-8000-0000000000b0', current_date + 2, 'deep_clean', 'Deep clean after long stay'))->>'ok' = 'true',
+select ok((public.calendar_day_flag_set_v1('e7700000-0000-4000-8000-0000000000b0', public.manila_today() + 2, 'deep_clean', 'Deep clean after long stay'))->>'ok' = 'true',
   'an admin sets a flag');
 select is((select count(*)::int from jsonb_array_elements(public.staff_home_v1('e7700000-0000-4000-8000-0000000000b0')->'day_flags') x
             where x->>'source' = 'manual' and x->>'kind' = 'deep_clean' and x->>'label' = 'Deep clean after long stay'
-              and x->>'date' = (current_date + 2)::text and x->>'id' is not null), 1, 'the manual flag shows in day_flags with its id');
-select is((public.calendar_day_flag_set_v1('e7700000-0000-4000-8000-0000000000b0', current_date + 2, 'deep_clean', 'Deep clean, 2 cleaners')->>'id'),
+              and x->>'date' = (public.manila_today() + 2)::text and x->>'id' is not null), 1, 'the manual flag shows in day_flags with its id');
+select is((public.calendar_day_flag_set_v1('e7700000-0000-4000-8000-0000000000b0', public.manila_today() + 2, 'deep_clean', 'Deep clean, 2 cleaners')->>'id'),
   (select x->>'id' from jsonb_array_elements(public.staff_home_v1('e7700000-0000-4000-8000-0000000000b0')->'day_flags') x where x->>'kind' = 'deep_clean'),
   'setting the same date and kind again updates the one flag and returns its id');
-select throws_ok($$select public.calendar_day_flag_set_v1('e7700000-0000-4000-8000-0000000000b0', current_date + 2, 'party', 'x')$$, '22023', null,
+select throws_ok($$select public.calendar_day_flag_set_v1('e7700000-0000-4000-8000-0000000000b0', public.manila_today() + 2, 'party', 'x')$$, '22023', null,
   'an unknown kind is refused');
-select throws_ok($$select public.calendar_day_flag_set_v1('e7700000-0000-4000-8000-0000000000b0', current_date + 2, 'other', repeat('x', 81))$$, '22023', null,
+select throws_ok($$select public.calendar_day_flag_set_v1('e7700000-0000-4000-8000-0000000000b0', public.manila_today() + 2, 'other', repeat('x', 81))$$, '22023', null,
   'a label over 80 characters is refused');
 -- a manual flag beats the auto flag on the same night and kind
-select public.calendar_day_flag_set_v1('e7700000-0000-4000-8000-0000000000b0', current_date + 11, 'brownout', 'Generator on');
+select public.calendar_day_flag_set_v1('e7700000-0000-4000-8000-0000000000b0', public.manila_today() + 11, 'brownout', 'Generator on');
 select is((select x->>'label' || '/' || (x->>'source') from jsonb_array_elements(public.staff_home_v1('e7700000-0000-4000-8000-0000000000b0')->'day_flags') x
-            where x->>'kind' = 'brownout' and x->>'date' = (current_date + 11)::text), 'Generator on/manual',
+            where x->>'kind' = 'brownout' and x->>'date' = (public.manila_today() + 11)::text), 'Generator on/manual',
   'a manual flag replaces the auto flag of the same date and kind');
 select is((select count(*)::int from jsonb_array_elements(public.staff_home_v1('e7700000-0000-4000-8000-0000000000b0')->'day_flags') x
-            where x->>'kind' = 'brownout' and x->>'date' = (current_date + 11)::text), 1, 'one flag per date and kind');
+            where x->>'kind' = 'brownout' and x->>'date' = (public.manila_today() + 11)::text), 1, 'one flag per date and kind');
 select is((select count(*)::int from public.admin_audit_log where entity_table = 'calendar_day_flags'), 3, 'two inserts and one label update are in the audit log');
 
 select ok((public.calendar_day_flag_clear_v1('e7700000-0000-4000-8000-0000000000b0',
@@ -195,7 +196,7 @@ select throws_ok($$select public.calendar_day_flag_clear_v1('e7700000-0000-4000-
 
 -- the owner (no property row: owner is not scoped) can write too -------------------------------------------------------
 select set_config('request.jwt.claims', json_build_object('sub','e7700000-0000-4000-8000-000000000003','role','authenticated','aal','aal1','iat',extract(epoch from now())::bigint)::text, true);
-select ok((public.calendar_day_flag_set_v1('e7700000-0000-4000-8000-0000000000b0', current_date + 40, 'other', ''))->>'ok' = 'true', 'an owner sets a flag');
+select ok((public.calendar_day_flag_set_v1('e7700000-0000-4000-8000-0000000000b0', public.manila_today() + 40, 'other', ''))->>'ok' = 'true', 'an owner sets a flag');
 
 -- the owner also gets the guest's contact, as stored, and the Messenger thread
 select is(public.staff_home_v1('e7700000-0000-4000-8000-0000000000b0')->'current_guest'->>'email', 'zzcf@example.com', 'owner: the current guest e-mail');

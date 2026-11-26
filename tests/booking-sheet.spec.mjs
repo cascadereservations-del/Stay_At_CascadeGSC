@@ -188,26 +188,40 @@ test.describe('booking sheet', () => {
     expect(posts.length).toBe(1);
   });
 
-  test('deposit wording follows the pay-in-full rule: check-in 6 days out says with the balance, 3 days out says handed over on arrival (step 3 and success)', async ({ page }) => {
+  /* payment rule D-428/D-429/D-430 (s138). The mock server still answers like the deployed one: a deposit of half and last_minute false;
+     the page must show and send the full stay amount anyway. 2 nights x 1,691 = 3,382; plus the 800 deposit = 4,182. */
+  const DEP_RETURN = 'It is returned as soon as possible, within 3 business days of check-out, to the same account or payment mode it came from.';
+  const DEP_LINE = 'Refundable deposit ₱800, separate: send it with your payment or by the day before check-in. Returned as soon as possible, within 3 business days of check-out, to the same account.';   /* shorter on step 3 (M9); the full wording stays in the terms and FAQ */
+  const DEP_DONE = `Security deposit ₱800, refundable: send it by the day before check-in if you have not already. ${DEP_RETURN}`;
+
+  test('payment rule: the stay total is due now, the deposit is its own short line after the amount (step 3), with the PIN rule and the full return wording on success', async ({ page }) => {
     await mock(page); await openHeader(page);
     await step1(page, plus(6), plus(8)); await step2(page);
-    await expect(page.locator('#bsDepLine')).toHaveText('Plus a ₱1,000 refundable security deposit with the balance, returned after check-out.');
+    await expect(page.locator('#bsFee')).toHaveText('₱3,382');
+    await expect(page.locator('#bsPayLbl')).toHaveText('Your stay, paid in full to confirm');
+    await expect(page.locator('#bsPayTotal')).toHaveText('Security deposit ₱800');
+    await expect(page.locator('#bsDepLine')).toHaveText(DEP_LINE);
     await page.locator('#bsFile').setInputFiles({ name: 'receipt.png', mimeType: 'image/png', buffer: PNG });
     await page.locator('#bsNext3').click();
     await expect(page.locator('#bsH4')).toBeVisible();
-    await expect(page.locator('#bsDoneDep')).toHaveText('Plus a ₱1,000 refundable security deposit with the balance, returned after check-out.');
+    await expect(page.locator('#bsDoneDep')).toHaveText(DEP_DONE);
+    await expect(page.locator('#bsS4')).toContainText('Your door code is sent by the host once your payment, your IDs and the ₱800 deposit are in.');
+    await expect(page.locator('#bsDoneTotal')).toHaveText('₱3,382');
   });
 
-  test('check-in 3 days out (pay in full) says the deposit is handed over on arrival, on step 3 and on the success card', async ({ page }) => {
-    await mock(page); await openHeader(page);
+  test('payment rule: check-in 3 days out is pay-first (the flow, not the amount: same total, same deposit wording, one request posted after payment with no hold)', async ({ page }) => {
+    const posts = await mock(page); await openHeader(page);
     await step1(page, plus(3), plus(5)); await step2(page);
-    const want = 'Plus a ₱1,000 refundable security deposit, handed over on arrival and returned after check-out.';
-    await expect(page.locator('#bsDepLine')).toHaveText(want);
-    await expect(page.locator('#bsDepLine')).not.toContainText('with the balance');
-    await page.locator('#bsRef').fill('1234567890');
+    await expect(page.locator('#bsFee')).toHaveText('₱3,382');
+    await expect(page.locator('#bsDepLine')).toHaveText(DEP_LINE);
+    await expect(page.locator('#bsDepLine')).not.toContainText(/arrival|balance/);
+    await page.locator('#bsFile').setInputFiles({ name: 'receipt.png', mimeType: 'image/png', buffer: PNG });
     await page.locator('#bsNext3').click();
     await expect(page.locator('#bsH4')).toBeVisible();
-    await expect(page.locator('#bsDoneDep')).toHaveText(want);
+    await expect(page.locator('#bsDoneDep')).toHaveText(DEP_DONE);
+    expect(posts.length).toBe(1);
+    expect(posts[0].deposit_amount).toBe(3382);
+    expect(posts[0].hold).toBeUndefined();
   });
 
   test('late in the month the calendar jumps ahead, and a this-month check-in is still reachable with the previous-month button', async ({ page }) => {
@@ -278,10 +292,10 @@ test.describe('booking sheet', () => {
     expect(posts.uploads.length).toBe(1);
     await expect(page.locator('#bsDoneKicker')).toHaveText('Payment reported');
     await expect(page.locator('#bsDoneReach')).toHaveText(/^We will confirm on Messenger or by call at \+63 •••• 4567\.$/);
-    await expect(page.locator('#bsH4 ~ .bs-card')).toContainText('₱1,000 refundable security deposit');
+    await expect(page.locator('#bsH4 ~ .bs-card')).toContainText('₱800, refundable');
     expect(await page.locator('#bsDoneReach').evaluate((el) => el.textContent)).toContain('+63 •••• 4567');   /* the masked number never wraps */
     expect(decodeURIComponent(await page.locator('#bsMsgr').getAttribute('href'))).toContain(', payment ref 1234567890.');
-    await expect(page.locator('#bsMsgr')).toHaveAttribute('href', /text=Hi%20Cascade%2C%20I%20just%20sent%20a%20booking%20request%20for%20.*%20\(ref%20CH-TEST1\)%20and%20my%20payment%20of%20/);
+    await expect(page.locator('#bsMsgr')).toHaveAttribute('href', /text=Hi%20Cascade%2C%20I%20just%20sent%20a%20booking%20request%20for%20.*%20\(ref%20CH-TEST1\)%20and%20my%20payment%20for%20the%20stay%20/);
     const [dl] = await Promise.all([page.waitForEvent('download'), page.locator('#bsIcs').click()]);
     expect(dl.suggestedFilename()).toBe('cascade-hideaway-stay.ics');
     await expect(page.locator('#bsMsgr')).toHaveAttribute('href', /^https:\/\/www\.messenger\.com\/t\/699640026568720/);
@@ -320,10 +334,10 @@ test.describe('booking sheet', () => {
     await mock(page); await openHeader(page);
     await step1(page); await step2(page);
     await expect(page.locator('#bsH3')).toHaveText('Your dates are held');
-    await expect(page.locator('#bsHoldLine')).toContainText(/^We’ll hold .+ for 24 hours\. Settle half to keep them; the rest is due a day before you arrive\.$/);
-    await expect(page.locator('#bsDepLine')).toHaveText('Plus a ₱1,000 refundable security deposit with the balance, returned after check-out.');
+    await expect(page.locator('#bsHoldLine')).toContainText(/^We’ll hold .+ for 24 hours\. Pay the full stay amount to confirm\.$/);
+    await expect(page.locator('#bsDepLine')).toHaveText(DEP_LINE);
     await expect(page.locator('#bsFileLbl')).toHaveText('Add receipt');
-    await expect(page.locator('#bsNext3')).toHaveText(/^I.ve sent ₱[\d,]+$/);
+    await expect(page.locator('#bsNext3')).toHaveText(/^I.ve sent the payment$/);   /* the guest may send the stay alone or with the deposit, so the button names neither amount */
     await expect(page.locator('#bsAcctB')).toContainText('Put your name in the message or notes');
     await expect(page.locator('#bsRef')).toHaveAttribute('placeholder', 'Reference no.');
   });

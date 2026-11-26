@@ -11,7 +11,7 @@ const confirmed = {
   status: {
     state: 'confirmed', ref: 'E9200001', checkin_date: '2026-10-16', checkout_date: '2026-10-18', nights: 2, pax: 2,
     checkin_time: '2:00 PM', checkout_time: '12:00 PM', hold_expires_at: null,
-    money: { total: 4000, reservation_payment: 2000, balance_due_date: '2099-01-01', security_deposit: 1000 },
+    money: { total: 4000, reservation_payment: 2000, balance_due_date: '2099-01-01', security_deposit: 800 },
     timeline: [{ key: 'requested', done: true }, { key: 'paid', done: true }, { key: 'confirmed', done: true }, { key: 'arrival', done: false }],
     can_upload_receipt: false, receipt_upload_token: null, receipt_upload_expires_at: null, server_now: new Date().toISOString(),
   },
