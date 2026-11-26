@@ -239,3 +239,15 @@ Deno.test('R2-3 a 30-night and a 45-night request: long-stay line on the host ca
     assertEquals(dueWhat(v), '₱37,380 for the first 28 nights');
   }
 });
+
+// ---- s138 L2b (R3-1): a 29-night row made under the old 50% rule is legacy on the host card ----
+Deno.test('R3-1 a 29-night legacy request: balance stated, no long-stay line, no first-28-nights wording', () => {
+  const v = view({ nights: 29, checkout_date: '2026-12-29', total_amount: 40000, deposit_amount: 20000 });
+  const card = financeCard(v), held = heldLine(v, 'en', UNTIL), due = dueWhat(v);
+  assertStringIncludes(card, 'balance ₱20,000 due by the day before check-in');
+  assertStringIncludes(held, 'The remaining ₱20,000 of the stay is due by the day before check-in.');
+  assertStringIncludes(due, 'remaining ₱20,000');
+  assertEquals(longStayLine(v), null);
+  for (const t of [card, held, due]) assert(!/LONG STAY|first 28 nights|covers the whole stay|\bonly\b/i.test(t), t);
+  assertEquals(longStayLine(view({ nights: 30, total_amount: 40050, deposit_amount: 37380 }))?.startsWith('🗓️ LONG STAY'), true);
+});

@@ -148,3 +148,16 @@ Deno.test('R2-1: a receipt follow-up for a legacy booking names the remaining ba
     }
   }
 });
+
+// ---- s138 L2b (R3-1): the receipt follow-up for a 29-night legacy row carries its 20,000 balance ----
+import { legacyBalance } from '../_shared/cascade-core/pricing.ts';
+Deno.test('R3-1: a 29-night legacy row (total 40,000, 20,000 due) gets the balance sentence, never full-stay or first-28-nights wording', () => {
+  const bal = legacyBalance({ total: 40000, deposit: 20000, nights: 29 }) ?? 0;
+  assertEquals(bal, 20000);
+  for (const lang of ['en', 'tl', 'bis'] as const) for (const v of ['not_proof', 'short'] as const) {
+    const m = guestFollowUp(v, lang, 'Ben Cruz', 20000, 10000, bal);
+    assert(m.includes('₱20,000'), `${lang}/${v}: ${m}`);
+    assert(!/covers the whole stay|first 28 nights|\bonly\b/i.test(m), `${lang}/${v}: ${m}`);
+  }
+  assert(guestFollowUp('not_proof', 'en', 'Ben', 20000, 0, bal).includes('The remaining ₱20,000 of the stay is due by the day before check-in.'));
+});

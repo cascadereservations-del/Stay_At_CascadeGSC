@@ -404,3 +404,16 @@ Deno.test('R2-1: a new-rule flow keeps the full-payment wording and says nothing
   assert(t.includes('the full ₱3,382 covers the whole stay') && !/balance|remaining/i.test(t), t);
   assert(!/balance|remaining/i.test(stayPayMessage(fresh, 'Ben', now)));
 });
+
+// ---- s138 L2b (R3-1): a 29-night flow made under the old 50% rule keeps its balance wording ----
+Deno.test('R3-1: a 29-night legacy flow states the 20,000 balance in the payment-timing reply and the stay-pay message', () => {
+  const legacy = held(start('book Nov 17 to Dec 16 for 2', now), { checkin: '2026-11-17', checkout: '2026-12-16', deposit: 20000, total: 40000, name: 'Ben Munez', phone: '09475977727', email: 'ben@example.com' });
+  assertEquals(flowBalance(legacy), '₱20,000');
+  for (const lang of ['en', 'tl', 'bis'] as const) {
+    const t = payTermsReply({ ...legacy, lang }, 'Ben', lang);
+    assert(t.includes('₱20,000') && /day before check-in/.test(t), `${lang}: ${t}`);
+    assert(!/covers the whole stay|sumasaklaw sa buong stay|first 28 nights/.test(t), `${lang}: ${t}`);
+  }
+  const msg = stayPayMessage(legacy, 'Ben', now);
+  assert(msg.includes('remaining ₱20,000') && !/The full ₱|first 28 nights/.test(msg), msg);
+});

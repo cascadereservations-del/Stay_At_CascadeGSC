@@ -183,7 +183,7 @@ async function notifyFinance(db: any, bookingId: string, objectPath: string, ev:
                   : 'Do: open the image, then tap Confirm if the payment is real — Decline if not.'))
     : 'Do: review in the dashboard (evidence row was not recorded).';
   // R2-2: a 28+ night request keeps its long-stay line right above the Confirm button, so the host cannot confirm it as an ordinary stay.
-  const longLine = longStayLine({ nights: nightsBetween(b.checkin_date, b.checkout_date), total_amount: Number(b.total_amount) });
+  const longLine = longStayLine({ nights: nightsBetween(b.checkin_date, b.checkout_date), total_amount: Number(b.total_amount), deposit_amount: b.deposit_amount == null ? null : Number(b.deposit_amount) });
   const caption = withHeader('finance', `receipt ${ref}`, groups(
     longLine ? [longLine] : [],
     priorUseLines(priorUse),

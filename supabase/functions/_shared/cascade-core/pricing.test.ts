@@ -97,3 +97,25 @@ Deno.test('R2-3: a 30-night and a 45-night stay are accepted; the amount due is 
   assertEquals(nightsRefusal(0, 1, 30)?.error, 'below_minimum_nights');
   assertEquals(nightsRefusal(12, 1, 10)?.error, 'above_maximum_nights');
 });
+
+// ---- s138 L2b (R3-1, rule 8): legacy versus new long stay is decided by the stored amount, never by nights alone ----
+import { isNewLongStay } from './pricing.ts';
+Deno.test('R3-1 legacyBalance: a 29-night row at 50% is legacy; only a row whose amount due is exactly the first 28 nights is a new long stay', () => {
+  assertEquals(legacyBalance({ total: 40000, deposit: 20000, nights: 29 }), 20000);
+  assertEquals(legacyBalance({ total: 40050, deposit: Math.ceil(40050 * 28 / 30), nights: 30 }), null); // 37,380: new long stay
+  assertEquals(isNewLongStay(40050, 37380, 30), true);
+  assertEquals(legacyBalance({ total: 60075, deposit: 37380, nights: 45 }), null); // 45 nights, exact first-28 amount
+  assertEquals(isNewLongStay(60075, 37380, 45), true);
+  assertEquals(legacyBalance({ total: 60075, deposit: 30000, nights: 45 }), 30075); // 45 nights, any other part amount
+  assertEquals(isNewLongStay(60075, 30000, 45), false);
+  assertEquals(legacyBalance({ total: 37380, deposit: 37380, nights: 28 }), null); // 28 nights, full amount: not legacy
+  assertEquals(legacyBalance({ total: 3382, deposit: 1691, nights: 2 }), 1691);
+  assertEquals(legacyBalance({ total: 3382, deposit: 1691, nights: null }), 1691);
+  assertEquals(legacyBalance({ total: 3382, deposit: 1691 }), 1691);
+  assertEquals(legacyBalance({ total: 40000, deposit: 0, nights: 29 }), null);
+  assertEquals(legacyBalance({ total: 40000, deposit: null, nights: 29 }), null);
+  assertEquals(isNewLongStay(40000, 20000, 29), false);
+  assertEquals(isNewLongStay(3382, 1691, null), false);
+  assertEquals(isNewLongStay(40000, null, 29), false);
+  assertEquals(isNewLongStay(3382, 3382, 2), false); // under 28 nights is never a long stay
+});

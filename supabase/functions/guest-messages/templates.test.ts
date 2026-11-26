@@ -274,3 +274,13 @@ Deno.test('R2-1: a new-rule booking renders as before: no balance in message 1, 
 Deno.test('R2-3: a 28+ night row (first 28 nights due, total larger) is not read as a legacy booking', () => {
   for (const t of [render('confirmation', longRow, 'messenger'), render('pre_arrival', longRow, 'messenger'), doorCard2('DIR-1', longRow)]) assert(!/balance/i.test(t), t);
 });
+
+// ---- s138 L2b (R3-1): a 29-night row made under the old 50% rule keeps its balance wording ----
+const legacy29: Fields = { ...legacy50, checkout_date: '2027-01-08', total_amount: 40000, deposit_amount: 20000 }; // 29 nights, half paid
+Deno.test('R3-1: a 29-night legacy row states the balance 20,000 in message 1, message 2 and the door-code card, with no full-stay or long-stay wording', () => {
+  const m1 = render('confirmation', legacy29, 'messenger'), m2 = render('pre_arrival', legacy29, 'email'), card = doorCard2('DIR-1', legacy29);
+  assert(m1.includes('₱20,000 balance of your stay'), m1);
+  assert(m2.includes('₱20,000 balance') && m2.includes('₱20,800 in all'), m2);
+  assert(card.includes('Balance ₱20,000 not recorded yet'), card);
+  for (const t of [m1, m2, card]) assert(!/covers the whole stay|first 28 nights|\bonly\b/i.test(t), t);
+});

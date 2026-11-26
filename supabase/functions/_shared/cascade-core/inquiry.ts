@@ -5,7 +5,7 @@
 // The cards are written for people: what happened and who acts first, plain sentences, ids last.
 // Guest-facing lines are unsigned and pass lintReply + toneRules in all three registers (inquiry.test.ts).
 // Pronouns: the card never guesses a gender ("the guest", "their"), the guest's own line uses the name.
-import { SECURITY_DEPOSIT_PHP, isLongStay, LONG_STAY_NIGHTS, legacyBalance, nightsBetween } from './pricing.ts';
+import { SECURITY_DEPOSIT_PHP, isNewLongStay, LONG_STAY_NIGHTS, legacyBalance, nightsBetween } from './pricing.ts';
 import { dmRange } from '../../messenger-concierge/booking.ts';
 import { CAPACITY } from '../../messenger-concierge/persona.ts'; // the D-222 disclosure stays one constant
 import { autoKeyboard, BTN, DASH_URL, groups, type Btn } from './format.ts';
@@ -130,13 +130,14 @@ const askedFor = (v: InquiryView, via: string, who: string) =>
  *  still arrives (a payment taken first, an old tab) is stored as asked and flagged here so the host arranges it. null otherwise. */
 /** Nights of a request: the stored count, else counted from the dates. */
 const viewNights = (v: Pick<InquiryView, 'nights' | 'checkin_date' | 'checkout_date'>) => (v.nights ? Number(v.nights) : nightsBetween(v.checkin_date, v.checkout_date));
-const isLongView = (v: Pick<InquiryView, 'nights' | 'checkin_date' | 'checkout_date'>) => isLongStay(viewNights(v));
+/** R3-1: a stored request is a new long stay by its amount due (isNewLongStay), not by nights alone. */
+const isLongView = (v: Pick<InquiryView, 'nights' | 'checkin_date' | 'checkout_date' | 'total_amount' | 'deposit_amount'>) => isNewLongStay(v.total_amount, v.deposit_amount, viewNights(v));
 /** Rule 8 (R2-1): the balance still owed on a request made under the old rule, else null. A 28+ night request is never legacy. */
 export const viewBalance = (v: Pick<InquiryView, 'nights' | 'checkin_date' | 'checkout_date' | 'total_amount' | 'deposit_amount'>): number | null =>
   legacyBalance({ total: v.total_amount, deposit: v.deposit_amount, nights: viewNights(v) });
 
-export function longStayLine(v: Pick<InquiryView, 'nights' | 'total_amount'>): string | null {
-  if (!v.nights || !isLongStay(Number(v.nights))) return null;
+export function longStayLine(v: Pick<InquiryView, 'nights' | 'total_amount'> & { deposit_amount?: number | null }): string | null {
+  if (!v.nights || !isNewLongStay(v.total_amount, v.deposit_amount, Number(v.nights))) return null;
   return `🗓️ LONG STAY (${v.nights} nights, ${LONG_STAY_NIGHTS}+): host arranges. First month to confirm, then monthly. The quote on this request is not final.`;
 }
 

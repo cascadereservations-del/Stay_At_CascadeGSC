@@ -45,14 +45,25 @@ export const isLongStay = (nights: number) => nights >= LONG_STAY_NIGHTS;
 /** s138 round 2 (R2-3): the amount due to confirm a long stay = the first 28 nights, ceil(total x 28 / nights). Shorter stays: the total. */
 export const firstMonthDue = (total: number, nights: number) => isLongStay(nights) && nights > LONG_STAY_NIGHTS ? Math.ceil(total * LONG_STAY_NIGHTS / nights) : total;
 
+/** s138 L2b (R3-1, rule 8): is a STORED row a new long stay? Only when nights >= 28 AND the amount due is exactly the first 28
+ *  nights, ceil(total x 28 / nights). The stored amount decides, never the nights alone: the deployed code allowed 50% bookings of
+ *  28 to 30 nights, and those are legacy. Unknown nights or amounts are never a long stay. The ONE predicate for every surface
+ *  that renders an existing row. (A new request being quoted or submitted has no stored amount: it uses isLongStay.) */
+export function isNewLongStay(total: unknown, deposit: unknown, nights: unknown): boolean {
+  const t = Number(total), d = Number(deposit), n = Number(nights);
+  if (total == null || deposit == null || nights == null || !Number.isFinite(t) || !Number.isFinite(d) || !Number.isFinite(n)) return false;
+  return isLongStay(n) && t > 0 && d === firstMonthDue(t, n);
+}
+
 /** s138 round 2 (rule 8, R2-1): a booking made under the old rule has an amount due above 0 and below its total. Returns the
- *  balance (total minus amount due) then, else null. A stay of 28+ nights is never legacy: its amount due is the first month by
- *  design, so it is told apart by the NIGHTS, not by the amounts. Unknown nights are read as a short stay. The ONE helper every
- *  surface that renders an existing booking uses (guest messages 1 and 2, host cards, Messenger replies, Telegram drafts). */
+ *  balance (total minus amount due) then, else null. A row is NOT legacy only when it is a new long stay (isNewLongStay: 28+ nights
+ *  and the amount due is exactly the first 28 nights); every other part payment is legacy whatever its length (R3-1). Unknown
+ *  nights are read as a short stay. The ONE helper every surface that renders an existing booking uses (guest messages 1 and 2,
+ *  host cards, Messenger replies, Telegram drafts). */
 export function legacyBalance(b: { total: unknown; deposit: unknown; nights?: unknown }): number | null {
-  const total = Number(b.total), due = Number(b.deposit), nights = Number(b.nights);
+  const total = Number(b.total), due = Number(b.deposit);
   if (!(due > 0) || !(total > due)) return null;
-  if (Number.isFinite(nights) && isLongStay(nights)) return null;
+  if (isNewLongStay(total, due, b.nights)) return null;
   return total - due;
 }
 /** Whole nights between two yyyy-mm-dd dates (NaN when either is not a date). */
