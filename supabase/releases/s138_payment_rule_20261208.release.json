@@ -64,7 +64,7 @@
     "old_reader": true,
     "old_writer": true,
     "verified": true,
-    "evidence": "Rehearsed 2026-11-26 with migration-rehearsal-on-host.sh on a restored copy of backup cascade-supabase-20261125T054901Z: 2 migrations applied, forward verification 3 of 3, pgTAP s138_payment_rule 30 of 30, cleanup leftovers 0."
+    "evidence": "Rehearsed 2026-11-26 with migration-rehearsal-on-host.sh on a restored copy of backup cascade-supabase-20261125T054901Z: 2 migrations applied, forward verification 3 of 3, pgTAP s138_payment_rule 30 of 30, cleanup leftovers 0. Rehearsed again after the apply with the test fixture added (suite only changed; migrations byte-identical) on backup cascade-supabase-20261126T061604Z: same result, 30 of 30."
   },
   "approvals": {
     "production_required": true,

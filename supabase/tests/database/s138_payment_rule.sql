@@ -1,7 +1,7 @@
 -- s138 payment rule: 20261208000000 (rate card deposit_pct 50 -> 100) and 20261208000100 (house_facts PIN wording), with their rollbacks. Everything rolls back.
 -- Fix round 1 (review F9, F10): the suite now RUNS the guard blocks and the update statements of both migrations and both rollbacks (verbatim copies held in the temp table
 -- s138_sql; the release JSON pins the file hashes, so a file edited without this copy changing is caught at the restamp). It sets the live rows into each state it needs inside the
--- transaction (the property and the three house_facts topics exist from the migrations that seed them), so no fixture property is needed.
+-- transaction (the property and the three house_facts topics exist from the migrations that seed them); on a database with no production rows the fixture block below supplies the property and one live rate version.
 -- NOT RUN here (no database in the build session): run it on a rehearsal restore before release.
 begin;
 select plan(30);
