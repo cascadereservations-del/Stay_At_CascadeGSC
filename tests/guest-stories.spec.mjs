@@ -36,14 +36,14 @@ test.describe('Guest stories hero', () => {
         const taps = [...document.querySelectorAll('#hero button, #hero input, #hero .hero-bk [role="button"], #hero .hero-bk a, .site-header a, .site-header button')]
           .filter(shown).map((e) => ({ id: e.id || e.className.toString().slice(0, 30), ...box(e) }));
         const firstScreenCta = [...document.querySelectorAll('[data-gs-book], #qbwSubmit')].filter(shown).some((e) => { const b = e.getBoundingClientRect(); return b.top >= 0 && b.bottom <= innerHeight && b.left >= 0 && b.right <= innerWidth; });
-        return { overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth, taps, dock: box(document.getElementById('qbwSubmit')), firstScreenCta, proof: document.querySelector('.gs-hero-proof').textContent.replace(/\s+/g, ' ').trim(), hasGreet: !!document.querySelector('#hero #gsGreet') };
+        return { overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth, taps, dock: box(document.getElementById('qbwSubmit')), firstScreenCta, heroProof: !!document.querySelector('#hero .gs-hero-proof'), hasGreet: !!document.querySelector('#hero #gsGreet') };
       });
       expect(r.overflow, 'horizontal overflow').toBeLessThanOrEqual(1);
       for (const t of r.taps) expect(Math.min(t.w, t.h), `tap target ${t.id} ${Math.round(t.w)}x${Math.round(t.h)}`).toBeGreaterThanOrEqual(44);
       expect(r.firstScreenCta, 'a booking CTA is fully visible on the first screen').toBe(true);
       if (DOCK_ON_FIRST_SCREEN.has(`${w}x${h}`)) expect(r.dock.bottom, 'dock CTA above the fold').toBeLessThanOrEqual(h);
       expect(r.dock.h).toBeGreaterThanOrEqual(44);
-      expect(r.proof).toBe('97% of guests gave five stars');
+      expect(r.heroProof, 'R4: the hero five-star line is gone (the rating band keeps the share)').toBe(false);
       expect(r.hasGreet, '#gsGreet moved out of the hero').toBe(false);
 
       await page.locator('#qbwCiField').click();
@@ -172,7 +172,7 @@ test.describe('Guest stories motion and network', () => {
     const errors = []; page.on('pageerror', (e) => errors.push(String(e)));
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto('/index.html', { waitUntil: 'networkidle' });
-    expect(await page.locator('[data-rating="fiveStar"]').allTextContents()).toEqual(['97%', '97%']);
+    expect(await page.locator('[data-rating="fiveStar"]').allTextContents()).toEqual(['97%']); /* R4: the hero line is gone; the rating band keeps the share */
     await expect(page.locator('#airbnbProofVerifiedNote')).toContainText('Verified on 24 Nov 2026');
     expect(errors).toEqual([]);
     /* Chromium keeps the scroll-driven zoom (html.gs-sda); WebKit is gated out (Fable r6 N6) */
