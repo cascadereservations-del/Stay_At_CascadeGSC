@@ -79,7 +79,7 @@ test.describe('booking flow baseline', () => {
       const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
       const hits = [];
       while (walker.nextNode()) {
-        const n = walker.currentNode, t = n.textContent;
+        const n = walker.currentNode, t = n.textContent.replace('we keep 50% of the stay', 'we keep half of the stay');   /* s138 (D-428): the cancellation answer's one policy percentage, not a price */
         if (!/[₱%]/.test(t) || n.parentElement.closest('dialog, script, style, noscript')) continue;
         /* Rating proof (Airbnb five-star share) is not a price; D-419. */
         if (n.parentElement.closest('[data-rating="fiveStar"]') && !/₱/.test(t) && /^\s*\d{1,3}%\s*$/.test(t)) continue;

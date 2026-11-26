@@ -39,8 +39,8 @@ test.describe('booking status page', () => {
     await expect(page.locator('#stView')).toContainText('₱1,000 refundable');
     await expect(page.getByRole('button', { name: 'Upload receipt' })).toBeVisible();
     await expect(page.locator('#stPolicy')).toBeVisible();
-    await expect(page.locator('#stPolicy')).toContainText('A 50% reservation fee, reviewed against availability, secures your requested dates once verified.');
-    await expect(page.locator('#stPolicy')).toContainText('5 or more days before check-in: the reservation fee is fully refunded.');
+    await expect(page.locator('#stPolicy')).toContainText('Your stay is paid in full to confirm.');
+    await expect(page.locator('#stPolicy')).toContainText('Free cancellation until 5 days before check-in.');
     expect(seen).toHaveLength(1);
     expect(seen[0].body).toEqual({ token: TOKEN, view: 'status' });
     expect(seen[0].url).not.toContain(TOKEN);

@@ -14,10 +14,11 @@ test('policy sentences match booking-terms.html word for word', () => {
   for (const sentence of [
     'Check-in begins at 2:00 PM.',
     'Check-out is at 12:00 PM (noon).',
-    'A 50% reservation fee, reviewed against availability, secures your requested dates once verified.',
-    'The remaining balance and a ₱1,000 refundable security deposit are due at least one day before check-in.',
-    '5 or more days before check-in: the reservation fee is fully refunded.',
-    'Under 5 days before check-in: the reservation fee is retained to cover the reserved dates.',
+    'A separate, refundable security deposit of ₱800 is paid with your booking or by the day before check-in',
+    'your door PIN is sent once your payment, IDs and the deposit are in',
+    'The deposit is returned as soon as possible, within 3 business days of check-out, to the same account or payment mode it came from.',
+    'Free cancellation until 5 days before check-in',
+    'Inside 5 days, or for a no-show, we keep 50% of the stay',
   ]) {
     assert.ok(source.includes(sentence), `booking-terms.html no longer says: ${sentence}`);
     assert.ok(policy.includes(sentence), `stay.html does not repeat: ${sentence}`);

@@ -7,7 +7,7 @@ test.beforeEach(async ({ page }) => {
   await page.route('**/*.supabase.co/**', (route) => (route.request().method() !== 'GET' ? route.abort() : route.fulfill({ status: 200, contentType: 'application/json', body: '[]' })));
 });
 
-const SIZES = [{ name: 'phone', w: 390, h: 844, gap: 16 }, { name: 'desktop', w: 1280, h: 800, gap: 24 }];
+const SIZES = [{ name: 'phone', w: 390, h: 844, gap: 16 }, { name: 'laptop', w: 1024, h: 768, gap: 24 }, { name: 'desktop', w: 1280, h: 800, gap: 24 }];
 
 for (const sz of SIZES) {
   test(`R4 hero at ${sz.name}: no 97% line, attribution box ${sz.gap}px above the card, Reserve visible, no overlap, no page error`, async ({ page }) => {
