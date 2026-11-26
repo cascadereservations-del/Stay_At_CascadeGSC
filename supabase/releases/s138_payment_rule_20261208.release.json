@@ -4,7 +4,7 @@
   "phase": "expand",
   "source": {
     "branch": "s138/payment-rule-sql",
-    "commit": "729ff93 (base; restamp with the merge commit at apply time)"
+    "commit": "b390ce4ae77233244bfa9b695f080e39dee23ab2"
   },
   "migrations": [
     "20261208000000_s138_rate_card_deposit_pct.sql",
@@ -17,8 +17,8 @@
   "backup": {
     "required": true,
     "scope": "production",
-    "restore_point": "PLACEHOLDER: restamp with a fresh backup at apply time",
-    "verified_at": "PLACEHOLDER",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20261126T061604Z",
+    "verified_at": "2026-11-26T06:20:57.400Z",
     "production_rule": "Pay-in-full rule (D-428 to D-430). 20261208000000 sets terms.deposit_pct from 50 to 100 on the Cascade property's live and scheduled booking_rate_policy_versions rows (past versions keep 50) and writes terms.s138_prev_deposit_pct = 50 on each row it changes (the rollback's marker); no other column changes. 20261208000100 replaces one sentence in three house_facts rows (smart-lock-prospect, smart-lock-staff, smart-lock): the door PIN follows payment, IDs and the PHP 800 refundable deposit instead of 'IDs and the balance'. Both are guarded updates that stop (55000) unless the rows hold the expected old value (a non-numeric deposit_pct also stops, with a clear message); no table, function or grant changes; no stored booking changes.",
     "notes": "Apply together with or after the edge deploy of the s138 functions (the code ignores deposit_pct for the amount due, so order does not change any charge). The migrations carry no begin/commit (the runner wraps them)."
   },
@@ -63,8 +63,8 @@
     "mode": "widening",
     "old_reader": true,
     "old_writer": true,
-    "verified": false,
-    "evidence": "Not rehearsed on a restored backup. The pgTAP suite s138_payment_rule covers the guarded statements on fixtures."
+    "verified": true,
+    "evidence": "Rehearsed 2026-11-26 with migration-rehearsal-on-host.sh on a restored copy of backup cascade-supabase-20261125T054901Z: 2 migrations applied, forward verification 3 of 3, pgTAP s138_payment_rule 30 of 30, cleanup leftovers 0."
   },
   "approvals": {
     "production_required": true,
