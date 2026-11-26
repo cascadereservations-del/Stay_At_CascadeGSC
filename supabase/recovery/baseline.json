@@ -62,6 +62,13 @@
         "last_line": "  end if;",
         "sha256": "cc4487bfdd45235917e8a8952afa15cc6361dc28004ef63b50d0c4118aa5c957"
       }
+    ],
+    "20261208000000_s138_rate_card_deposit_pct.sql": [
+      {
+        "first_line": "do $g$",
+        "last_line": "end $g$;",
+        "sha256": "33e8e281b8978a484a4775a94a68a7461123fe1ab39d99cf78e41c5e778e8455"
+      }
     ]
   },
   "source_description": "Historical production public-schema snapshot captured before the Wave 0 booking/security migrations, with the recursive price-history view corrected from its base-table contract; contains no table data or credentials. The excluded migration only removes production ledger backup rows that are not contained in this snapshot; its irreversible production guard remains validated by its release contract. The assertion-only migration preserves its function replacement while omitting its production-date assertions, which require historical calendar data absent from this schema-only baseline. Statement omissions remove production-data seed inserts (pinned by sha256) that need the production property or owner rows; in a row-less baseline their effect equals the properties-exists guard later migrations use, because the seed would insert nothing. The s86 inventory migration is prepared without its production-row checks (the test-purchase count, the shopping-row-points-at-test check, the Liquid Hand Soap item state check) and the block that resets that item, because the disposable database has no inventory rows; its function-body md5 and OCR checks are kept. The s89 sign-in PIN migration is prepared without its check that exactly one admin named Lloyd exists, because the disposable database has no auth users; the update after it changes nothing there."
