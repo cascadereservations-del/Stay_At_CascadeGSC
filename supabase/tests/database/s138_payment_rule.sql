@@ -4,7 +4,7 @@
 -- transaction (the property and the three house_facts topics exist from the migrations that seed them), so no fixture property is needed.
 -- NOT RUN here (no database in the build session): run it on a rehearsal restore before release.
 begin;
-select plan(23);
+select plan(30);
 
 create temp table s138_sql (name text primary key, body text not null) on commit drop;
 insert into s138_sql values
@@ -58,9 +58,9 @@ do $g$
 declare n_marked int; n_changed int;
 begin
   select count(*),
-         count(*) filter (where jsonb_typeof(terms -> 'deposit_pct') is distinct from 'number'
-                             or jsonb_typeof(terms -> 's138_prev_deposit_pct') is distinct from 'number'
-                             or (terms ->> 'deposit_pct')::numeric <> 100)
+         count(*) filter (where case when jsonb_typeof(terms -> 'deposit_pct') = 'number' and jsonb_typeof(terms -> 's138_prev_deposit_pct') = 'number'
+                                     then (terms ->> 'deposit_pct')::numeric <> 100
+                                     else true end)
     into n_marked, n_changed
     from public.booking_rate_policy_versions
    where property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd'
@@ -122,7 +122,34 @@ begin
   end if;
 end $r$;
 $t$),
-('hf_rb', $t$
+('hf_rb_guard', $t$
+do $g$
+declare v_p text; v_s text; v_g text;
+begin
+  select body into v_p from public.house_facts where topic = 'smart-lock-prospect';
+  select body into v_s from public.house_facts where topic = 'smart-lock-staff';
+  select body into v_g from public.house_facts where topic = 'smart-lock';
+  if v_p is null or v_s is null or v_g is null then raise exception 's138 house_facts rollback: a row is missing' using errcode = '55000'; end if;
+  if v_p not like '%PHP 800 refundable security deposit are in%' and v_p not like '%once IDs and the balance are in%' then
+    raise exception 's138 house_facts rollback: smart-lock-prospect is neither this release nor the seed' using errcode = '55000';
+  end if;
+  if v_s not like '%PHP 800 refundable security deposit are in%' and v_s not like '%once IDs and the balance are in%' then
+    raise exception 's138 house_facts rollback: smart-lock-staff is neither this release nor the seed' using errcode = '55000';
+  end if;
+  if v_g not like '%once your payment, your IDs and the PHP 800 refundable security deposit are in.%' and v_g not like '%once your IDs and the balance are in.%' then
+    raise exception 's138 house_facts rollback: smart-lock is neither this release nor the seed wording' using errcode = '55000';
+  end if;
+end $g$;
+$t$),
+('hf_rb_update', $t$
+update public.house_facts
+   set body = $b$Check-in is self-service by smart lock, so a late arrival is easy. Your personal door code is sent at least a day before arrival, once IDs and the balance are in, and the door locks itself behind you. Check-in opens at 2:00 PM.$b$,
+       updated_by = 'seed 2026-09-29', updated_at = now()
+ where topic = 'smart-lock-prospect' and body like '%PHP 800%';
+update public.house_facts
+   set body = $b$The lock is TTLock; guest codes are issued from the TTLock app by the host once IDs and the balance are in, at least 24 hours before arrival. The code itself is never written into Cassy or the manual.$b$,
+       updated_by = 'seed 2026-09-29', updated_at = now()
+ where topic = 'smart-lock-staff' and body like '%PHP 800%';
 update public.house_facts
    set body = replace(body, 'once your payment, your IDs and the PHP 800 refundable security deposit are in.', 'once your IDs and the balance are in.'),
        updated_by = 's138 rollback', updated_at = now()
@@ -181,6 +208,12 @@ update public.booking_rate_policy_versions set terms = jsonb_set(jsonb_set(terms
  where id = (select id from public.booking_rate_policy_versions where property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd' and (effective_to is null or effective_to >= (now() at time zone 'Asia/Manila')::date) order by id limit 1);
 select throws_like((select body from s138_sql where name = 'dep_rb_guard'), '%edited since%', 'a marked row edited after the migration stops the rollback');
 
+-- R2-7: a marked row edited to a string stops the rollback guard with 55000 (the CASE keeps the numeric cast off non numbers), not a cast error
+update public.booking_rate_policy_versions set terms = jsonb_set(terms, '{deposit_pct}', '"abc"'::jsonb, true)
+ where id = (select id from public.booking_rate_policy_versions where property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd' and terms ? 's138_prev_deposit_pct' order by id limit 1);
+select throws_ok((select body from s138_sql where name = 'dep_rb_guard'), '55000', null::text, 'a marked row edited to a string stops the rollback guard with 55000, not 22P02');
+select throws_like((select body from s138_sql where name = 'dep_rb_guard'), '%edited since%', 'the rollback stop for a string value says edited since');
+
 -- ---- house_facts: guard, update, read-back, rollback ------------------------------------------------------------------------------
 select ok((select count(*) = 3 from public.house_facts where topic in ('smart-lock-prospect', 'smart-lock-staff', 'smart-lock')), 'precondition: the three smart-lock topics exist');
 update public.house_facts set body = 'Check-in is self-service by smart lock, so a late arrival is easy. Your personal door code is sent at least a day before arrival, once IDs and the balance are in, and the door locks itself behind you. Check-in opens at 2:00 PM.' where topic = 'smart-lock-prospect';
@@ -192,8 +225,19 @@ select throws_like((select body from s138_sql where name = 'hf_guard'), '%smart-
 update public.house_facts set body = 'Tap the keypad to wake it, enter your code and press #. The door locks itself when it closes, so pull it firmly shut whenever you leave. Your key card, kept with the remotes on the wooden tray on the TV cabinet, also opens the door with a tap on the keypad. Your personal code reaches you at least a day before arrival, once your IDs and the balance are in. Should the keypad not respond, message us here or call {{ONGROUND}} and we will get you in.' where topic = 'smart-lock';
 select lives_ok((select body from s138_sql where name = 'hf_update'), 'update and read-back run; all three rows name the PHP 800 deposit and no balance');
 select ok((select body like '%wooden tray on the TV cabinet%' and body like '%{{ONGROUND}} and we will get you in.' from public.house_facts where topic = 'smart-lock'), 'smart-lock keeps the tray edit and the rest of its text');
-select lives_ok((select body from s138_sql where name = 'hf_rb'), 'rollback of smart-lock runs');
-select ok((select body like '%once your IDs and the balance are in.%' and body like '%wooden tray on the TV cabinet%' from public.house_facts where topic = 'smart-lock'), 'rollback reverses only the one sentence');
+-- R2-8: the rollback guard and the three restores (the copies are the rollback file's own statements)
+select lives_ok((select body from s138_sql where name = 'hf_rb_guard'), 'rollback guard passes on the rows this release wrote');
+update public.house_facts set body = 'Edited after the release.' where topic = 'smart-lock-prospect';
+select throws_like((select body from s138_sql where name = 'hf_rb_guard'), '%smart-lock-prospect is neither this release nor the seed%', 'an edited smart-lock-prospect row stops the rollback guard');
+update public.house_facts set body = 'Check-in is self-service by smart lock, so a late arrival is easy. Your personal door code is sent at least a day before arrival, once your payment, your IDs and the PHP 800 refundable security deposit are in, and the door locks itself behind you. Check-in opens at 2:00 PM.' where topic = 'smart-lock-prospect';
+select lives_ok((select body from s138_sql where name = 'hf_rb_update'), 'rollback of the three rows runs');
+select ok((select body like '%once your IDs and the balance are in.%' and body like '%wooden tray on the TV cabinet%' from public.house_facts where topic = 'smart-lock'), 'rollback reverses only the one smart-lock sentence');
+select is((select body || '|' || updated_by from public.house_facts where topic = 'smart-lock-prospect'),
+  'Check-in is self-service by smart lock, so a late arrival is easy. Your personal door code is sent at least a day before arrival, once IDs and the balance are in, and the door locks itself behind you. Check-in opens at 2:00 PM.|seed 2026-09-29', 'rollback restores the seeded smart-lock-prospect body and updated_by');
+select is((select body || '|' || updated_by from public.house_facts where topic = 'smart-lock-staff'),
+  'The lock is TTLock; guest codes are issued from the TTLock app by the host once IDs and the balance are in, at least 24 hours before arrival. The code itself is never written into Cassy or the manual.|seed 2026-09-29', 'rollback restores the seeded smart-lock-staff body and updated_by');
+update public.house_facts set body = 'Edited after the rollback.' where topic = 'smart-lock';
+select throws_like((select body from s138_sql where name = 'hf_rb_guard'), '%smart-lock is neither this release nor the seed wording%', 'an edited smart-lock row stops the rollback guard');
 
 select * from finish();
 rollback;

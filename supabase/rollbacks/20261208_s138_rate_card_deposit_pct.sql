@@ -10,9 +10,9 @@ do $g$
 declare n_marked int; n_changed int;
 begin
   select count(*),
-         count(*) filter (where jsonb_typeof(terms -> 'deposit_pct') is distinct from 'number'
-                             or jsonb_typeof(terms -> 's138_prev_deposit_pct') is distinct from 'number'
-                             or (terms ->> 'deposit_pct')::numeric <> 100)
+         count(*) filter (where case when jsonb_typeof(terms -> 'deposit_pct') = 'number' and jsonb_typeof(terms -> 's138_prev_deposit_pct') = 'number'
+                                     then (terms ->> 'deposit_pct')::numeric <> 100
+                                     else true end)
     into n_marked, n_changed
     from public.booking_rate_policy_versions
    where property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd'
