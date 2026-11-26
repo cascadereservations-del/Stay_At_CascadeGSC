@@ -11678,7 +11678,6 @@ body.theme-quiet-luxury #conciergePanel, body.theme-quiet-luxury #conciergeTrigg
     if (o.guests) S.guests = Math.min(MAX_GUESTS, Math.max(MIN_GUESTS, o.guests));
     if (!dlg.open) { dlg.showModal(); document.body.classList.add('bs-open'); }
     S.open = true; autoAdvance(); save(); ensureQuote(); show(S.step);
-    track('booking_sheet_opened', { step: S.step });
   }
   function close() { if (dlg.open) dlg.close(); }
   dlg.addEventListener('close', function () {
