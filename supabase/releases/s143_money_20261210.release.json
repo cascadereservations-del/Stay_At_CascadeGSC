@@ -1,0 +1,91 @@
+{
+  "schema_version": 1,
+  "release_id": "s143_money_20261210",
+  "phase": "expand",
+  "source": {
+    "branch": "s143/money-sql",
+    "commit": "8bab6e7dba5e50ef3f375a321a13dd4e4c6e556a"
+  },
+  "migrations": [
+    "20261210000000_s143_money.sql"
+  ],
+  "migration_sha256": {
+    "20261210000000_s143_money.sql": "6f398a8528cee9687f9207829a85ad77dbe0be6d02c8310866f129aa9c6133d7"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20261126T080115Z",
+    "verified_at": "2026-11-26T08:05:57.104Z",
+    "production_rule": "Money consolidation (s143), server side. 20261210000000 adds the nullable column public.transactions.payment_method (check: gcash, bank, cash, card, other), six internal helper functions (granted to nobody), the function bill_reading_set_v1 (signed-in users, gated by bill_can_v1) and replaces ten bill/expense functions: bill_step_v1, bill_pay_open_v1, bill_due_open_v1, bill_entry_v1, bill_daily_v1, utility_bill_estimate_v1, today_bills_v1, bill_pay_settle_v1 (paid_on, method), expenses_screen_v1 and admin_save_transaction_v2 (payment_method). Every replaced function keeps all existing JSON keys and only gains keys. It stops (55000) if any of the ten is not the body it was cut from (md5 of prosrc). Category back-fill of old bill rows is NOT in the migration: docs/s143/laneS/backfill_category.sql runs separately with Lloyd's yes.",
+    "notes": "restore_point and verified_at are placeholders: restamp them with a fresh backup at apply time (scripts/migrations/fill-restore-point.mjs). The migration carries no begin/commit (the runner wraps it); the rollback carries its own and refuses (55000) once a ledger row carries a payment_method. source.commit is the base the lane started from; the lane commit is the branch tip. Apply the SQL before the Staff release. Rehearse with migration-rehearsal-on-host.sh and the pgTAP suite s143_money before the apply."
+  },
+  "forward_verification": [
+    {
+      "name": "payment_method_column_and_check",
+      "query": "select exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'transactions' and column_name = 'payment_method' and is_nullable = 'YES') and exists (select 1 from pg_constraint where conrelid = 'public.transactions'::regclass and conname = 'transactions_payment_method_check')",
+      "expect": true
+    },
+    {
+      "name": "ten_replaced_functions_have_the_new_bodies",
+      "query": "select count(*) = 10 and bool_and(md5(replace(p.prosrc, chr(13), '')) = v.m) from (values ('bill_step_v1', '44d8d6670985d060556cd772cc61b3c4'), ('bill_pay_open_v1', 'b090554ca873215100d9167579c0facc'), ('bill_due_open_v1', 'c5781b6c5b7c59e8621b17fef0a2d29a'), ('bill_entry_v1', 'b9445c74b9de12d095258176dbba99df'), ('bill_daily_v1', '1726ac329d265f98a9c345aae083d729'), ('utility_bill_estimate_v1', '615c5e6719f1d35872e885c6f5084587'), ('today_bills_v1', '563053ef8469130428e9d35f09cc7762'), ('bill_pay_settle_v1', '591176b334a7f6089a25b79ee2a4b245'), ('expenses_screen_v1', '87d5b34bc801736104bf69da5019b792'), ('admin_save_transaction_v2', '2eebbce5a512ddf389b6361ff85ae74d')) v(n, m) join pg_proc p on p.pronamespace = 'public'::regnamespace and p.proname = v.n",
+      "expect": true
+    },
+    {
+      "name": "bill_reading_set_is_for_signed_in_users_only",
+      "query": "select has_function_privilege('authenticated', 'public.bill_reading_set_v1(uuid,text,date,numeric,boolean)', 'execute') and not has_function_privilege('anon', 'public.bill_reading_set_v1(uuid,text,date,numeric,boolean)', 'execute') and not has_function_privilege('service_role', 'public.bill_reading_set_v1(uuid,text,date,numeric,boolean)', 'execute')",
+      "expect": true
+    },
+    {
+      "name": "six_helpers_are_granted_to_nobody",
+      "query": "select not exists (select 1 from unnest(array['public.utility_add_months_v1(date,integer)', 'public.utility_meter_rows_v1(uuid,text,text)', 'public.utility_meter_cycle_v1(uuid,text,date,jsonb)', 'public.utility_cycle_php_v1(uuid,text,date,date,jsonb)', 'public.utility_bill_span_v1(uuid,text,uuid)', 'public.utility_last_bill_v1(uuid,text)']) f where has_function_privilege('anon', f, 'execute') or has_function_privilege('authenticated', f, 'execute') or has_function_privilege('service_role', f, 'execute'))",
+      "expect": true
+    },
+    {
+      "name": "month_end_anchor_kept",
+      "query": "select public.utility_add_months_v1(date '2027-01-31', 1) = date '2027-02-28' and public.utility_add_months_v1(date '2027-01-31', 2) = date '2027-03-31'",
+      "expect": true
+    },
+    {
+      "name": "estimate_key_sets_unchanged",
+      "query": "select (select array_agg(k order by k) from jsonb_object_keys(e -> 'electric') k) = array['billed_month','cycle_from','cycle_to','days','days_in_cycle','fixed_php','forecast_kwh','forecast_php','kwh','last_reading_at','overdue','per_day_kwh','per_day_php','rate','so_far_php'] and (select array_agg(k order by k) from jsonb_object_keys(e -> 'water') k) = array['billed_month','cycle_from','cycle_to','days','forecast_m3','forecast_php','m3','min_m3','min_php','next_php','next_upto','overdue','per_day_m3','so_far_php'] from (select public.utility_bill_estimate_v1(gen_random_uuid(), public.manila_today()) e) x",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "until a ledger row carries a payment_method (the rollback refuses with 55000 rather than lose it)",
+    "steps": [
+      {
+        "name": "restore_previous_bodies_and_drop_additions",
+        "action": "apply supabase/rollbacks/20261210_s143_money.sql with run-sql-on-host.sh (puts the ten previous bodies back, drops bill_reading_set_v1, the six helpers and the payment_method column)"
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "staff_app_release_follows_the_sql",
+      "required_state": "Apply this SQL first; the Staff release that reads the new keys goes second. An old Staff client keeps working against the new SQL (additive keys only)."
+    }
+  ],
+  "compatibility": {
+    "mode": "widening",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": true,
+    "evidence": "Rehearsed 2026-11-26 with migration-rehearsal-on-host.sh on a throwaway restore of backup set cascade-supabase-20261126T080115Z (prefix cascade-migration-rehearsal-2603a606132c): migrations applied 1, failed 0; forward verification 6 passed, 0 failed; pgTAP s143_money 37/37; cleanup leftovers 0. Log docs/s143/laneS/rehearsal3_s143_only.log. The older suites s127_utility_bills, s127_bill_reminders, s131_meter_cycle and s131b_followups still encode superseded semantics (forecast estimate, overdue, body pins, fourteen entry keys) and must be updated by the owner of those files: docs/s143/laneS/rehearsal2.log. Rollback was not rehearsed (the script has no rollback mode). Not applied to production."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour, or restore_point / verified_at are still the placeholders",
+    "the migration guard raises 55000 (a replaced function is not the body it was cut from)",
+    "the pgTAP suite s143_money has not passed on this commit",
+    "the superseded assertions in s131_meter_cycle.sql have not been updated",
+    "the Opus 5.5 review of this SQL lane has not passed"
+  ]
+}
