@@ -43,15 +43,19 @@ Deno.test('dmRange: one month reads once, two months read twice', () => {
   assertEquals(dmRange('2026-11-07', '2026-11-09'), 'Nov 7 to 9');
 });
 
-Deno.test('rateLine: the direct rate, the one-night rate, and the last-minute sentence', () => {
+Deno.test('rateLine: the direct rate and the one-night rate; no last-minute sentence (s138); 28+ nights is never quoted', () => {
   const f = (a: string, z: string): Flow => ({ step: 'offer', checkin: a, checkout: z, pax: 2, lang: 'en', started_at: now.toISOString(), updated_at: now.toISOString() });
   assertEquals(rateLine(f('2026-11-17', '2026-11-19'), now), 'Booking directly with us brings your 2 nights to PHP 1,691 per night instead of the standard PHP 1,780 — PHP 3,382 for the stay.');
   assertEquals(rateLine(f('2026-11-17', '2026-11-18'), now), 'One night with us comes to PHP 1,780.'); // D-268 persona.ts
   assertEquals(rateLine(f('2026-11-17', '2026-11-22'), now), 'Booking directly with us brings your 5 nights to PHP 1,602 per night instead of the standard PHP 1,780 — PHP 8,010 for the stay.');
-  // Lloyd 2026-09-18: inside 5 days of check-in the site asks for the full amount, so the offer says so first.
-  assertEquals(rateLine(f('2026-09-18', '2026-09-20'), now).endsWith("As you're arriving within the next five days, the full amount confirms your stay right away."), true);
-  assertEquals(rateLine(f('2026-09-21', '2026-09-23'), now).includes('within the next five days'), true);  // 4 days out
-  assertEquals(rateLine(f('2026-09-22', '2026-09-24'), now).includes('within the next five days'), false); // 5 days out
+  // s138 (D-428): every stay is paid in full, so no date, near or far, gets a last-minute sentence.
+  assertEquals(rateLine(f('2026-09-18', '2026-09-20'), now).includes('within the next five days'), false);
+  assertEquals(rateLine(f('2026-09-21', '2026-09-23'), now).includes('within the next five days'), false);
+  // s138 (D-429): 28 nights or more is arranged by the host; code quotes no figure.
+  const long = rateLine(f('2026-11-17', '2026-12-15'), now);
+  assertEquals(long.startsWith('A stay of 28 nights or more is arranged personally by our host'), true);
+  assertEquals(/PHP|₱/.test(long), false);
+  assertEquals(rateLine(f('2026-11-17', '2026-12-14'), now).includes('27 nights'), true); // 27 nights is still quoted
   assertEquals(rateLine(f('2026-11-17', '2026-11-19'), now).includes('within the next five days'), false);
 });
 
@@ -101,34 +105,29 @@ Deno.test('flow: the details are taken progressively, in any order', () => {
 // SPEC-39 3.6b (D-300.3): the details complete -> submit at once; the card, the hold, the payment and the QR are one turn.
 const held = (f: Flow, over: Partial<Flow> = {}): Flow => ({ ...f, step: 'await_receipt', booking_id: 'b1', ref: 'DIR-1', deposit: 1691, total: 3382, hold: true,
   hold_expires_at: '2026-09-18T06:00:00Z', receipt_token: 't', receipt_expires_at: '2026-09-18T06:00:00Z', ...over });
-Deno.test('SPEC-39 3.6b: details complete -> submit; the fee 6+ days out, the full amount inside 5 days', () => {
+Deno.test('SPEC-39 3.6b: details complete -> submit; the full amount whatever the days to check-in (s138)', () => {
   const far = answer(answer(start('book Nov 17 to 19 for 2', now), 'yes', now).flow, 'Ben Munez 09475977727 ben@example.com', now);
-  assertEquals([far.action, far.flow.pay_full], ['submit', false]);
+  assertEquals([far.action, far.flow.pay_full], ['submit', true]);
   const near = answer(answer(start('book Sep 18 to 20 for 2', now), 'yes', now).flow, 'Ben Munez 09475977727 ben@example.com', now);
   assertEquals([near.action, near.flow.pay_full], ['submit', true]);
 });
 Deno.test('SPEC-39 3.6b: one message carries the card, the 24-hour hold, the reference, GCash and the QR', () => {
   const f = held(answer(answer(start('book Nov 17 to 19 for 2', now), 'yes', now).flow, 'Ben Munez 09475977727 ben@example.com', now).flow);
   const m = stayPayMessage(f, 'Ben', now);
-  for (const k of ['👤 Ben Munez', '📅 Nov 17 to 19 · 2 nights · 2 guests', '💰 Total ₱3,382 · reference DIR-1', '🔐 ₱1,000 refundable security deposit', '⏳ Held for you for 24 hours, until Sep 18 at 2:00 PM (tomorrow)', '0956 011 5744', 'QR below', '₱1,691 reservation fee', 'full ₱3,382', 'screenshot of the receipt'])
+  for (const k of ['👤 Ben Munez', '📅 Nov 17 to 19 · 2 nights · 2 guests', '💰 Total ₱3,382 · reference DIR-1', '🔐 ₱800 refundable security deposit, returned within 3 business days after check-out', '⏳ Held for you for 24 hours, until Sep 18 at 2:00 PM (tomorrow)', '0956 011 5744', 'QR below', 'The full ₱3,382 secures these dates', '₱800 refundable security deposit is due at least a day before check-in', 'screenshot of the receipt'])
     assertEquals(m.includes(k), true, `${k}: ${m}`);
-  assertEquals(/fee" or "full/.test(m), false); // "fee" is no longer a step
+  assertEquals(/fee|balance|1,000/.test(m), false); // s138: no fee, balance or P1,000 anywhere in the card
   assertEquals(prompt(f, 'Ben', false, now), m); // one renderer
-  // inside five days: the full amount only, no hold line, no fee
+  // no hold (inside five days): the same full amount, no hold line
   const n = stayPayMessage(held({ ...f, checkin: '2026-09-18', checkout: '2026-09-20' }, { deposit: 3382, hold: false, hold_expires_at: null, pay_full: true }), 'Ben', now);
-  assertEquals([/check-in is near/.test(n), /reservation fee/.test(n), n.includes('⏳ Yours as soon as the payment arrives')], [true, false, true]);
+  assertEquals([/reservation fee|balance/.test(n), n.includes('⏳ Yours as soon as the payment arrives')], [false, true]);
 });
-Deno.test('SPEC-39 3.6b: after the QR - "full" swaps it, "fee" needs nothing more, a correction re-shows the card, new dates go to the host', () => {
+Deno.test('SPEC-39 3.6b: after the QR - "ok" needs nothing more (s138: no fee or full choice), a correction re-shows the card, new dates go to the host', () => {
   const f = held(start('book Nov 17 to 19 for 2', now), { name: 'Ben Munez', phone: '09475977727', email: 'ben@example.com' });
-  const full = answer(f, 'full', now, 'Ben');
-  assertEquals([full.action, full.flow.pay_full, full.flow.deposit], ['requote_full', true, 3382]);
-  assertEquals(full.reply!.includes('QR for the full ₱3,382'), true);
-  assertEquals(answer(f, 'Can I pay in full thru Gcash?', now).action, 'requote_full');
-  assertEquals(answer(full.flow, 'full', now).action, 'ask'); // already full: acknowledged, no second QR
-  const fee = answer(f, 'fee', now, 'Ben');
-  assertEquals([fee.action, fee.flow.pay_full], ['ask', undefined]);
-  assertEquals(/already carries the ₱1,691 fee/.test(fee.reply!), true);
-  assertEquals(answer(f, 'ok', now).action, 'ask');
+  assertEquals(answer(f, 'Can I pay in full thru Gcash?', now).action, 'passthrough'); // a question goes to the model, whose hint says the QR is the full amount
+  const ok = answer(f, 'ok', now, 'Ben');
+  assertEquals(ok.action, 'ask');
+  assertEquals(/already carries the ₱3,382 payment/.test(ok.reply!), true);
   const pax = answer(f, 'make it 3 guests', now, 'Ben');
   assertEquals([pax.action, pax.flow.pax], ['correct', 3]);
   assertEquals(pax.reply!.includes("Here's your stay") && !/QR below/.test(pax.reply!), true); // the card alone, no new QR
@@ -319,7 +318,7 @@ Deno.test('SPEC-39 3.7: "Ma." is not the first name; the card keeps the name as 
   const m = stayPayMessage(f, 'Maria', now);
   assertEquals(m.includes('👤 Ma. Elizabeth Reyes'), true);
   assertEquals(/\bMa,/.test(m), false);
-  assertEquals(answer(f, 'full', now).reply!.startsWith('Of course, Elizabeth.'), true);
+  assertEquals(answer(f, 'ok', now).reply!.startsWith('Thank you, Elizabeth.'), true);
 });
 Deno.test('SPEC-39 3.6b: "I will pay tomorrow" after the QR is not a date change', () => {
   const f: Flow = { ...start('book Nov 17 to 19 for 2', now), step: 'await_receipt', ref: 'DIR-1', deposit: 1691, total: 3382, hold: true };
@@ -359,17 +358,17 @@ Deno.test('SPEC-39 audit round 2: the Taglish, Bisaya and English change idioms 
   // a single date with "na lang", or beside a payment word, is the payment day; "full" wins over any date
   assertEquals(answer(f, 'Pwede Oct 10 na lang bayad instead?', now).action === 'change', false);
   assertEquals(answer(f, 'Oct 10 na lang po', now).action === 'change', false);
-  assertEquals(answer(f, 'make it full, I will pay by Oct 19', now).action, 'requote_full');
+  assertEquals(answer(f, 'make it full, I will pay by Oct 19', now).action === 'change', false); // s138: nothing to switch to
 });
 
-Deno.test('SPEC-39 audit round 3: usabon / ibalhin are changes; a held date, "the hold", a payment day are not; babayaran ... buo is full', () => {
+Deno.test('SPEC-39 audit round 3: usabon / ibalhin are changes; a held date, "the hold", a payment day are not; babayaran ... buo is not a change', () => {
   const f = held(start('book Oct 20 to 22 for 2', now), { name: 'Ben Munez', phone: '09475977727', email: 'ben@example.com' });
   assertEquals(answer(f, 'usabon nato ang dates, Oct 30 to Nov 1', now).action, 'change');
   assertEquals(answer(f, 'ibalhin nato sa Oct 25 to 27', now).action, 'change');
   assertEquals(answer(f, 'can we extend to Oct 22?', now).action === 'change', false); // the held check-out
   assertEquals(answer(f, 'adjust the hold until Oct 19 please?', now).action === 'change', false);
   assertEquals(answer(f, 'Oct 19 na lang bayad ko, Oct 20 check-in pa rin', now).action === 'change', false);
-  assertEquals(answer(f, 'babayaran ko na lang buo sa Oct 19', now).action, 'requote_full');
+  assertEquals(answer(f, 'babayaran ko na lang buo sa Oct 19', now).action === 'change', false); // s138: nothing to switch to
   // A change word with a range stays a change beside a payment word; a single payment day does not.
   assertEquals(answer(f, "move to Oct 25 to 27 and I'll pay the balance", now).action, 'change');
   assertEquals(answer(f, 'pwede ilipat sa Oct 25 to 27, send ko bayad later', now).action, 'change');

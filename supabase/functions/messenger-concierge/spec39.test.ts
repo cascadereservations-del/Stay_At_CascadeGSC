@@ -41,19 +41,20 @@ Deno.test('SPEC-39 3.8: "Thanks and God bless" is a closer, answered in code wit
   }
 });
 
-Deno.test('SPEC-39 4.1: "two months" gets the code-computed 60-night total; three months goes to the host', () => {
-  const two = stayAnchor('Hello, can I ask for details regarding our booking good for two months?');
-  assert(two.includes('PHP 1,335') && two.includes('PHP 80,100') && two.includes('PHP 106,800') && two.includes('60 nights'), two);
-  assert(stayAnchor('para sa dalawang buwan po', 'taglish').includes('PHP 80,100'));
+Deno.test('SPEC-39 4.1 / s138: from 28 nights (a month, two months, three months) code quotes nothing; three weeks is still priced', () => {
+  assertEquals(stayAnchor('Hello, can I ask for details regarding our booking good for two months?'), '');
+  assertEquals(stayAnchor('para sa dalawang buwan po', 'taglish'), '');
   assertEquals(stayAnchor('3 months'), '');
   assertEquals(stayAnchor('three months'), '');
+  assertEquals(stayAnchor('If I book for a month, how much?'), '');
   assert(stayAnchor('a week').includes('7 nights'));
-  assert(stayAnchor('If I book for a month, how much?').includes('30 nights')); // D-269 unchanged
+  assert(stayAnchor('3 weeks').includes('21 nights'));
 });
 
 Deno.test('SPEC-39 3.3: the objection hint carries the stay total only - no per-night rate, no standard, no saving', () => {
-  const t = anchorTotal('two months po, medyo mahal');
-  assert(t.includes('PHP 80,100') && !/1,335|1,780|per night|%/.test(t), t);
+  const t = anchorTotal('three weeks po, medyo mahal');
+  assert(t.includes('Their 21 nights come to PHP') && !/1,424|1,780|per night|%/.test(t), t);
+  assertEquals(anchorTotal('two months po, medyo mahal'), ''); // s138: a long stay has no figure
   assertEquals(anchorTotal('medyo mahal po'), '');
 });
 

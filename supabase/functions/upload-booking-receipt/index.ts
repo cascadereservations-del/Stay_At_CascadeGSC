@@ -1,6 +1,7 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { withHeader, groups, doSend, autoKeyboard } from '../_shared/cascade-core/format.ts';
-import { CAPTION_MAX, guestFollowUp, hostDoLine, overpaymentLines, priorUseLines, verdictOf, type Lang, type PriorUse } from './followup.ts';
+import { SECURITY_DEPOSIT_PHP } from '../_shared/cascade-core/pricing.ts';
+import { CAPTION_MAX, guestFollowUp, hostDoLine, overpaymentLines, priorUseLines, verdictLine, verdictOf, type Lang, type PriorUse } from './followup.ts';
 import { hasVisionKey, visionExtractText, parseModelJson } from '../_shared/cascade-core/vision.ts';
 import { storePayer } from './payer.ts';
 import {
@@ -68,9 +69,9 @@ Deno.serve(async (request) => {
   });
   if (uploadError) return response({ error: 'receipt_upload_failed' }, 500);
 
-  // SPEC-34 (D-262): a held request is created with the reservation fee before the guest picks "Pay in Full" on the
-  // site, so the receipt says which it is. x-pay-full: true on a pending request makes the expected amount the stored
-  // total (never a client figure), so the receipt check no longer calls a full payment "over".
+  // SPEC-34 (D-262), kept for compatibility (s138): a request created before the pay-in-full rule may still hold the 50% fee.
+  // x-pay-full: true on a pending request makes the expected amount the stored total (never a client figure). New requests are
+  // already stored at the total, so the header changes nothing for them.
   const payFull = request.headers.get('x-pay-full') === 'true' && booking.status === 'pending' && Number(booking.total_amount) > 0;
   const { data: updated, error: updateError } = await db
     .from('booking_inquiries')
@@ -169,9 +170,8 @@ async function notifyFinance(db: any, bookingId: string, objectPath: string, ev:
   }
   const { data: th } = await db.from('concierge_threads').select('booking_flow').eq('booking_flow->>booking_id', bookingId).maybeSingle() as { data: { booking_flow?: { lang?: Lang } } | null };
   const sample = guestFollowUp(v, th?.booking_flow?.lang ?? 'en', String(b.guest_name ?? ''), expected, r?.amount ?? 0);
-  const verdict = r && r.amount !== null
-    ? (Math.abs(r.amount - expected) < 0.5 ? `⚖️ Amount matches the ₱${peso(expected)} expected` : `⚖️ ₱${peso(Math.abs(r.amount - expected))} ${r.amount < expected ? 'SHORT' : 'over'} — expected ₱${peso(expected)}`)
-    : null;
+  const verdict = verdictLine(v, r?.amount ?? null, expected, Number(b.total_amount)); // s138: stay paid / deposit still due, or both received
+  const stayFull = Number(b.total_amount) > 0 && expected >= Number(b.total_amount) - 0.5;
   // SPEC-10 control 2: the old Do line said "Confirm only once the payment is real" without saying
   // how you would know. hostDoLine names the one check a forged screenshot cannot survive — the
   // money being in the wallet. It returns null for not_proof / unread, where there is no amount to
@@ -184,7 +184,7 @@ async function notifyFinance(db: any, bookingId: string, objectPath: string, ev:
   const caption = withHeader('finance', `receipt ${ref}`, groups(
     priorUseLines(priorUse),
     [`📎 Receipt uploaded — ${b.guest_name}`, `📅 ${b.checkin_date} → ${b.checkout_date} · status ${b.status}`],
-    [`💳 Expected: ₱${peso(b.deposit_amount)} of ₱${peso(b.total_amount)}`, readLine, verdict],
+    [stayFull ? `💳 Expected: ₱${peso(b.total_amount)} (the full stay), plus the ₱${peso(SECURITY_DEPOSIT_PHP)} refundable deposit by the day before check-in` : `💳 Expected: ₱${peso(b.deposit_amount)} of ₱${peso(b.total_amount)}`, readLine, verdict],
     v === 'over' && r?.amount != null ? overpaymentLines(r.amount, expected) : [],
     [doLine, `🔗 https://cascadereservations-del.github.io/cascade-admin-dashboard/#/bookings/direct/${bookingId}`],
     sample ? doSend('the guest', sample) : [],

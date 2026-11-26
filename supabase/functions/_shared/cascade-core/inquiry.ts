@@ -5,6 +5,7 @@
 // The cards are written for people: what happened and who acts first, plain sentences, ids last.
 // Guest-facing lines are unsigned and pass lintReply + toneRules in all three registers (inquiry.test.ts).
 // Pronouns: the card never guesses a gender ("the guest", "their"), the guest's own line uses the name.
+import { SECURITY_DEPOSIT_PHP } from './pricing.ts';
 import { dmRange } from '../../messenger-concierge/booking.ts';
 import { CAPACITY } from '../../messenger-concierge/persona.ts'; // the D-222 disclosure stays one constant
 import { autoKeyboard, BTN, DASH_URL, groups, type Btn } from './format.ts';
@@ -131,7 +132,7 @@ export function financeCard(v: InquiryView, x: CardExtra = {}): string {
   const full = v.total_amount !== null && v.deposit_amount !== null && Number(v.total_amount) === Number(v.deposit_amount);
   const until = v.hold_expires_at ?? x.holdExpiresAt ?? null;
   const money = total
-    ? `💰 Total ${total}${due ? (full ? ` · full payment ${due} due now` : ` · reservation fee ${due} due now`) : ''}`
+    ? `💰 Total ${total}${due ? (full ? ` · full payment ${due} due now · ${peso(SECURITY_DEPOSIT_PHP)} deposit by the day before check-in` : ` · reservation fee ${due} due now`) : ''}`
     : null;
   const rate = pesoOrNull(x.rateToday) && x.rateToday !== v.total_amount && total ? `Rate card today ${pesoOrNull(x.rateToday)}. The guest keeps the ${total} quoted.` : null;
   const timer = until
@@ -267,9 +268,12 @@ export function expectedOf(v: Pick<InquiryView, 'deposit_amount' | 'total_amount
   for (const x of [v.deposit_amount, v.total_amount]) if (x !== null && x !== undefined && Number(x) > 0) return Number(x);
   return null;
 }
-export function paidPrompt(v: Pick<InquiryView, 'guest_name'>, expected: number | null): string {
+export function paidPrompt(v: Pick<InquiryView, 'guest_name'> & Partial<Pick<InquiryView, 'total_amount'>>, expected: number | null): string {
   return `${firstName(v.guest_name) || 'The guest'}: how was it paid? Reply with the GCash reference and amount, e.g. 1234567890123 5073 - or cash 5073 - or bank <ref> 5073. `
-    + (expected ? `Amount can be left out if it is exactly ${peso(expected)}.` : 'Include the amount received.') + ' This question closes in 10 minutes.';
+    + (expected ? `Amount can be left out if it is exactly ${peso(expected)}.` : 'Include the amount received.')
+    // s138 (D-430): the stay is paid in full; when the P800 deposit came in the same transfer, the amount typed is the stay plus the deposit.
+    + (expected && Number(v.total_amount) > 0 && expected >= Number(v.total_amount) ? ` If the ${peso(SECURITY_DEPOSIT_PHP)} deposit came in the same transfer, type ${peso(expected + SECURITY_DEPOSIT_PHP)}.` : '')
+    + ' This question closes in 10 minutes.';
 }
 export const PAID_AGAIN = 'Reply to the question again with a GCash reference and amount (1234567890123 5073), cash 5073, or bank <ref> 5073; nothing was confirmed.';
 

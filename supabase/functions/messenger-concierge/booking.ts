@@ -1,7 +1,7 @@
 // Messenger book intent (booking PRD §A, session 27). Pure functions, no I/O: a code-driven
 // slot-filling flow that index.ts runs BEFORE the model. The model never books; it only answers
 // questions. State is one jsonb on concierge_threads.booking_flow.
-import { cardOn, currentCard, isLastMinute, quote, type Quote, type RateCard } from '../_shared/cascade-core/pricing.ts';
+import { cardOn, currentCard, isLongStay, quote, type Quote, type RateCard } from '../_shared/cascade-core/pricing.ts';
 // D-268 / D-269: every guest-facing word lives in persona.ts; this file decides the move and seals the facts.
 import * as P from './persona.ts';
 import { thinPo } from './voice.ts'; // read inside functions only (voice.ts imports this file)
@@ -16,7 +16,7 @@ export type Flow = {
   checkin?: string; checkout?: string; pax?: number; phone?: string; email?: string | null;
   /** SPEC-14 (D-184): the name for the reservation, asked in the details step; it wins over the Facebook profile name. */
   name?: string;
-  /** session 28: the guest's choice - reservation fee (50 %) or the full amount; forced full when check-in is under 5 days away (the site's rule) */
+  /** s138 (D-428): every stay is paid in full to confirm, so this is always true on a new booking; kept for stored flows and the host card's reader */
   pay_full?: boolean; asked?: 'availability' | 'question' | null;
   /** SPEC-28 section 2: the first message also asked something besides availability ("is Oct 26 to 28 open? is there wifi?") */
   question?: boolean;
@@ -66,16 +66,9 @@ export function payTiming(text: string): 'arrival' | 'later' | null {
   if (!PAY_MONEY_RE.test(text)) return null;
   return ARRIVE_PAY_RE.test(text) ? 'arrival' : LATER_PAY_RE.test(text) ? 'later' : null;
 }
-/** F2 (booking site, the pay-in-full path): "you arrive with only the ₱1,000 refundable deposit to hand over" - so on that path
- *  the deposit alone at arrival is the site's own term. True when the message is about the deposit and nothing else owed. */
-export const depositOnly = (text: string): boolean => /\bdeposit\b/i.test(text) && !/\b(balance|full|remaining|total|reservation fee|dp|down ?payment)\b/i.test(text);
 export const CANCEL_RE = /\b(cancel|stop|wag na|huwag|never ?mind|nevermind|not now|forget it|change of plans|di na tuloy|hindi na tuloy|dili na|wag na lang)\b/i;
 const YES_RE = /^\s*(yes|yes po|oo|oo po|sige|sige po|go|confirm|confirmed|ok|okay|okay po|ok po|proceed|tama|correct|yup|yep|y)\s*[.!]*\s*$/i;
 const SKIP_RE = /^\s*(skip|wala|none|no email|no)\s*[.!]*\s*$/i;
-const FULL_RE = /\b(full|buo|buong|lahat|whole|everything|total|bayaran (ko )?lahat|in full)\b/i;
-/** SPEC-39 3.6b, after the QR: a whole "fee"-shaped reply (nothing more to choose), and a request to pay the full amount. */
-const FEE_RE = /^\W*(?:the\s+)?(?:fee|reservation fee|deposit|dp|down ?payment|half|kalahati|50%?)\b/i;
-const PAY_FULL_RE = /^\W*(?:full|in full|buo)\b|\b(?:pay|bayad\w*|(?:ba)?bayaran|magbayad|settle|make it)\b[^.?!\n]{0,20}\b(?:in full|full|buo|lahat)\b/i;
 const PAY_WORD = String.raw`\b(?:pay|paid|payment|bayad\w*|(?:ba)?bayaran|balance|send|transfer|gcash)\b`, A_DATE = String.raw`\b(?:jan|feb|mar|apr|may|jun|jul|aug|sept?|oct|nov|dec)[a-z]*\.?\s*\d{1,2}\b|\b\d{1,2}[\/-]\d{1,2}\b`;
 /** After the hold: a payment word within a few words of a date - that date is the payment day, not a new stay. */
 const PAY_DAY_RE = new RegExp(String.raw`(?:${A_DATE})[^.?!\n]{0,20}${PAY_WORD}|${PAY_WORD}[^.?!\n]{0,20}(?:${A_DATE})`, 'i');
@@ -360,10 +353,6 @@ export function quoteTotal(checkin: string, checkout: string, card: RateCard = c
   const q = quote(card, checkin, checkout);
   return { nights: q.n, rate: q.tier_rate, total: q.total, deposit: q.deposit, q };
 }
-/** Lloyd 2026-09-18: a booking made inside 5 days of check-in - same day through 4 days out - pays in full up
- *  front, so the fee-or-full choice is not offered. R4 (2026-10-01): the booking site is the source of truth; the rule
- *  lives in pricing.ts (FULL_PAY_WITHIN_DAYS) and is shared with quote() and submit-booking. Manila calendar days. */
-export const lastMinute = isLastMinute;
 const php = (v: number) => `PHP ${v.toLocaleString('en-PH')}`;
 /** D-262: promo nights anchored on the standard rate (never a "was" price); a mixed stay names both parts. */
 function promoRateLine(lang: Lang | undefined, x: ReturnType<typeof quoteTotal>, std: number): string {
@@ -375,13 +364,19 @@ function promoRateLine(lang: Lang | undefined, x: ReturnType<typeof quoteTotal>,
   return P.promoMixed({ n: q.n, total: php(q.total), promoNights: q.promo_nights, when, name, promoRate: pr, rest: q.n - q.promo_nights, restRate: php(q.tier_rate), std: php(std) }, lang);
 }
 /** SPEC-14 (D-184): the direct-booking rate, said before the offer. Every figure comes from quoteTotal (the rate card). */
-export function rateLine(flow: Flow, now = new Date(), card: RateCard = currentCard()): string {
+export function rateLine(flow: Flow, _now = new Date(), card: RateCard = currentCard()): string {
+  if (isLongFlow(flow)) return P.longStayLine(flow.lang); // s138: never a quote for 28+ nights
   const q = quoteTotal(flow.checkin!, flow.checkout!, card), STD_RATE = cardOn(card, flow.checkin!).base; // the standard on the check-in date
   const body = q.q.promo_nights > 0 ? promoRateLine(flow.lang, q, STD_RATE) : q.nights >= 2
     ? P.nightsPrice(q.nights, php(q.rate), php(STD_RATE), php(q.total), flow.lang)
     : P.oneNight(php(q.rate), flow.lang);
-  // The site's own rule (D-166): inside five days the full amount secures the stay, so the choice is never offered.
-  return lastMinute(flow.checkin!, now) ? `${body} ${P.LAST_MINUTE}` : body;
+  return body;
+}
+/** s138 (D-429): 28 nights or more is arranged by the host (first month to confirm, then monthly). Never quoted, never held,
+ *  never submitted: the flow ends with one line and the host card (index.ts raises it from action 'long_stay'). */
+export const isLongFlow = (f: Flow): boolean => !!f.checkin && !!f.checkout && isLongStay(nights(f.checkin, f.checkout));
+export function longStay(f: Flow): Step | null {
+  return isLongFlow(f) ? { flow: { ...f, step: 'cancelled' }, reply: P.longStayLine(f.lang), action: 'long_stay' } : null;
 }
 const manilaToday = (now: Date) => new Date(now.getTime() + 8 * 3_600_000).toISOString().slice(0, 10);
 export const addDay = (d: string, n = 1) => new Date(Date.parse(d + 'T00:00:00Z') + n * 86_400_000).toISOString().slice(0, 10);
@@ -441,12 +436,11 @@ export function holdCancelReply(flow: Flow, name: string | null, lang: Lang, cha
   const kind = change ? 'change' : flow.step === 'receipt_sent' ? 'receipt' : 'cancel';
   return P.holdCancelLine(kind, name, dmRange(flow.checkin!, flow.checkout!), lang);
 }
-/** s78: the stay card's own payment terms for a booked guest who names another timing (payTiming). Facts from the flow. */
-export function payTermsReply(flow: Flow, name: string | null, lang: Lang, text = ''): { reply: string; agreed: boolean } {
-  const total = flow.total ?? quoteTotal(flow.checkin!, flow.checkout!).total, deposit = flow.deposit ?? total, full = deposit >= total;
-  // F2: the site's two paths. Pay in Full - the deposit alone on arrival is the term (agreed); the 50% fee - balance and deposit a day before.
-  const agreed = full && payTiming(text) === 'arrival' && depositOnly(text);
-  return { agreed, reply: P.payTermsLine(P.first(flow.name ?? name) || null, lang, { total: peso(total), balance: full ? '' : peso(total - deposit), paid: flow.step === 'receipt_sent' || flow.step === 'confirmed' || !!flow.photo_at, accept: agreed }) };
+/** s78: the stay card's own payment terms for a booked guest who names another timing (payTiming). Facts from the flow.
+ *  s138: always the same terms (full stay amount, then the security deposit a day before check-in); nothing is agreed on arrival. */
+export function payTermsReply(flow: Flow, name: string | null, lang: Lang): string {
+  const total = flow.total ?? quoteTotal(flow.checkin!, flow.checkout!).total;
+  return P.payTermsLine(P.first(flow.name ?? name) || null, lang, { total: peso(total), paid: flow.step === 'receipt_sent' || flow.step === 'confirmed' || !!flow.photo_at });
 }
 /** SPEC-31 s2 (REVIEW F2): "paid na po?" once a booking exists. No timing promise: nothing measures the host. */
 export function paidClaimReply(flow: Flow, name: string | null, lang: Lang): string {
@@ -503,7 +497,7 @@ export function prompt(flow: Flow, name: string | null, resume = false, now = ne
     case 'checkout': return P.nightsAsk(dm(flow.checkin!), flow.checkin === manilaToday(now), L);
     case 'pax': return P.partyAsk(L);
     // The same one-yes question as the price path and the reserved line; the welcome sits above it in the first reply.
-    case 'offer': return `${rateLine(flow, now)}\n\n${P.holdOffer(nights(flow.checkin!, flow.checkout!) === 1, L, false)}`;
+    case 'offer': return isLongFlow(flow) ? rateLine(flow, now) : `${rateLine(flow, now)}\n\n${P.holdOffer(nights(flow.checkin!, flow.checkout!) === 1, L, false)}`;
     case 'contact': {
       if (flow.name || flow.phone || flow.email) return nextAsk(flow);
       return P.detailsAsk(first, L);
@@ -528,10 +522,9 @@ function cardFacts(flow: Flow, name: string | null, resume: boolean, now: Date):
 /** SPEC-39 3.6b (D-300.3): the stay card with the hold and the reference, then the payment paragraph and the receipt line in
  *  the guest's tone - ONE message; the amount-set QR is the image of the same turn. Facts sealed here, words persona.ts's. */
 export function stayPayMessage(flow: Flow, name: string | null, now = new Date(), resume = false): string {
-  const q = quoteTotal(flow.checkin!, flow.checkout!), total = flow.total ?? q.total, deposit = flow.deposit ?? q.deposit;
-  const near = lastMinute(flow.checkin!, now);
+  const q = quoteTotal(flow.checkin!, flow.checkout!), total = flow.total ?? q.total;
   const nudge = P.payNudge({
-    deposit: peso(deposit), total: peso(total), fullOnly: near || deposit >= total, near, dates: dmRange(flow.checkin!, flow.checkout!),
+    total: peso(total), dates: dmRange(flow.checkin!, flow.checkout!),
     name: P.first(flow.name ?? name), party: P.partyName(flow.pax, flow.lang, flow.children ?? 0),
   }, flow.tone ?? 'warm', flow.lang);
   return thinPo(`${P.stayCard(cardFacts(flow, name, resume, now), flow.lang)}\n\n${nudge}`, flow.lang === 'bis' ? 0 : 2);
@@ -548,7 +541,7 @@ export function toneOf(threadTexts: string[], flowTexts: string[], intents: stri
   return median <= 4 && plain ? 'brisk' : 'warm';
 }
 
-export type Step = { flow: Flow; reply: string | null; action: 'ask' | 'submit' | 'cancelled' | 'passthrough' | 'requote_full' | 'correct' | 'change' };
+export type Step = { flow: Flow; reply: string | null; action: 'ask' | 'submit' | 'cancelled' | 'passthrough' | 'correct' | 'change' | 'long_stay' };
 
 /** D-222: a new flow reads the calendar when the guest asked about availability OR gave both dates. Before, "book Oct
  *  10 to 12 for 2" was quoted, took name, phone and e-mail, and failed only at submit ("reserved just moments ago"). */
@@ -592,6 +585,11 @@ export function start(text: string, now = new Date()): Flow {
 /** Apply the guest's answer to the current slot. A question ("?") passes through to the model. */
 /** `name`: the thread's name, for the details ask and the lines after the QR (SPEC-39 3.6, 3.6b). */
 export function answer(flow: Flow, text: string, now = new Date(), name: string | null = null): Step {
+  const s = answerStep(flow, text, now, name);
+  // s138 (D-429): a stay of 28+ nights never reaches the offer, the details or the hold: the host arranges it.
+  return s.action === 'ask' && ['offer', 'contact', 'confirm'].includes(s.flow.step) ? longStay(s.flow) ?? s : s;
+}
+function answerStep(flow: Flow, text: string, now = new Date(), name: string | null = null): Step {
   const f: Flow = { ...flow, updated_at: now.toISOString() };
   // Mirror the guest: a Tagalog/Bisaya turn switches the register to Taglish; a plain-English turn switches it back
   // (numbers, dates, "skip", "deposit" and the like carry no language and keep the current one).
@@ -688,7 +686,6 @@ export function answer(flow: Flow, text: string, now = new Date(), name: string 
         f.checkin = dc[0];
         if (dc[1] && dc[1] > dc[0]) f.checkout = dc[1];
         else if (f.checkout! <= dc[0]) { f.step = 'checkout'; return ask(); }
-        f.pay_full = lastMinute(f.checkin!, now) ? true : undefined;
         return ask(nextAsk(f));
       }
       const ph = parsePhone(text), em = parseEmail(text), nm = parseName(text);
@@ -698,8 +695,8 @@ export function answer(flow: Flow, text: string, now = new Date(), name: string 
       if (!ph && !em && !nm) return retry('details');
       if (!f.name || !f.phone || !f.email) return ask(nextAsk(f));
       // SPEC-39 3.6b (D-300.3): the details are complete - the hold opens now, and the card, the payment and the amount-set
-      // QR go out as one turn. The fee unless check-in is inside five days; "full" afterwards swaps the QR.
-      f.step = 'confirm'; f.pay_full = lastMinute(f.checkin!, now);
+      // QR go out as one turn. s138: the full stay amount, whatever the days to check-in.
+      f.step = 'confirm'; f.pay_full = true;
       return { flow: f, reply: null, action: 'submit' };
     }
     case 'confirm': {
@@ -711,12 +708,12 @@ export function answer(flow: Flow, text: string, now = new Date(), name: string 
       if (p && !overCapacity(text, p)) { f.pax = p; f.children = kidsIn(text) || undefined; }
       if (ph) f.phone = ph;
       if (e) f.email = e;
-      f.pay_full = lastMinute(f.checkin!, now) || FULL_RE.test(text);
+      f.pay_full = true;
       return { flow: f, reply: null, action: 'submit' };
     }
     case 'await_receipt': {
-      // SPEC-39 3.6b (D-300.3): the hold and the QR are out. "full" swaps the QR for the full amount; "fee", "yes" or "ok"
-      // need nothing more; a correction re-shows the card with no new QR (the total does not move with the count); new dates
+      // SPEC-39 3.6b (D-300.3): the hold and the QR are out. "yes" or "ok" needs nothing more (s138: the QR already carries the
+      // full stay amount, so there is no fee or full choice); a correction re-shows the card with no new QR (the total does not move with the count); new dates
       // go to the host (SPEC-31 s1). Anything else - a question - is the model's, under the pay-hold hint.
       // A change of dates only when the guest asks for one: written dates that differ from the held stay AND a change word.
       // "Can we check in at 2pm on Oct 20?", "I'll send the payment on Oct 8", "pay the balance on Oct 19?" are not changes.
@@ -724,17 +721,14 @@ export function answer(flow: Flow, text: string, now = new Date(), name: string 
       // One date is new only when it is neither held date, and never beside "hold" ("adjust the hold until Oct 19"); a range is
       // new when either end moves.
       const newDates = !!d[0] && d[0] >= today && (d[1] ? d[0] !== f.checkin || d[1] !== f.checkout : d[0] !== f.checkin && d[0] !== f.checkout && !/\bhold\b/i.test(text));
-      const wantsFull = PAY_FULL_RE.test(text);
       // "na lang" moves the stay only with a date RANGE ("Oct 21 to 23 na lang po"); with one date it is usually the payment day,
       // as is any single date beside a payment word ("Pwede Oct 10 na lang bayad instead?").
       const verb = CHANGE_RE.test(text), asks = verb || (d.length === 2 && /\b(na ?lang|nalang)\b/i.test(text));
       const payDay = PAY_DAY_RE.test(text); // a payment word beside a date: "Oct 19 na lang bayad ko, Oct 20 check-in pa rin"
       // A change word with a date RANGE is a change even beside a payment word ("move to Oct 25 to 27 and I'll pay the balance").
-      if (newDates && asks && !wantsFull && ((verb && !!d[1]) || !payDay)) return { flow: f, reply: null, action: 'change' };
-      if (text.includes('?') && !wantsFull) return { flow: f, reply: null, action: 'passthrough' };
-      const who = P.first(f.name ?? name), full = (f.deposit ?? 0) >= (f.total ?? 0);
-      if (wantsFull && full) return ask(P.feeAckLine(who, peso(f.deposit ?? 0), true, L));
-      if (wantsFull) { f.pay_full = true; f.deposit = f.total; return { flow: f, reply: P.fullSwitchLine(who, peso(f.total ?? 0), L), action: 'requote_full' }; }
+      if (newDates && asks && ((verb && !!d[1]) || !payDay)) return { flow: f, reply: null, action: 'change' };
+      if (text.includes('?')) return { flow: f, reply: null, action: 'passthrough' };
+      const who = P.first(f.name ?? name);
       const p = PAX_WORD_RE.test(text) ? parsePax(text) : null, ph = parsePhone(text), e = parseEmail(text);
       if ((p && !overCapacity(text, p)) || ph || e) {
         if (p && !overCapacity(text, p)) { f.pax = p; f.children = kidsIn(text) || undefined; }
@@ -742,7 +736,7 @@ export function answer(flow: Flow, text: string, now = new Date(), name: string 
         if (e) f.email = e;
         return { flow: f, reply: P.stayCard(cardFacts(f, name, true, now), L), action: 'correct' };
       }
-      if (FEE_RE.test(text) || YES_RE.test(text)) return ask(P.feeAckLine(who, peso(f.deposit ?? 0), full, L));
+      if (YES_RE.test(text)) return ask(P.qrAckLine(who, peso(f.total ?? f.deposit ?? 0), L));
       return { flow: f, reply: null, action: 'passthrough' };
     }
     default: return { flow: f, reply: null, action: 'passthrough' };
@@ -764,7 +758,7 @@ export function paymentReply(flow: Flow, name: string | null, _siteUrl: string, 
     name: P.first(name),
     dates: dmRange(flow.checkin!, flow.checkout!), // SPEC-14: "Oct 20 to 22", "Sep 30 to Oct 2"
     ref: flow.ref, until, rel: flow.hold_expires_at ? relDay(flow.hold_expires_at, now, flow.lang) : '',
-    hold: !!flow.hold, near: lastMinute(flow.checkin!, now),
-    deposit: peso(flow.deposit!), balance: peso(flow.total! - flow.deposit!), full: (flow.deposit ?? 0) >= (flow.total ?? 0),
+    hold: !!flow.hold,
+    due: peso(flow.total ?? flow.deposit!), // s138: the amount due to confirm is the whole stay
   }, flow.lang);
 }

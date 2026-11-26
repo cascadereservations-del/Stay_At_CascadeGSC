@@ -43,15 +43,18 @@ Deno.test('message 2 is split at paragraphs when it passes 2,000 characters, and
 });
 
 Deno.test('the payment lines follow D-251 / D-257', () => {
-  assertEquals(atCheckinLine(ben), '₱1,780 balance and the ₱1,000 refundable security deposit');
-  assertEquals(atCheckinLine(full), 'the ₱1,000 refundable security deposit only');
+  // s138 (D-428..D-430): the stay is paid in full to confirm, so no balance line exists; only the P800 deposit is due.
+  assertEquals(atCheckinLine(ben), 'the ₱800 refundable security deposit only');
+  assertEquals(atCheckinLine(full), 'the ₱800 refundable security deposit only');
   const m1 = render('confirmation', ben, 'messenger');
-  assert(m1.includes('• Due a day before check-in: ₱1,780 balance and the ₱1,000 refundable security deposit'));
+  assert(m1.includes('• Due a day before check-in: the ₱800 refundable security deposit only'));
+  assert(!/balance|1,000/.test(m1));
   assert(!m1.includes('At check-in:'));
   const m2 = render('pre_arrival', ben, 'email');
-  assert(m2.includes('are due at least a day before check-in, by Mon, Oct 19.'));
+  assert(m2.includes('is due at least a day before check-in, by Mon, Oct 19.'));
   assert(m2.includes('share the receipt by replying to this e-mail.'));
-  assert(render('pre_arrival', full, 'messenger').includes('The ₱1,000 refundable security deposit is due'));
+  assert(render('pre_arrival', full, 'messenger').includes('The ₱800 refundable security deposit is due'));
+  assert(m2.includes('Your check-in PIN follows once the deposit and your IDs are in.') && !/balance/i.test(m2));
 });
 
 Deno.test('dates, first name, reply channel, and the on-ground paragraph only when both parts are set', () => {
@@ -95,14 +98,18 @@ Deno.test('message 3 is a Finance card: the PIN slot stays literal, no digit run
   for (const f of [ben, full, long]) {
     const card = doorCodeCard('DIR-4A19F743', f);
     assert(card.startsWith('🔑 DOOR CODE READY TO SEND · DIR-4A19F743'));
-    assert(card.includes('✅ ID on file') && card.includes('not recorded yet'));
+    assert(card.includes('✅ ID on file') && card.includes('confirm received before sending the PIN'));
     assert(card.endsWith(render('door_code', f, 'card_only')), 'the 📨 ⤵ block is the whole message, last');
     assertEquals(card.split('📨 ⤵').length - 1, 1);
     const scan = card.replace(f.onground_phone ?? '\u0000', '');
     assert(!/(?<![\d.,/])\d{4,6}(?![\d.,])/.test(scan), 'a 4-6 digit run: ' + (scan.match(/(?<![\d.,/])\d{4,6}(?![\d.,])/) ?? [])[0]);
   }
-  assert(doorCodeCard('DIR-1', ben).includes('⚠️ Balance ₱1,780 + ₱1,000 deposit: not recorded yet.'));
-  assert(doorCodeCard('DIR-1', full).includes('⚠️ ₱1,000 deposit: not recorded yet.'));
+  // s138 decision E: no stored deposit receipt exists, so the card asks for a manual check and states the policy line.
+  for (const f of [ben, full]) {
+    const c = doorCodeCard('DIR-1', f);
+    assert(c.includes('⚠️ ₱800 deposit: confirm received before sending the PIN. Policy: the PIN follows full payment, IDs and the ₱800 deposit.'));
+    assert(!/balance|1,000|unless you are collecting/i.test(c));
+  }
   assert(!render('door_code', ben, 'card_only').includes('on-ground') && render('door_code', long, 'card_only').includes('📞 Kristine Alexandra Montemayor 0917 123 4567'));
   assertEquals(SUBJECT.door_code, ''); // never e-mailed
 });
@@ -129,7 +136,7 @@ Deno.test('OPS card for the money messages hides every amount and the GCash numb
     const c = cardFor(key, f, status);
     // the text a guest is sent: the template output, untouched by the card builder
     assertEquals(c.text, render(key, f, 'email'));
-    assert(c.text.includes('₱1,000') && (key === 'confirmation' || c.text.includes('0956 011 5744')), `${key}: the guest text still holds the payment details`);
+    assert(c.text.includes('₱800') && (key === 'confirmation' || c.text.includes('0956 011 5744')), `${key}: the guest text still holds the payment details`);
     assert(c.finance !== null, `${key}/${status}: Finance copy`);
     assert(c.finance!.endsWith(`📨 ⤵\n${c.text}`), 'Finance card ends with the exact sent text');
     assert(!MONEY_LEAK.test(c.ops), `${key}/${status}: OPS leaked\n${c.ops}`);

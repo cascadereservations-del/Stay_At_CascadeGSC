@@ -71,14 +71,14 @@ const f = (say: string, lang: Reg, extra: Partial<GoldenTurn> = {}): GoldenTurn 
 const img = (kind: Kind, lang: Reg, extra: Partial<GoldenTurn> = {}): GoldenTurn => ({ say: '', image: true, kind, lang, ...extra });
 export function paymentCases(d2: string, d3: string): GoldenCase[] {
   // SPEC-39 3.6b (D-300.3): the details turn opens the hold and sends the card, the payment and the amount QR together;
-  // "fee" is no longer a step (no second QR), "full" swaps the QR and shows no second card.
+  // s138 (D-428): there is one amount, the whole stay; the details turn sends the card, the payment and the QR together, and an "ok" after the QR is acknowledged (no second QR).
   const NO_QR = /^(?![\s\S]*"qr")/;
   const fee = (): GoldenTurn[] => [f(`Hi, is ${d2} available? 2 adults`, 'en'), f('yes', 'en'),
-    f(PAY, 'en', { must: [/0956 011 5744/, /24 hours/, /receipt/, /reference/, /₱1,691/], mustNot: [LINK, /fee" or "full/, /(?:receipt[\s\S]*){2}/], effects: [/"fx":"submit"/, /"qr"[^}]*1691/] }),
-    f('fee', 'en', { must: [/already carries|nothing more to choose/], mustNot: [LINK], effects: [NO_QR] })];
+    f(PAY, 'en', { must: [/0956 011 5744/, /24 hours/, /receipt/, /reference/, /₱3,382/, /₱800/], mustNot: [LINK, /fee" or "full/, /reservation fee|balance/i, /(?:receipt[\s\S]*){2}/], effects: [/"fx":"submit"/, /"qr"[^}]*3382/] }),
+    f('ok', 'en', { must: [/already carries|nothing to type/], mustNot: [LINK], effects: [NO_QR] })];
   const full = (): GoldenTurn[] => [f(`Available po ba ang ${d3}? 2 kami`, 'tl'), f('opo', 'tl'),
-    f(PAY, 'tl', { mustNot: [LINK, /fee" o "full/], effects: [/"fx":"submit"/, /"qr"[^}]*2537/] }),
-    f('full', 'tl', { must: [/₱5,073/, /₱1,000/, /\bpo\b/], mustNot: [LINK, /balance/, /near|Malapit na|Duol na/, /Ito po ang details/], effects: [/"qr"[^}]*5073/] })];
+    f(PAY, 'tl', { must: [/₱5,073/, /₱800/], mustNot: [LINK, /fee" o "full/, /reservation fee|balance/i], effects: [/"fx":"submit"/, /"qr"[^}]*5073/] }),
+    f('ok', 'tl', { must: [/₱5,073/, /\bpo\b/], mustNot: [LINK, /balance/, /near|Malapit na|Duol na/, /Ito po ang details/], effects: [NO_QR] })];
   const cases: Array<[string, GoldenTurn[]]> = [
     ['pay-fee-en', fee()],
     ['pay-full-tl', full()],
@@ -112,9 +112,9 @@ export function paymentCases(d2: string, d3: string): GoldenCase[] {
 /** D-286 (live read 2026-09-30, Suzanne's three questions): the frame faults - intro and answer in one paragraph, the name
  *  twice, two closes, a "prepared before you arrive" close to a prospect - in en, tl and bis. D-311.8 (Lloyd 2026-10-07):
  *  a Bisaya guest gets ENGLISH on every turn (it was Taglish, then Bislish - D-172 retired), so the bis cases are scored as
- *  English. The month total accepts 28 or 30 nights at PHP 1,335: the design read 28, stayAnchor (D-269) says a month is 30. */
+ *  English. s138 (D-429): a month is 28+ nights, so code quotes no total; the reply says the host arranges it (MONTH). */
 export function s63Cases(): GoldenCase[] {
-  const MONTH = [/1,335/, /37,380|40,050/], ONCE = /(\bBen\b[\s\S]*){2}/, DIGIT_P1 = /^(?:(?!\n\s*\n)[\s\S])*\d/;
+  const MONTH = [/arranged personally by our host|host (will|arranges)|Ang host|ina-arrange ng host/i], ONCE = /(\bBen\b[\s\S]*){2}/, DIGIT_P1 = /^(?:(?!\n\s*\n)[\s\S])*\d/;
   const CLOSE_TWICE = /we'?re here[\s\S]*(preferred dates|we'?d be glad)|(preferred dates|we'?d be glad)[\s\S]*we'?re here/i, PREPARED = /prepared (for|before) (you |your )?arriv/i;
   const party = (say: string, lang: Reg): GoldenTurn => ({ say, kind: 'handoff', lang, noInvite: true, must: [/quiet/i], effects: [/"handoff"[^}]*policy_exception/] });
   const bisOpen = m('Maayong buntag, naa bay parking?', 'en', { mustNot: [/\bpo\b/] });
@@ -122,9 +122,9 @@ export function s63Cases(): GoldenCase[] {
     { id: 's63-month-en', group: 'followup', turns: [m('How much for a month-long stay?', 'en', { must: MONTH, mustNot: [DIGIT_P1, ONCE] })] },
     { id: 's63-month-tl', group: 'followup', turns: [m('Magkano po for a month-long stay?', 'tl', { must: MONTH, mustNot: [DIGIT_P1, ONCE] })] },
     { id: 's63-month-bis', group: 'followup', turns: [bisOpen, m('Pila ang bayad kung usa ka bulan mi mag-stay?', 'en', { must: MONTH })] },
-    { id: 's63-deposit-en', group: 'followup', turns: [m('How much for a month-long stay?', 'en', { must: MONTH }), m('No security deposit for a month stay?', 'en', { must: [/1,000/], mustNot: [PREPARED, CLOSE_TWICE] })] },
-    { id: 's63-deposit-tl', group: 'followup', turns: [m('Magkano po for a month-long stay?', 'tl', { must: MONTH }), m('Wala po bang security deposit pag isang buwan?', 'tl', { must: [/1,000/], mustNot: [PREPARED, CLOSE_TWICE] })] },
-    { id: 's63-deposit-bis', group: 'followup', turns: [bisOpen, m('Pila ang bayad kung usa ka bulan mi mag-stay?', 'en', { must: MONTH }), m('Wala bay security deposit kung usa ka bulan?', 'en', { must: [/1,000/], mustNot: [PREPARED, CLOSE_TWICE] })] },
+    { id: 's63-deposit-en', group: 'followup', turns: [m('How much for a month-long stay?', 'en', { must: MONTH }), m('No security deposit for a month stay?', 'en', { must: [/800/], mustNot: [PREPARED, CLOSE_TWICE] })] },
+    { id: 's63-deposit-tl', group: 'followup', turns: [m('Magkano po for a month-long stay?', 'tl', { must: MONTH }), m('Wala po bang security deposit pag isang buwan?', 'tl', { must: [/800/], mustNot: [PREPARED, CLOSE_TWICE] })] },
+    { id: 's63-deposit-bis', group: 'followup', turns: [bisOpen, m('Pila ang bayad kung usa ka bulan mi mag-stay?', 'en', { must: MONTH }), m('Wala bay security deposit kung usa ka bulan?', 'en', { must: [/800/], mustNot: [PREPARED, CLOSE_TWICE] })] },
     { id: 's63-party-en', group: 'handoff', turns: [party('Is party allowed?', 'en')] },
     { id: 's63-party-tl', group: 'handoff', turns: [party('Pwede po ba mag-party?', 'tl')] },
     { id: 's63-party-bis', group: 'handoff', turns: [bisOpen, party('Pwede ba mi mag-party diri?', 'en')] },
@@ -150,13 +150,13 @@ export function goldenCases(now = new Date(), bookedRange: string | null = null,
     { id: 'first-location-en', group: 'first', turns: [first('location', 'en', [/Bria Homes/i, /thank you for reaching out/i])] },
     // D-311.3 (Lloyd 2026-10-07): asking for the dates and guests IS the answer here (golden-score R1 accepts it); the link answers on turn 2 (fu-howtobook-en)
     { id: 'first-howtobook-en', group: 'first', turns: [first('How do I book?', 'en', [/thank you for reaching out/i])] },
-    // SPEC-39 4.1 / 3.1: a two-month inquiry gets the code's 60-night total and the dates question (live 2026-10-04, T1)
-    { id: 'first-two-months-en', group: 'first', turns: [m('Hello, can I ask for details regarding our booking good for two months?', 'en', { must: [/1,335/, /80,100/, /106,800/, DATES_Q, SIG], mustNot: [LINK, /\bper night\b[\s\S]*\bper night\b/] })] },
-    { id: 'first-two-months-tl', group: 'first', turns: [m('Hello po, pwede po magtanong about sa booking for two months?', 'tl', { must: [/1,335/, /80,100/, /kailan|dates/i, SIG], mustNot: [LINK] })] },
+    // SPEC-39 4.1 / 3.1, s138: a two-month inquiry gets no total (28+ nights: the host arranges it) and still the dates question
+    { id: 'first-two-months-en', group: 'first', turns: [m('Hello, can I ask for details regarding our booking good for two months?', 'en', { must: [/host/i, DATES_Q, SIG], mustNot: [LINK, /1,335|80,100|106,800/] })] },
+    { id: 'first-two-months-tl', group: 'first', turns: [m('Hello po, pwede po magtanong about sa booking for two months?', 'tl', { must: [/host/i, /kailan|dates/i, SIG], mustNot: [LINK, /1,335|80,100/] })] },
     // SPEC-39 3.4: a vague first message - one warm sentence and the dates question
     { id: 'first-vague-en', group: 'first', turns: [m('Hi, inquire', 'en', { must: [DATES_Q, SIG], mustNot: [LINK, TWO_Q] })] },
     // SPEC-39 4.2 (live T3): "end of this month until <date>" is that month-end to the date, never "the night of <date>"
-    { id: 'first-until-en', group: 'first', turns: [{ say: `Is it available by end of this month until ${MON[untilEnd.getUTCMonth()]} ${untilEnd.getUTCDate()}?`, kind: 'flow', lang: 'en', must: [new RegExp(`${MON[monthEnd.getUTCMonth()]} ${monthEnd.getUTCDate()} to`), /(open|available|reserved)/i, SIG], mustNot: [/night of/i, /how many nights/i, LINK] }] },
+    { id: 'first-until-en', group: 'first', turns: [{ say: `Is it available by end of this month until ${MON[untilEnd.getUTCMonth()]} ${untilEnd.getUTCDate()}?`, kind: 'flow', lang: 'en', must: [/host/i], mustNot: [/night of/i, /how many nights/i, /1,335/, LINK] }] }, // s138: 28+ nights is a long stay; the host arranges it
     // SPEC-28 section 2: dates AND a question in the first message - both answered, one greeting (R7)
     { id: 'first-avail-and-amenity-en', group: 'first', turns: [{ say: `Hi, is ${range(base, o + 2, 2)} open? Is there wifi?`, kind: 'midflow', lang: 'en', must: [/wi-?fi/i, /(open|available|free)/i], mustNot: [new RegExp(`${range(base, o + 2, 2)}[\\s\\S]*${range(base, o + 2, 2)}`), /\b(those|the|your) dates (are|is) (open|available|free)\b/i] }] }, // the dates once (golden 2026-09-25 said them twice)
     // D-311.8 (Lloyd 2026-10-07): renamed from first-bisaya-gets-taglish - a Bisaya guest now gets the English flow lines.
@@ -254,18 +254,17 @@ export function goldenCases(now = new Date(), bookedRange: string | null = null,
   // from a read-only calendar query; without it the case is skipped and booking.test.ts carries the rule.
   // SPEC-39 3.6b: inside five days the one-step message asks the full amount only, and the QR carries it.
   if (soonRange) cases.push({ id: 'pay-near-en', group: 'payment', turns: [f(`${soonRange} available? 2 adults`, 'en'), f('yes', 'en'),
-    f(PAY, 'en', { must: [/check-in is near/, /full ₱/], mustNot: [/reservation fee holds/, LINK], effects: [/"fx":"submit"/, /"qr"/] })] });
-  // F2 (Fable audit f3c4126; the booking site, Pay in Full: "you arrive with only the ₱1,000 refundable deposit to hand over"): inside
-  // five days the deposit on arrival is the term - agreed, no lecture, no host card. The 50% path is s78-booked-turnover-tl turn 7.
+    f(PAY, 'en', { must: [/full ₱|₱[\d,]+/, /₱800/], mustNot: [/check-in is near|reservation fee/i, LINK], effects: [/"fx":"submit"/, /"qr"/] })] });
+  // s138 (D-428..D-430): the deposit is P800, due a day before check-in whatever the days out; paying it on arrival is never agreed.
+  // The guest saying "on arrival" gets the terms and the host hears about it (a payment card).
   if (soonRange) cases.push({ id: 's78-full-deposit-on-arrival-en', group: 'payment', turns: [f(`${soonRange} available? 2 adults`, 'en'), f('yes', 'en'),
     f(PAY, 'en', { effects: [/"fx":"submit"/] }),
-    { say: 'We will pay the deposit when we arrive', kind: 'code', lang: 'en', must: [/that's right/i, /hand over/], mustNot: [/a day before|just so it's clear/i, LINK], effects: [/^(?![\s\S]*"handoff")/] }] });
+    { say: 'We will pay the deposit when we arrive', kind: 'code', lang: 'en', must: [/a day before check-in/, /800/], mustNot: [/that's right|hand over/i, LINK], effects: [/"handoff"[^}]*payment/] }] });
   if (soonRange) cases.push({ id: 'flow-offer-fullnow-en', group: 'flow', turns: [
-    // s73 F8: persona.ts LAST_MINUTE says "arriving within the next five days" and the details ask asks for "your full name"
-    // (SPEC-39 3.6); the old wordings ("less than five days away", "name for the reservation") are no longer said.
-    { say: `Hi, is ${soonRange} available? 2 adults`, kind: 'flow', lang: 'en', must: [/within the next five days/i] },
+    // s138: there is no last-minute branch ("within the next five days" is gone); the details ask asks for "your full name" (SPEC-39 3.6).
+    { say: `Hi, is ${soonRange} available? 2 adults`, kind: 'flow', lang: 'en', mustNot: [/within the next five days/i] },
     { say: 'yes', kind: 'flow', lang: 'en', must: [/full name/i] },
-    { say: 'Ben Munez 09171234567 ben@example.com', kind: 'flow', lang: 'en', must: [/full ₱/], mustNot: [/"fee" or "full"/], effects: [/"fx":"submit"/] },
+    { say: 'Ben Munez 09171234567 ben@example.com', kind: 'flow', lang: 'en', must: [/₱[\d,]+/], mustNot: [/"fee" or "full"/, /reservation fee/i], effects: [/"fx":"submit"/] },
   ] });
   // D-311.2 (Lloyd 2026-10-07): 12 NN or 1 PM only if the unit is ready - never a promised time, the standard 2:00 PM named.
   if (turnoverDay) cases.push({ id: 'first-noon-checkin-on-turnover-day-tl', group: 'first', turns: [m(`Hello po, available po ba ang ${turnoverDay}? Pwede po ba check in 12 noon?`, 'tl', { must: [/2(:00)? ?PM/i], mustNot: [/complimentary|no extra cost|free early|welcome to check in (from|at) 12|(you can|pwede po kayong) check in (at|ng) 12/i] })] });
@@ -279,7 +278,7 @@ export function goldenCases(now = new Date(), bookedRange: string | null = null,
       { say: 'If its possible we would like to checkin early po', kind: 'midflow', lang: 'en', must: [/2:00 PM/], mustNot: [/12:00 ?NN|1:00 PM|12 noon/i, /(2:00 PM[\s\S]*){3}/, /(message you[\s\S]*){2}|(imemessage[\s\S]*){2}/i] }, // s79: the ready-sooner promise once
       // s79 (probe 13:43Z: the water answer became the 2:00 PM line): water is answered, and a 3-night stay is not promised it (FACTS: 5+ nights)
       { say: 'Hi good morning po may free drinking water na po sa room?', kind: 'midflow', lang: 'tl', must: [/water|tubig/i, /host/i], mustNot: [/exact total|once may dates|preferred dates|which dates/i, LINK, /2:00 PM/] },
-      // the 50% path (a stay more than five days out; D-322 agrees the deposit on arrival only on the Pay in Full path)
+      // s138: one rule for every stay (no 50% path, no pay-in-full path): the deposit is due a day before check-in
       { say: 'We will pay po the deposit pag nasa area na po', kind: 'code', lang: 'tl', must: [/a day before check-in/], mustNot: [/tama po|on arrival is fine|hand over/i], effects: [/"handoff"[^}]*payment/] },
       { say: 'Pag dating na lang po namin ibigay ang deposit', kind: 'code', lang: 'tl', must: [/a day before check-in/], mustNot: [/tama po/i] }] });
   }

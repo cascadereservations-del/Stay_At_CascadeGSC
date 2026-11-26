@@ -116,7 +116,7 @@ Deno.test('Taglish register mirrors the guest and passes the lint (Lloyd 11:15)'
   assertEquals(tlPay.startsWith('Ben, na-hold na po namin ang Oct 3 to 4 for you for 24 hours — until Sep 18 at 10:00 AM (bukas). Ang booking reference ninyo po ay DIR-1.'), true);
   // SPEC-31 s5 (F10): one receipt sentence; the review-and-confirm sentence of 2026-09-18 is gone and the later line is Taglish.
   assertEquals(tlPay.includes('through GCash (0956 011 5744) gamit ang QR below - naka-set na ang exact amount. Once done, screenshot lang ng receipt dito ang kailangan namin.'), true);
-  assertEquals(tlPay.includes('Ang natitirang ₱1,691 balance at ang ₱1,000 refundable security deposit ay due at least a day before check-in.'), true);
+  assertEquals(tlPay.includes('Ang ₱800 refundable security deposit ay due at least a day before check-in.'), true);
   assertEquals((tlPay.match(/\bpo\b/g) ?? []).length <= 6, true); // section 4: purposeful markers, never every sentence
   assertEquals(lintReply('Rest assured po, lubos kaming nagagalak.'), ['exclaim', 'boilerplate']);
   assertEquals(lintReply(tlPay), []);
@@ -161,7 +161,7 @@ Deno.test('Bisaya register: a Bisaya guest gets English (D-311.8); the Bislish l
     // It must stay OUT of paymentReply: merged in, the reply breaks the 700-character too_long cap.
     const reply = paymentReply({ ...base, lang: l, step: 'await_receipt', ref: 'DIR-1', deposit: 1691, total: 3382, hold: true, hold_expires_at: '2026-09-18T02:00:00Z' }, 'Ben', 'https://x', now);
     assertEquals(reply.includes('For your peace of mind'), false, 'promise is a separate message: ' + l);
-    assertEquals(lintReply(reply + '\n\n' + promise).includes('too_long'), true, 'merging it would break the lint: ' + l);
+    // s138: the payment reply lost its fee-or-full paragraph, so the merged text no longer exceeds the 700 cap; the promise stays a separate message by design (SPEC-10 control 6).
   }
   assertEquals(answer(f, '09171234567', now).flow.lang, 'bis'); // a bare number keeps the register
   assertEquals(answer(f, 'Can I change it to 3 guests?', now).flow.lang, 'en');
@@ -281,9 +281,9 @@ Deno.test('SPEC-14: the offer, the details asks, the card and the reserved line 
   // SPEC-39 3.6b: the card carries the name and the deposit; with the hold it also carries the payment, in one message
   const card = prompt({ ...f, step: 'confirm', name: 'Ben Munez', email: 'ben@example.com' }, 'Ben', false, now);
   assertEquals(card.includes('\u{1F464} Ben Munez'), true);
-  assertEquals(card.includes('\u{1F510} \u20B11,000 refundable security deposit, returned after check-out'), true);
+  assertEquals(card.includes('\u{1F510} \u20B1800 refundable security deposit, returned within 3 business days after check-out'), true);
   const one = stayPayMessage({ ...f, step: 'await_receipt', name: 'Ben Munez', email: 'ben@example.com', ref: 'DIR-1', deposit: 1691, total: 3382, hold: true, hold_expires_at: '2026-09-18T00:00:00Z' }, 'Ben', now);
-  assertEquals(one.includes('The \u20B11,691 reservation fee holds these dates: the QR below carries the exact amount, or GCash 0956 011 5744. The balance and the \u20B11,000 refundable deposit are due at least a day before check-in; or you may settle the full \u20B13,382 now'), true);
+  assertEquals(one.includes('The full \u20B13,382 secures these dates: the QR below carries the exact amount, or GCash 0956 011 5744. The \u20B1800 refundable security deposit is due at least a day before check-in.'), true);
   assertEquals(lintReply(one, '', { cap: STAY_PAY_CAP }), []);
   const hold = paymentReply({ ...f, step: 'await_receipt', name: 'Ben Munez', ref: 'DIR-1', deposit: 1691, total: 3382, hold: true, hold_expires_at: '2026-09-18T00:00:00Z' }, 'Ben Munez', 'https://x', now);
   assertEquals(hold.startsWith("Ben, we've set aside Nov 17 to 19 for you for 24 hours"), true);

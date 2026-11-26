@@ -115,23 +115,23 @@ Deno.test('SPEC-31 s3: a photo with no booking but payment talk gets the stray l
   assertEquals(plain.calls.find((c) => c.fx === 'ops')!.text!.includes('attachment'), true);
 });
 
-Deno.test('SPEC-31 s6: a full payment far ahead is never "near"; inside 5 days it is', () => {
+Deno.test('SPEC-31 s6: a request with no hold is yours as soon as the payment arrives, far ahead or inside 5 days (s138: never "near")', () => {
   const at = new Date('2026-09-26T04:00:00Z');
   const far = paymentReply(flow({ checkin: '2026-11-05', checkout: '2026-11-07', deposit: 3382, hold: false, hold_expires_at: null }), 'Ben', SITE_URL, at);
   assertEquals(/near|Malapit na|Duol na/.test(far), false);
   assertEquals(far.includes('yours as soon as your payment arrives'), true);
   const soon = paymentReply(flow({ checkin: '2026-09-28', checkout: '2026-09-30', deposit: 3382, hold: false, hold_expires_at: null }), 'Ben', SITE_URL, at);
-  assertEquals(/As your stay is near/.test(soon), true);
+  assertEquals([/As your stay is near|near/.test(soon), soon.includes('yours as soon as your payment arrives')], [false, true]);
 });
 
-Deno.test('SPEC-31 s6: the probe submit mirrors submit-booking - no hold for full, 24 h upload either way', async () => {
+Deno.test('SPEC-31 s6 / s138: the probe submit mirrors submit-booking - a hold only 5+ days out, the full amount either way, 24 h upload', async () => {
   const calls: Call[] = [];
   const fx = probeEffects(calls as any, 'Ben', now);
   const base = { step: 'confirm', checkin: '2026-11-05', checkout: '2026-11-07', pax: 2, lang: 'en', started_at: ago(1), updated_at: ago(1) } as Flow;
-  const full = (await fx.submit({ ...base, pay_full: true }, { guest_name: 'Ben' } as any, 'p')).flow;
-  const fee = (await fx.submit({ ...base, pay_full: false }, { guest_name: 'Ben' } as any, 'p')).flow;
-  assertEquals([full.hold, full.hold_expires_at, Date.parse(full.receipt_expires_at!) - now.getTime()], [false, null, 24 * 3_600_000]);
-  assertEquals([fee.hold, !!fee.hold_expires_at], [true, true]);
+  const far = (await fx.submit({ ...base, pay_full: true }, { guest_name: 'Ben' } as any, 'p')).flow;
+  const near = (await fx.submit({ ...base, checkin: '2026-09-28', checkout: '2026-09-30', pay_full: true }, { guest_name: 'Ben' } as any, 'p')).flow;
+  assertEquals([far.hold, !!far.hold_expires_at, far.deposit, far.total], [true, true, 3382, 3382]);
+  assertEquals([near.hold, near.hold_expires_at, near.deposit, Date.parse(near.receipt_expires_at!) - now.getTime()], [false, null, near.total, 24 * 3_600_000]);
 });
 
 Deno.test('D-258: "How do I pay?" before any dates gets the GCash QR and one line, the name once, no promise of a later QR', async () => {
@@ -177,11 +177,11 @@ Deno.test('D-269: "Is party allowed?" is answered from FACTS and the host still 
 });
 
 // ---- SPEC-39 (session 72): the one-step card and QR (3.6b), the signed initial message (D-300.1), D-300.2 under a thanks ----
-Deno.test('SPEC-39 3.6b: the details turn sends the card with the hold, then the fee QR, then the account line - one step', async () => {
+Deno.test('SPEC-39 3.6b: the details turn sends the card with the hold, then the QR for the full amount, then the account line - one step', async () => {
   const at = flow({ step: 'contact', name: 'Ben Munez', phone: '09171234567', email: undefined, booking_id: undefined, ref: undefined, deposit: undefined, total: undefined, hold: undefined, hold_expires_at: undefined, receipt_token: undefined, receipt_expires_at: undefined });
   const r = await turn(at, { text: 'ben@example.com' });
   assertEquals(r.calls.map((c) => c.fx), ['submit', 'send', 'qr', 'send']);
-  assertEquals(r.calls.find((c) => c.fx === 'qr')!.detail.amount, 1691);
+  assertEquals(r.calls.find((c) => c.fx === 'qr')!.detail.amount, 3382); // s138: the whole stay
   const card = r.calls.filter((c) => c.fx === 'send')[0].text!;
   for (const k of ['👤 Ben Munez', 'reference DIR-PROBE', '⏳ Held for you for 24 hours', '0956 011 5744', 'QR below']) assertEquals(card.includes(k), true, k);
   assertEquals(/fee" or "full|Cassy, Cascade Concierge/.test(card), false);
@@ -190,17 +190,11 @@ Deno.test('SPEC-39 3.6b: the details turn sends the card with the hold, then the
   assertEquals(['brisk', 'warm', 'gentle'].includes(r.saved.booking_flow.tone), true);
 });
 
-Deno.test('SPEC-39 3.6b: "full" after the QR swaps it for the total, amends the booking, no second card or account line', async () => {
+Deno.test('SPEC-39 3.6b: after the QR there is no fee or full choice - no second QR, no amend; "ok" is acknowledged (s138)', async () => {
   const r = await turn(flow(), { text: 'full na lang po' });
-  assertEquals(r.calls.filter((c) => c.fx === 'qr').map((c) => c.detail.amount), [3382]);
-  assertEquals(r.calls.find((c) => c.fx === 'amend')!.detail.deposit_amount, 3382);
-  const sent = r.calls.filter((c) => c.fx === 'send').map((c) => c.text!);
-  assertEquals(sent.length, 1);
-  assertEquals(/full ₱3,382/.test(sent[0]) && !/📅|Cascades, registered/.test(sent[0]), true);
-  assertEquals([r.saved.booking_flow.pay_full, r.saved.booking_flow.deposit], [true, 3382]);
-  // "fee" or "ok" after the QR: nothing more to choose, no second QR
-  const fee = await turn(flow(), { text: 'fee' });
-  assertEquals([fee.calls.some((c) => c.fx === 'qr'), /already carries the ₱1,691 fee/.test(fee.reply)], [false, true]);
+  assertEquals([r.calls.some((c) => c.fx === 'qr'), r.calls.some((c) => c.fx === 'amend')], [false, false]);
+  const ok = await turn(flow(), { text: 'ok' });
+  assertEquals([ok.calls.some((c) => c.fx === 'qr'), /already carries the ₱3,382 payment/.test(ok.reply)], [false, true]);
   // a corrected count re-shows the card, reaches the booking, and sends no QR
   const pax = await turn(flow(), { text: 'make it 3 guests po' });
   assertEquals([pax.calls.some((c) => c.fx === 'qr'), pax.calls.find((c) => c.fx === 'amend')?.detail.pax, /3 guests/.test(pax.reply)], [false, 3, true]);

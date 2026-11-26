@@ -55,7 +55,7 @@ Deno.test('a guest whose name we hold is never asked for it', () => {
 
 Deno.test('the rate card is the only source of peso figures', () => {
   const ok = allowedPesos();
-  for (const v of [1780, 1691, 3382, 5073, 1000, 300, 89 * 3, 890]) assertEquals(ok.has(v), true, String(v));
+  for (const v of [1780, 1691, 3382, 5073, 1000, 800, 300, 89 * 3, 890]) assertEquals(ok.has(v), true, String(v));
   // A stay plus an early check-in is one honest figure (golden run 10: R9 called
   // PHP 3,582 invented, a PHP 3,382 two-night stay arriving at 10 AM).
   for (const v of [3582, 1880, 5373]) assertEquals(ok.has(v), true, String(v));
@@ -103,12 +103,12 @@ Deno.test('D-286: the nine s63 cases (month, deposit, party x en/tl/bis) catch t
   assertEquals(cs.length, 9);
   const month = cs.find((c) => c.id === 's63-month-en')!.turns[0], dep = cs.find((c) => c.id === 's63-deposit-en')!.turns[1];
   const greet = `Hi Ben, thank you for reaching out to Cascade Hideaway. I'm Cassy, the home's digital concierge, here with Marifel and our team.`;
-  const live = `${greet} For a month-long stay, Ben, the direct rate is PHP 1,335 per night, PHP 37,380 for 28 nights.`; // the live fault
+  const live = `${greet} For a month-long stay, Ben, the direct rate is PHP 1,335 per night, PHP 37,380 for 28 nights.`; // s138: quoting a total for 28+ nights is now the fault
   assertEquals(rules({ guest: month.say, firstTurn: true, reply: live, must: month.must, mustNot: month.mustNot }).includes('X'), true);
-  assertEquals(rules({ guest: month.say, firstTurn: true, reply: `${greet}\n\nFor a month-long stay, the direct rate is PHP 1,335 per night, PHP 37,380 for 28 nights.\n\nCassy, Cascade Concierge`, must: month.must, mustNot: month.mustNot }).includes('X'), false);
-  const twoCloses = `Ben, yes - the PHP 1,000 refundable deposit applies to every stay.\n\nWe're here if you have any other questions.\n\nJust let us know your preferred dates, and we'll gladly check our availability for you.`;
+  assertEquals(rules({ guest: month.say, firstTurn: true, reply: `${greet}\n\nA month-long stay is arranged personally by our host, who will message you here with the details.\n\nCassy, Cascade Concierge`, must: month.must, mustNot: month.mustNot }).includes('X'), false);
+  const twoCloses = `Ben, yes - the PHP 800 refundable deposit applies to every direct stay.\n\nWe're here if you have any other questions.\n\nJust let us know your preferred dates, and we'll gladly check our availability for you.`;
   assertEquals(rules({ guest: dep.say, reply: twoCloses, must: dep.must, mustNot: dep.mustNot }).includes('X'), true);
-  assertEquals(rules({ guest: dep.say, reply: `Ben, yes - the PHP 1,000 refundable deposit applies to every stay. We'll have everything prepared before you arrive. 🌿`, must: dep.must, mustNot: dep.mustNot }).includes('X'), true);
+  assertEquals(rules({ guest: dep.say, reply: `Ben, yes - the PHP 800 refundable deposit applies to every direct stay. We'll have everything prepared before you arrive. 🌿`, must: dep.must, mustNot: dep.mustNot }).includes('X'), true);
 });
 
 // ---- SPEC-39 (D-299.10, D-300.1): the first message carries no link and is signed; nothing after it is signed ----

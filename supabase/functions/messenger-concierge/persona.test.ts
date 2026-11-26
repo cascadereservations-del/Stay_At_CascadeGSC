@@ -5,7 +5,7 @@
 // until it has samples below.
 import { assert, assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
 import * as P from './persona.ts';
-import { CAPACITY, LAST_MINUTE } from './persona.ts';
+import { CAPACITY } from './persona.ts';
 import { rateLine, type Flow, type Lang } from './booking.ts';
 import { decisionInvite, lintReply, lookNudge, noPo, paragraphs, STAY_PAY_CAP, thinPo, toneRules, turnoverCheckinLine } from './voice.ts';
 import { AIRBNB_URL, SITE_URL } from '../_shared/cascade-core/facts.ts';
@@ -13,7 +13,7 @@ import { scoreReply } from './golden-score.ts';
 
 const LANGS = ['en', 'tl', 'bis'] as const;
 const card: P.CardFacts = { resume: false, who: 'Ben Munez', range: 'Oct 20 to 22', nights: 2, pax: 2, phone: '09171234567', email: 'ben@example.com', total: '₱3,382', promo: null };
-const pay: P.PaymentFacts = { name: 'Ben', dates: 'Oct 20 to 22', ref: 'DIR-1', until: 'Sep 18 at 10:00 AM', rel: 'tomorrow', hold: true, near: false, deposit: '₱1,691', balance: '₱1,691', full: false };
+const pay: P.PaymentFacts = { name: 'Ben', dates: 'Oct 20 to 22', ref: 'DIR-1', until: 'Sep 18 at 10:00 AM', rel: 'tomorrow', hold: true, deposit: '₱3,382' };
 
 // ---- D-286: compose() fixtures ----
 const ANSWER: Record<Lang, string> = {
@@ -47,7 +47,7 @@ const COMPOSE_CASES = (l: Lang): Array<[Partial<P.ComposeCtx>, { answer: string;
 const NEXT_CASES: Array<Partial<P.ComposeCtx>> = [
   { greet: true, followUp: false }, { linkTurn: true }, { linkTurn: true, datesKnown: true }, { decision: true }, {},
 ];
-const PAYF: P.PayFacts = { deposit: '₱1,691', total: '₱3,382', fullOnly: false, dates: 'Oct 20 to 22', name: 'Ben', party: 'the two of you' };
+const PAYF: P.PayFacts = { total: '₱3,382', dates: 'Oct 20 to 22', name: 'Ben', party: 'the two of you' };
 const HELD: P.CardFacts = { ...card, ref: 'DIR-1', hold: true, until: 'Oct 7 at 2:00 PM', rel: 'tomorrow' };
 const TONES = ['brisk', 'warm', 'gentle'] as const;
 const PROMO: P.PromoFacts = { name: 'Anniversary Promotion', when: 'Oct 11 to 17', rate: 'PHP 1,543', base: 'PHP 1,780' };
@@ -80,7 +80,7 @@ const SAMPLES: Record<string, (l: Lang) => string[]> = {
   partyAsk: (l) => [P.partyAsk(l)],
   overCapacityLine: (l) => [P.overCapacityLine(6, l)],
   partyWelcome: (l) => [1, 2, 3, 4].map((n) => `${P.partyWelcome(n, l)}\n\n${P.detailsAsk('', l, false)}`),
-  oneNight: (l) => [P.oneNight('PHP 1,780', l), `${P.oneNight('PHP 1,780', l)} ${LAST_MINUTE}\n\n${P.holdOffer(true, l)}`],
+  oneNight: (l) => [P.oneNight('PHP 1,780', l), `${P.oneNight('PHP 1,780', l)}\n\n${P.holdOffer(true, l)}`],
   nightsPrice: (l) => [`${P.nightsPrice(2, 'PHP 1,691', 'PHP 1,780', 'PHP 3,382', l)}\n\n${P.holdOffer(false, l, false)}`],
   promoOneNight: (l) => [P.promoOneNight('PHP 1,543', 'Anniversary Promotion', 'PHP 1,780', l)],
   promoAllNights: (l) => [P.promoAllNights(3, 'Anniversary Promotion', 'PHP 1,543', 'PHP 1,780', 'PHP 4,629', l)],
@@ -90,10 +90,11 @@ const SAMPLES: Record<string, (l: Lang) => string[]> = {
   detailsAsk: (l) => [P.detailsAsk('Suzanne', l), P.detailsAsk('', l), P.detailsAsk('', l, false), P.detailsAsk('Maria', l, true, 'night'), P.detailsAsk('Maria', l, true, 'thanks'), P.detailsAsk('', l, true, 'night')],
   nextDetail: (l) => (['name', 'phone', 'email'] as const).map((m) => P.nextDetail(m, 'Ben Munez', l)),
   stayCard: (l) => [P.stayCard(card, l), P.stayCard({ ...HELD, resume: true, pax: 3, children: 1 }, l), P.stayCard({ ...HELD, hold: false, until: null }, l)],
-  // SPEC-39 3.6b: 3 tones x {fee, fullOnly} per register (x3 registers = 18), each alone and under the card it rides with
-  payNudge: (l) => TONES.flatMap((t) => [P.payNudge(PAYF, t, l), P.payNudge({ ...PAYF, fullOnly: true, near: true, deposit: '₱3,382' }, t, l)]),
-  fullSwitchLine: (l) => [P.fullSwitchLine('Ben', '₱3,382', l), P.fullSwitchLine('', '₱3,382', l)],
-  feeAckLine: (l) => [P.feeAckLine('Ben', '₱1,691', false, l), P.feeAckLine('', '₱3,382', true, l)],
+  // SPEC-39 3.6b; s138: 3 tones per register, the full stay amount and the separate deposit, each alone and under the card it rides with
+  payNudge: (l) => TONES.map((t) => P.payNudge(PAYF, t, l)),
+  // s138 (D-428): "yes" / "ok" after the QR, and the 28+ nights line (the host arranges it)
+  qrAckLine: (l) => [P.qrAckLine('Ben', '₱3,382', l), P.qrAckLine('', '₱3,382', l)],
+  longStayLine: (l) => [P.longStayLine(l)],
   DISCOUNT_HOST_PAST: (l) => [P.DISCOUNT_HOST_PAST[l]],
   cancelReply: (l) => [P.cancelReply(l)],
   holdCancelLine: (l) => (['cancel', 'receipt', 'change'] as const).map((k) => P.holdCancelLine(k, 'Ben Munez', 'Oct 20 to 22', l)),
@@ -101,7 +102,7 @@ const SAMPLES: Record<string, (l: Lang) => string[]> = {
   strayReceiptLine: (l) => [P.strayReceiptLine('Ben', l)],
   payHow: (l) => [`${P.payHow('Ben', l, true)}\n\n${P.nextDetail('phone', 'Ben', l)}`, P.payHow(null, l, false)],
   paymentPromise: (l) => [P.paymentPromise(l)],
-  paymentMessage: (l) => [P.paymentMessage(pay, l), P.paymentMessage({ ...pay, hold: false, near: true, full: true }, l), P.paymentMessage({ ...pay, name: '', hold: false }, l)],
+  paymentMessage: (l) => [P.paymentMessage(pay, l), P.paymentMessage({ ...pay, hold: false }, l), P.paymentMessage({ ...pay, name: '', hold: false }, l)],
   relDayWord: (l) => [P.paymentMessage({ ...pay, rel: P.relDayWord(0, l) }, l)],
   houseRule: (l) => (['party', 'pets', 'guests'] as const).map((k) => P.houseRule(k, l)),
   discountHostLine: (l) => [`Booking directly gives our best rate, and the nightly rate goes down the longer you stay. ${P.discountHostLine(l)}`],
@@ -112,7 +113,7 @@ const SAMPLES: Record<string, (l: Lang) => string[]> = {
   promoLine: (l) => [P.promoLine([PROMO], l), P.promoLine([], l)],
   promoFirst: (l) => [P.promoFirst('We completely understand wanting the best value for your stay.', [PROMO], l)],
   warmClause: (l) => [`Our direct rate starts at PHP 1,780 per night. ${P.warmClause(l)}`, `Yes, there is a water dispenser with complimentary drinking water. ${P.warmClause(l, true)}`], // s78: and the booked variant
-  payTermsLine: (l) => [P.payTermsLine('Angel', l, { total: '₱5,073', balance: '₱2,537', paid: false }), P.payTermsLine(null, l, { total: '₱5,073', balance: '', paid: true })], // s78
+  payTermsLine: (l) => [P.payTermsLine('Angel', l, { total: '₱5,073', paid: false }), P.payTermsLine(null, l, { total: '₱5,073', paid: true })], // s78
   // Session 58: the fixed turns index.ts sends.
   HANDOFF: () => Object.values(P.HANDOFF).filter(Boolean),
   ATTACHMENT_REPLY: () => [P.ATTACHMENT_REPLY],
@@ -153,7 +154,7 @@ const VOICE_LINES = (l: Lang) => [decisionInvite(l, SITE_URL),
   turnoverCheckinLine('Oct 2', l), lookNudge('may pictures po ba?', l, { site: false, reviews: false }), lookNudge('legit ba ni?', l, { site: true, reviews: false })];
 
 Deno.test('every persona export has samples, so a new move cannot skip the tone gate', () => {
-  const skip = new Set(['pick', 'CAPACITY', 'LAST_MINUTE', 'first', 'addressName', 'echoOf', 'DIRECT_BETTER_RE']); // helpers, not guest lines
+  const skip = new Set(['pick', 'CAPACITY', 'first', 'addressName', 'echoOf', 'DIRECT_BETTER_RE']); // helpers, not guest lines
   for (const k of Object.keys(P)) if (!skip.has(k)) assert(k in SAMPLES, `persona.ts exports ${k} with no samples in persona.test.ts`);
 });
 
@@ -192,14 +193,11 @@ Deno.test('the REQUIRED disclosures are carried whatever the wording', () => {
   for (const lang of LANGS) {
     assert(P.partyAsk(lang).includes(CAPACITY[lang]), `partyAsk ${lang}`);
     assert(P.overCapacityLine(5, lang).includes(CAPACITY[lang]), `overCapacityLine ${lang}`);
-    assert(P.stayCard(card, lang).includes('₱1,000 refundable security deposit'), `card deposit ${lang}`);
-    for (const t of TONES) for (const fullOnly of [true, false]) assert(/₱1,000 (refundable )?deposit/.test(P.payNudge({ ...PAYF, fullOnly }, t, lang)), `payNudge ${t} ${lang}`);
-    // inside five days the rate line always carries the full-payment rule, whatever the price wording
-    const soon: Flow = { step: 'offer', checkin: '2026-10-01', checkout: '2026-10-02', lang, started_at: '', updated_at: '' };
-    assert(rateLine(soon, new Date('2026-09-29T02:00:00Z')).endsWith(LAST_MINUTE), `LAST_MINUTE ${lang}`);
+    // s138 (D-430): the deposit is P800 and its return window is said on the card; the nudge names the deposit and the full amount
+    assert(P.stayCard(card, lang).includes('₱800 refundable security deposit') && P.stayCard(card, lang).includes('within 3 business days after check-out'), `card deposit ${lang}`);
+    for (const t of TONES) assert(/₱800 (refundable )?(security )?deposit/.test(P.payNudge(PAYF, t, lang)) && P.payNudge(PAYF, t, lang).includes('full ₱3,382'), `payNudge ${t} ${lang}`);
   }
   assert(/3 adults, or 2 adults with 2 (children|kids)/.test(CAPACITY.en + CAPACITY.tl + CAPACITY.bis));
-  assert(/five days/.test(LAST_MINUTE) && /full amount/.test(LAST_MINUTE));
 });
 
 Deno.test('the details are asked in one message, and the name is used once when known', () => {
@@ -265,8 +263,8 @@ Deno.test('D-286 cleanAnswer: the model frame goes - greeting, Cassy, links, inv
   assertEquals(P.cleanAnswer(`Hi Ben, welcome back. Yes, the wifi is fibre.`, { greeted: false, followUp: false }).text, 'Hi Ben, welcome back. Yes, the wifi is fibre.'); // a long-gap return keeps its salutation (SPEC-21)
   assertEquals(P.cleanAnswer(`Yes, parking is free.\n\nYou may check availability on our site:\n👉 ${url}`, { greeted: false, followUp: true }).text, 'Yes, parking is free.');
   assertEquals(P.cleanAnswer(`Yes, parking is free. We can arrange the booking right here in the chat, or you may secure your dates on our site.`, { greeted: false, followUp: true }).text, 'Yes, parking is free.');
-  const closes = P.cleanAnswer(`Ben, yes - the PHP 1,000 refundable deposit applies to every stay.\n\nWe're here if you have any other questions.\n\nWe'll have everything prepared before you arrive. 🌿`, { greeted: false, followUp: true });
-  assertEquals(closes.text, 'Ben, yes - the PHP 1,000 refundable deposit applies to every stay.');
+  const closes = P.cleanAnswer(`Ben, yes - the PHP 800 refundable deposit applies to every stay.\n\nWe're here if you have any other questions.\n\nWe'll have everything prepared before you arrive. 🌿`, { greeted: false, followUp: true });
+  assertEquals(closes.text, 'Ben, yes - the PHP 800 refundable deposit applies to every stay.');
   assertEquals(leaves(P.cleanAnswer('Yes, there is a kitchen. 🌿 It has an induction cooker.', { greeted: false, followUp: true }).text), 0);
   assertEquals(P.cleanAnswer('Yes.', { greeted: false, followUp: true }).stripped, []);
   assertEquals(P.cleanAnswer(`Airbnb reviews: ${AIRBNB_URL}`, { greeted: false, followUp: true }).text, '');   // an answer that was only frame is empty
@@ -313,16 +311,15 @@ Deno.test('SPEC-39 compose (D-299.10, D-300.1): the first reply is greeting, ans
 });
 
 Deno.test('SPEC-39 3.6b: the stay-and-payment message passes the gate in 3 tones x 3 registers, every fact carried', () => {
-  for (const l of LANGS) for (const t of TONES) for (const fullOnly of [false, true]) {
-    const p = fullOnly ? { ...PAYF, fullOnly, near: true, deposit: '₱3,382' } : PAYF;
-    const m = thinPo(`${P.stayCard(HELD, l)}\n\n${P.payNudge(p, t, l)}`, l === 'bis' ? 0 : 2);
-    assertEquals([...lintReply(m, '', { cap: STAY_PAY_CAP }), ...toneRules(m, l)], [], `${t}/${l}/${fullOnly}: ${m.length} ${m}`);
-    for (const k of ['0956 011 5744', '₱1,000', '₱3,382', 'QR below', 'DIR-1']) assert(m.includes(k), `${k} ${t}/${l}`);
-    assert(fullOnly ? !/reservation fee/.test(m) : m.includes('₱1,691'), `${t}/${l}/${fullOnly}`);
+  for (const l of LANGS) for (const t of TONES) {
+    const m = thinPo(`${P.stayCard(HELD, l)}\n\n${P.payNudge(PAYF, t, l)}`, l === 'bis' ? 0 : 2);
+    assertEquals([...lintReply(m, '', { cap: STAY_PAY_CAP }), ...toneRules(m, l)], [], `${t}/${l}: ${m.length} ${m}`);
+    for (const k of ['0956 011 5744', '₱800', '₱3,382', 'QR below', 'DIR-1']) assert(m.includes(k), `${k} ${t}/${l}`);
+    assert(!/reservation fee|balance|1,000|quick "full"/.test(m), `${t}/${l}: no fee, balance or P1,000`);
     assert(!m.includes('!') && (m.match(/\?/g) ?? []).length <= 1, `${t}/${l}`);
   }
-  assert(/holds these dates/.test(P.payNudge(PAYF, 'brisk', 'en')) && /quick "full"/.test(P.payNudge(PAYF, 'brisk', 'en')));
-  assert(/No rush at all/.test(P.payNudge(PAYF, 'gentle', 'en')) && /Marifel and the team/.test(P.payNudge(PAYF, 'gentle', 'en')));
+  assert(/secures these dates/.test(P.payNudge(PAYF, 'brisk', 'en')) && /at least a day before check-in/.test(P.payNudge(PAYF, 'brisk', 'en')));
+  assert(/No rush at all/.test(P.payNudge(PAYF, 'gentle', 'en')) && /nothing is charged/.test(P.payNudge(PAYF, 'gentle', 'en')));
   assert(/delighted to have the two of you/.test(P.payNudge(PAYF, 'warm', 'en')));
 });
 

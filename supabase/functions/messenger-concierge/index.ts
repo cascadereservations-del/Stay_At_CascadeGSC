@@ -17,7 +17,7 @@ import { turnStats } from './stats.ts'; // D-285
 import { needsCalendarCheck } from './booking.ts';
 import { seedFlow } from './probe-seed.ts'; // SPEC-38 s8: Cassy's reply draft seeds the booking flow (probe path only)
 // Messenger book intent (booking PRD §A, session 27): code-driven slot filling, no model in the loop.
-import { AMENITY_RE, AVAIL_WORD_RE, BOOK_RE, payTermsReply, payTiming, CANCEL_RE, datesOf, rolledPastStay, stayFromPhrase, PAY_HOW_RE, payHowReply, answer, isChatYes, PRICE_RE, availabilityAck, availabilityLine, bookingStart, dmRange, flowLead, greeting, guestLang, holdCancelReply, holdNote, lastMinute, lastRef, otherQuestions, isActive, opener, openWindows, paidClaim, paidClaimReply, parseDates, paymentPromise, prompt, quoteTotal, rateLine, replyLang, SEE_RE, start, stayPayMessage, strayReceiptReply, toneOf, trimWindow, TRUST_RE, type Flow, type Window } from './booking.ts';
+import { AMENITY_RE, AVAIL_WORD_RE, BOOK_RE, payTermsReply, payTiming, CANCEL_RE, datesOf, rolledPastStay, stayFromPhrase, PAY_HOW_RE, payHowReply, answer, isChatYes, PRICE_RE, availabilityAck, availabilityLine, bookingStart, dmRange, flowLead, greeting, guestLang, holdCancelReply, holdNote, isLongFlow, lastRef, otherQuestions, isActive, longStay, opener, openWindows, paidClaim, paidClaimReply, parseDates, paymentPromise, prompt, quoteTotal, rateLine, replyLang, SEE_RE, start, stayPayMessage, strayReceiptReply, toneOf, trimWindow, TRUST_RE, type Flow, type Window } from './booking.ts';
 import { addTurnoverNotice, asksEarlyCheckin, dedupeAvailability, dropRepeats, dropPassingRange, kusang, nameOnce, noPo, sentencesOf, dropBankUnlessAsked, payHoldReply, claimsOpen, contractions, dropNameAsk, dropPaxAsk, fixEarlyFee, gladNotHappy, isCold, parseDraftJson, offersEarlyCheckin, setTurnoverCheckin, turnoverCheckinLine, lintReply, offRegister, setAvailability, lookNudge, STAY_PAY_CAP } from './voice.ts';
 import { loadContact } from '../_shared/cascade-core/contact.ts';
 import { dropJunctionDays, fetchChains, stayContinues } from '../_shared/cascade-core/chains.ts'; // D-290
@@ -26,7 +26,7 @@ import { CONTACT_CHIP, contactHostChip, isStayingNow, postbackText, priorityAnsw
 import { GCASH_QRPH_BASE, qrphWithAmount, qrPng } from '../_shared/cascade-core/qrph.ts';
 import { fbSendImage, fbSendImageBytes, HOST_HOLD_MS, laterOf } from '../_shared/cascade-core/messenger.ts';
 import { AIRBNB_URL, MAYA_FACT, OUTPUT_ANSWER, SITE_URL, factsFor, voiceCompact, voiceFor } from '../_shared/cascade-core/facts.ts';
-import { currentCard, livePromos, loadCard, tierRate } from '../_shared/cascade-core/pricing.ts';
+import { DEPOSIT_RETURN_BUSINESS_DAYS, SECURITY_DEPOSIT_PHP, currentCard, isLongStay, livePromos, loadCard, tierRate } from '../_shared/cascade-core/pricing.ts';
 import { chatJson, geminiBreaker, probeScope, probeTotals, setProviderKey } from '../_shared/cascade-core/providers.ts';
 // Session 26 (2026-09-16, Telegram plan §5/§6): OPS cards open with 💬 GUEST; a complaint or safety
 // handoff also raises a work order (guest_report) so the Today page sees it, not just this chat.
@@ -109,7 +109,7 @@ function stayNights(text: string): number | null {
 /** D-300.4: the stay TOTAL only, for the price objection - no per-night arithmetic, no saving ('' when no length is named). */
 export function anchorTotal(text: string): string {
   const n = stayNights(text), card = currentCard();
-  if (!n || n < 2 || n > 60) return '';
+  if (!n || n < 2 || isLongStay(n)) return '';
   return `[Their ${n} nights come to ${peso(n * tierRate(card, n))} at the direct rate - the one figure you may say.] `;
 }
 export function stayAnchor(text: string, lang = 'english'): string {
@@ -117,7 +117,7 @@ export function stayAnchor(text: string, lang = 'english'): string {
   if (!n) return '';
   // SPEC-34: the live card's tier for n nights and its base (the standard every saving is measured from).
   const card = currentCard(), std = card.base, tier = { rate: tierRate(card, n) };
-  if (n < 2 || n > 60 || tier.rate >= std) return '';
+  if (n < 2 || isLongStay(n) || tier.rate >= std) return '';
   const extras = n >= 5 ? ', plus drinking water for the stay and a complimentary mid-stay refresh with fresh linens and towels' : ''; // D-249: the refresh starts at 5 nights, as the site says
   // Order and wording follow pricing research: anchor on the standard rate, adjust to the precise
   // direct rate (precise figures read as calculated and lower), then the per-stay total, then the
@@ -169,13 +169,13 @@ export function pricedStay(guestTexts: string[], now: Date): { checkin: string; 
  *  with no date, a named length gets stayAnchor. `total` is the stay total said, for the D-270 "already given" check. */
 export function priceAnchor(guestTexts: string[], now: Date, lang = 'english'): { text: string; total: number | null } {
   const said = guestTexts.slice(-3), stay = pricedStay(said, now), sq = stay ? quoteTotal(stay.checkin, stay.checkout) : null;
-  // s73 R3-4: past 60 nights code quotes nothing (the tiers stop at 60) and neither may the model.
-  const long = '[Over 60 nights: quote no total; the host prices long stays.] ';
-  if (stay && sq && sq.nights > 60) return { text: long, total: null };
+  // s138 (D-429): from 28 nights code quotes nothing and neither may the model; the host arranges a long stay.
+  const long = '[28 nights or more: quote no total; the host arranges long stays, the first month to confirm and then monthly.] ';
+  if (stay && sq && isLongStay(sq.nights)) return { text: long, total: null };
   if (stay && sq)
     return { text: `[Stay figures computed by code for ${dmRange(stay.checkin, stay.checkout)} - say exactly these figures in one warm paragraph: "${rateLine({ checkin: stay.checkin, checkout: stay.checkout, lang: l3Of(lang) } as Flow, now)}" Never mention any other "was" or "usual" price.] `, total: sq.total };
   const n = stayNights(said.join(' '));
-  if (!stay && n && n > 60) return { text: long, total: null };
+  if (!stay && n && isLongStay(n)) return { text: long, total: null };
   const text = stayAnchor(said.join(' '), lang);
   return { text, total: text && n ? n * tierRate(currentCard(), n) : null };
 }
@@ -755,11 +755,13 @@ export const submitNotes = (psid: string, flow: Flow): string => {
   const kids = flow.children ?? 0, adults = (flow.pax ?? 0) - kids;
   return `via Messenger (psid ${psid})${kids ? ` · ${adults} adult${adults === 1 ? '' : 's'}, ${kids} ${kids === 1 ? 'child' : 'children'}` : ''}`;
 };
+/** s138 (D-429): the host card for a stay of 28 nights or more - nothing was quoted or held; the host arranges it. */
+const longStayCard = (f: Flow) => ({ risk: 'policy_exception' as RiskCode, note: `Long stay (${Math.round((Date.parse(f.checkout! + 'T00:00:00Z') - Date.parse(f.checkin! + 'T00:00:00Z')) / 86_400_000)} nights, ${dmRange(f.checkin!, f.checkout!)}): not quoted. The host arranges it: first month to confirm, then monthly.`, anyWording: true });
 async function submitFlow(flow: Flow, thread: Thread, psid: string): Promise<{ flow: Flow; reply: string; image: string | null }> {
-  const q = quoteTotal(flow.checkin!, flow.checkout!); // session 28: the guest chose fee or full; submit-booking accepts either
+  const q = quoteTotal(flow.checkin!, flow.checkout!); // s138: the whole stay is due to confirm; submit-booking stores the same figure
   const body = { guest_name: flow.name ?? thread.guest_name ?? 'Messenger guest', guest_phone: flow.phone, guest_email: flow.email ?? '', checkin_date: flow.checkin, checkout_date: flow.checkout,
     // SPEC-39 4.4: pax is the whole party; the split follows the marker, so the cards (siteNotes) show it.
-    pax: flow.pax, notes: submitNotes(psid, flow), contact_type: 'phone', hold: true, channel: 'messenger', total_amount: q.total, deposit_amount: flow.pay_full ? q.total : q.deposit, pay_full: flow.pay_full === true };
+    pax: flow.pax, notes: submitNotes(psid, flow), contact_type: 'phone', hold: true, channel: 'messenger', total_amount: q.total, deposit_amount: q.total, pay_full: true };
   const r = await fetch(`${env('SUPABASE_URL')}/functions/v1/submit-booking`, { method: 'POST', headers: { 'Content-Type': 'application/json', apikey: env('SUPABASE_ANON_KEY'), Authorization: `Bearer ${env('SUPABASE_ANON_KEY')}` }, body: JSON.stringify(body), signal: AbortSignal.timeout(30_000) }).catch(() => null);
   const j = r ? await r.json().catch(() => null) : null;
   if (!r || !j) { console.error('submit_flow_failed', r?.status); return { flow, reply: submitFailed(flow.lang), image: null }; }
@@ -889,7 +891,7 @@ type Effects = {
   handoff(db: Db, thread: Thread, text: string, risk: RiskCode, link: string, note?: string, anyWording?: boolean): Promise<void>;
   submit(flow: Flow, thread: Thread, psid: string): Promise<{ flow: Flow; reply: string; image: string | null }>;
   receipt(flow: Flow, url: string, name: string | null): Promise<{ sent: boolean; reply: string }>;
-  /** SPEC-39 3.6b: a change after the hold reaches the booking row ("full" -> deposit_amount; a corrected count or contact). */
+  /** SPEC-39 3.6b: a change after the hold reaches the booking row (a corrected count or contact). */
   amend(db: Db, flow: Flow, fields: Record<string, unknown>): Promise<boolean>;
   name(psid: string): Promise<string | null>;
   /** SPEC-44: re-post Finance's request card with the paid-claim line on top. true when it went out. */
@@ -923,7 +925,7 @@ const liveEffects: Effects = {
   },
   ops: tgOps, inbox: (kind, psid) => inboxPush(kind, psid), handoff: openHandoff, submit: submitFlow, receipt: forwardReceipt, name: fbName, bump: bumpRequestCard, idRead, idSave,
   // booking_inquiries is submit-booking's table; only a request still pending is touched.
-  // No row updated (not pending any more, wrong id) is a failure too, so requote_full_failed / correction_after_hold_failed log.
+  // No row updated (not pending any more, wrong id) is a failure too, so correction_after_hold_failed logs.
   amend: async (db, flow, fields) => {
     if (!flow.booking_id) return false;
     const { data, error } = await db.from('booking_inquiries').update(fields).eq('id', flow.booking_id).eq('status', 'pending').select('id');
@@ -939,10 +941,10 @@ export function probeEffects(calls: ProbeCall[], guestName: string | null, now =
     inbox: (kind, psid) => { calls.push({ fx: 'inbox', detail: { kind, psid } }); },
     handoff: (_db, _thread, text, risk, _link, note) => { calls.push({ fx: 'handoff', text: text.slice(0, 200), detail: { risk, note: note ?? '' } }); return Promise.resolve(); },
     submit: (flow, thread) => {
-      const q = quoteTotal(flow.checkin!, flow.checkout!), deposit = flow.pay_full ? q.total : q.deposit, at = now;
+      const q = quoteTotal(flow.checkin!, flow.checkout!), deposit = q.total, at = now;
       calls.push({ fx: 'submit', detail: { checkin: flow.checkin, checkout: flow.checkout, pax: flow.pax, total: q.total, deposit } });
-      // SPEC-31 s6: mirrors submit-booking - a hold only for the fee 5+ days out; the Messenger upload window is 24 h either way (D-255).
-      const hold = !flow.pay_full && !lastMinute(flow.checkin!, at);
+      // SPEC-31 s6; s138: mirrors submit-booking - a hold only 5+ days out (D-162); the Messenger upload window is 24 h either way (D-255).
+      const hold = Math.round((Date.parse(flow.checkin! + 'T00:00:00Z') - Date.parse(dayStr(new Date(at.getTime() + 8 * 3_600_000)) + 'T00:00:00Z')) / 86_400_000) >= 5;
       const until = new Date(at.getTime() + 24 * 3_600_000).toISOString();
       const f: Flow = { ...flow, step: 'await_receipt', booking_id: 'probe', ref: 'DIR-PROBE', deposit, total: q.total, hold, hold_expires_at: hold ? until : null, receipt_token: 'probe', receipt_expires_at: until, updated_at: at.toISOString() };
       return Promise.resolve({ flow: f, reply: stayPayMessage(f, thread.guest_name, at), image: QR_URL });
@@ -1173,16 +1175,15 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
   } else if (g.reply && text && heldFlow && ['routine', 'payment'].includes(g.risk) && (timing = payTiming(text))) {
     // s78 (Angel replay turns 13, 19): "we will send the deposit tomorrow", "pay the deposit pag nasa area na" - the stay card's
     // terms said back by code (the model accepted a deposit on arrival). An arrival ask also reaches the host.
-    const terms = payTermsReply(heldFlow, heldFlow.name ?? thread.guest_name, replyLang(text, heldFlow.lang), text);
-    flowReply = terms.reply;
-    // F2: the deposit handed over on arrival on the Pay in Full path is the site's own term - no host card for it.
-    if (timing === 'arrival' && !terms.agreed) card = { risk: 'payment', note: holdNote(heldFlow, now, 'asked to pay on arrival'), anyWording: true };
+    flowReply = payTermsReply(heldFlow, heldFlow.name ?? thread.guest_name, replyLang(text, heldFlow.lang));
+    // s138: nothing is agreed on arrival (the stay is paid in full and the deposit is due a day before), so an arrival ask reaches the host.
+    if (timing === 'arrival') card = { risk: 'payment', note: holdNote(heldFlow, now, 'asked to pay on arrival'), anyWording: true };
   } else if (g.reply && text && booked && ['await_receipt', 'receipt_sent', 'cancel_requested', 'receipt_declined'].includes(booked.step) && g.risk === 'payment') {
     // s2: "paid na po?" is answered from what we hold, and the host gets one payment card per 24 h.
     flowReply = paidClaimReply(booked, booked.name ?? thread.guest_name, replyLang(text, booked.lang));
     card = { risk: 'payment', note: holdNote(booked, now), anyWording: true };
   } else if (g.reply && text && !g.handoff && flow?.step === 'await_receipt' && (afterQr = answer(flow, text, now, thread.guest_name)).action !== 'passthrough') {
-    // SPEC-39 3.6b (D-300.3): after the one-step card and QR - "full" swaps the QR, "fee"/"ok" needs nothing more, a
+    // SPEC-39 3.6b (D-300.3): after the one-step card and QR - "ok" needs nothing more (s138: the QR already carries the full amount), a
     // correction re-shows the card and reaches the booking, new dates go to the host. A question falls through to the model.
     const s = afterQr, L = replyLang(text, flow.lang);
     if (s.action === 'change') {
@@ -1191,10 +1192,6 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
       flow = { ...flow, step: 'cancel_requested', updated_at: now.toISOString() };
     } else {
       flow = s.flow; flowReply = s.reply;
-      if (s.action === 'requote_full') {
-        if (!(await fx.amend(db, flow, { deposit_amount: flow.total }))) console.error('requote_full_failed', JSON.stringify({ booking: flow.booking_id, ref: flow.ref }));
-        flowImage = QR_URL; promiseAfterQr = false; // the QR for the full amount; the account line already rode under the first
-      }
       if (s.action === 'correct' && !(await fx.amend(db, flow, { pax: flow.pax, guest_phone: flow.phone, guest_email: flow.email ?? '' }))) console.error('correction_after_hold_failed', JSON.stringify({ booking: flow.booking_id, ref: flow.ref }));
     }
   } else if (g.reply && text && PAY_HOW_RE.test(text) && ['routine', 'payment'].includes(g.risk) && !(flow && ['await_receipt', 'receipt_sent'].includes(flow.step))
@@ -1219,6 +1216,7 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
       else { flowReply = `${availabilityAck(flow, line)}\n\n${s.reply ?? prompt(flow, thread.guest_name)}`; if (nights) openStay = { checkin: flow.checkin, lang: flow.lang }; }
     }
     else if (s.action === 'cancelled') flowReply = s.reply;
+    else if (s.action === 'long_stay') { flowReply = s.reply; card = longStayCard(flow); }
     else if (s.action === 'submit') {
       // SPEC-39 3.6b: the tone of the payment nudge is read once, here, from the whole thread and its booking turns.
       const said = thread.history.filter((h) => h.role === 'guest');
@@ -1240,7 +1238,9 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
     // calendar here (exact, no model); any other question goes to the model with the flow's ask appended.
     // D-222: the calendar is read whenever both dates are known, not only on an "available" word - "book Oct 10 to 12
     // for 2" on a taken night used to be quoted and fail only at submit.
-    if (needsCalendarCheck(flow)) {
+    const longNow = isLongFlow(flow) ? longStay(flow) : null;
+    if (longNow) { flow = longNow.flow; flowReply = longNow.reply; card = longStayCard(flow); } // s138 (D-429): 28+ nights is never quoted or held
+    else if (needsCalendarCheck(flow)) {
       // Live 2026-09-26 13:01Z (Suzanne, "Available today?"): a single date asked about is that night, answered now. With
       // no check-out the calendar was queried with an undefined bound and the guest got only "until which date?".
       const probe: Flow = flow.checkout ? flow : { ...flow, checkout: addDays(flow.checkin!, 1) };
@@ -1362,11 +1362,9 @@ Reply in Messenger: ${link}`));
       const flowHint = flowFollowUp ? '[The guest is in the middle of booking with us, and their booking summary follows your answer. Reply in two or three warm, unhurried sentences: the answer first, then the one reassurance or offer of help that fits it. No stay details, no amounts, no link, no closing question.] ' : '';
       // SPEC-31 s4 (F4, F7): the hold is open and the QR is out - the booking is arranged; the model answers the question only.
       // s78: a booking past the flow's 24 h (lastRef) gets the same hint - its guest's questions were answered as a prospect's.
-      const hf = heldFlow, hfFull = !!hf && (hf.deposit ?? 0) >= (hf.total ?? 0);
-      const hfTerms = !hf ? '' : hfFull
-        ? `the full ${peso(hf.total ?? 0)} covers the whole stay, and they arrive with only the PHP 1,000 refundable security deposit to hand over (the booking site's Pay in Full term)`
-        : `the remaining ${peso((hf.total ?? 0) - (hf.deposit ?? 0))} balance and the PHP 1,000 refundable security deposit are due at least a day before check-in`;
-      const payHint = hf ? `[The guest has a booking: ${dmRange(hf.checkin!, hf.checkout!)} under ${hf.ref}${hf.step === 'await_receipt' && !hf.photo_at ? `, paying the ${peso(hf.deposit ?? 0)} ${hfFull ? 'full amount' : 'reservation fee'} by GCash QR` : hf.step === 'confirmed' ? ', confirmed' : ', receipt received and with the host for review'}. Answer only what they asked, from FACTS, in two or three warm sentences - never ask for their dates, never quote a total or a rate, never offer to hold or book. The stay card's payment terms are the ONLY terms: ${hfTerms}. ${hfFull ? 'Never agree to the stay itself being paid on arrival or at check-in.' : 'Never agree to the balance or the deposit being paid on arrival or at check-in.'} Payment facts you may state: GCash QR with the amount set; ${MAYA_FACT} A UnionBank transfer only if they ask for a bank (the host sends the account by hand). Never say the booking is confirmed${hf.step === 'confirmed' ? ' unless asked (it is)' : ''}, never promise a reminder or an e-mail, never invite them to the site or to arrange the booking - it is already arranged.] ` : '';
+      const hf = heldFlow;
+      const hfTerms = !hf ? '' : `the full ${peso(hf.total ?? 0)} covers the whole stay and confirms it, and the PHP ${SECURITY_DEPOSIT_PHP} refundable security deposit is due at least a day before check-in (returned within ${DEPOSIT_RETURN_BUSINESS_DAYS} business days after check-out)`;
+      const payHint = hf ? `[The guest has a booking: ${dmRange(hf.checkin!, hf.checkout!)} under ${hf.ref}${hf.step === 'await_receipt' && !hf.photo_at ? `, paying the ${peso(hf.total ?? hf.deposit ?? 0)} full amount by GCash QR` : hf.step === 'confirmed' ? ', confirmed' : ', receipt received and with the host for review'}. Answer only what they asked, from FACTS, in two or three warm sentences - never ask for their dates, never quote a total or a rate, never offer to hold or book. The stay card's payment terms are the ONLY terms: ${hfTerms}. Never agree to the stay or the deposit being paid on arrival or at check-in. Payment facts you may state: GCash QR with the amount set; ${MAYA_FACT} A UnionBank transfer only if they ask for a bank (the host sends the account by hand). Never say the booking is confirmed${hf.step === 'confirmed' ? ' unless asked (it is)' : ''}, never promise a reminder or an e-mail, never invite them to the site or to arrange the booking - it is already arranged.] ` : '';
       // SPEC-28: with dates AND another question, the calendar line answers the dates, so the model sees only the other question.
       const asked = flow?.question && flowFollowUp ? otherQuestions(text) || text : text;
       // Session 30 (live): the chat already held "2 guests" from an earlier booking attempt and the model asked again.

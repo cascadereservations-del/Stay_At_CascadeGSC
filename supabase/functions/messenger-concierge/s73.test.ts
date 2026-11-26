@@ -253,12 +253,12 @@ Deno.test('s73 R3-3: a past stay told about is not priced as next year; a 12 noo
   assertEquals(stayOf(['Oct 19 to 21, can we check in 12 noon? how much?']), '2026-10-19..2026-10-21');
 });
 
-Deno.test('s73 R3-4: past 60 nights the model is told to quote no total, and no hold is offered', async () => {
-  for (const t of ['how much for Oct 10 to Dec 20?', 'how much for 3 months?']) assertEquals(priceAnchor([t], now).text, '[Over 60 nights: quote no total; the host prices long stays.] ', t);
+Deno.test('s73 R3-4 / s138: from 28 nights the model is told to quote no total, and no hold is offered', async () => {
+  for (const t of ['how much for Oct 10 to Dec 20?', 'how much for 3 months?', 'how much for Oct 10 to Nov 7?']) assertEquals(priceAnchor([t], now).text, '[28 nights or more: quote no total; the host arranges long stays, the first month to confirm and then monthly.] ', t);
   const m = stubModel('Our host prices stays this long personally.');
   try {
     const r = await turn('how much for Oct 10 to Dec 20?', null);
-    assert(m.seen[0].includes('Over 60 nights: quote no total') && !/hold those dates/.test(r.reply), m.seen[0].slice(0, 200));
+    assert(m.seen[0].includes('28 nights or more: quote no total') && !/hold those dates/.test(r.reply), m.seen[0].slice(0, 200));
   } finally { m.restore(); }
 });
 

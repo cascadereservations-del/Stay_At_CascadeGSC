@@ -2,7 +2,9 @@
 // (get_rate_card_v1: base + length-of-stay tiers + dated promotions) and every module quotes through quote():
 // submit-booking (authoritative for the stored amounts), the rate-card endpoint the booking site calls, and the
 // concierge. Pure except loadCard. A promo night is the promo price (it replaces the tier); every other night is the
-// tier chosen by the STAY length. Deposit (the reservation fee) = ceil(total * deposit_pct / 100); full = total.
+// tier chosen by the STAY length. s138 (D-428..D-430): every direct stay is paid in FULL to confirm, so the amount due
+// to confirm (`deposit`, a name kept for the stored column and the live site) is always the stay total, in code, whatever
+// the card's deposit_pct says. A separate refundable security deposit (SECURITY_DEPOSIT_PHP) is never part of the quote.
 
 export type Promotion = { name: string; first_night: string; last_night: string; nightly_rate: number };
 export type CardVersion = { effective_from: string; base: number; deposit_pct: number; tiers: { min_nights: number; pct: number }[]; version_id?: string | null };
@@ -31,10 +33,19 @@ export type Quote = {
   promo_rate: number | null;
 };
 
+/** s138 (D-430): the refundable security deposit, paid with the booking or by the day before check-in. The ONE place
+ *  for the amount and the refund window; every other file imports them. */
+export const SECURITY_DEPOSIT_PHP = 800;
+export const DEPOSIT_RETURN_BUSINESS_DAYS = 3;
+/** s138 (D-429): a stay of this many nights or more is arranged by the host (first month to confirm, then monthly) and
+ *  is never auto-quoted or auto-booked. */
+export const LONG_STAY_NIGHTS = 28;
+export const isLongStay = (nights: number) => nights >= LONG_STAY_NIGHTS;
+
 /** Today's card (2026-09-26) and the Anniversary Promotion: the migration's seed, and the fallback when the read fails. */
 export const SEED_CARD: RateCard = {
   base: 1780,
-  deposit_pct: 50,
+  deposit_pct: 100,
   tiers: [{ min_nights: 2, pct: 5 }, { min_nights: 5, pct: 10 }, { min_nights: 7, pct: 15 }, { min_nights: 14, pct: 20 }, { min_nights: 28, pct: 25 }],
   promotions: [{ name: 'Anniversary Promotion', first_night: '2026-10-11', last_night: '2026-10-17', nightly_rate: 1543 }],
   version_id: null,
@@ -44,13 +55,6 @@ const DAY = 86_400_000;
 const addDays = (d: string, k: number) => new Date(Date.parse(d + 'T00:00:00Z') + k * DAY).toISOString().slice(0, 10);
 const span = (a: string, b: string) => Math.round((Date.parse(b + 'T00:00:00Z') - Date.parse(a + 'T00:00:00Z')) / DAY);
 export const manilaToday = (now = new Date()) => now.toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' });
-
-/** Lloyd 2026-10-01 (R4): the booking site is the source of truth. A check-in LESS than this many Manila calendar days
- *  away (same day through 4 days out) is offered only full payment, and no 24 h hold opens; 5+ days out offers the fee.
- *  The site has no stored setting for it (index.html: daysOut <= 4), so this is the ONE constant the concierge, quote()
- *  and submit-booking share - change all of them and the site together, never one. */
-export const FULL_PAY_WITHIN_DAYS = 5;
-export const isLastMinute = (checkin: string, now = new Date()) => span(manilaToday(now), checkin) < FULL_PAY_WITHIN_DAYS;
 
 export function tierPct(card: RateCard, n: number): number {
   let pct = 0;
@@ -80,23 +84,22 @@ export function quote(cardToday: RateCard, checkin: string, checkout: string, no
   const promo = nights.find((x) => x.source === 'promo');
   return {
     nights, n, total, standard_total: card.base * n, tier_pct: pct, tier_rate: rate,
-    deposit: Math.ceil(total * card.deposit_pct / 100),
-    last_minute: isLastMinute(checkin, now),
+    deposit: total, // s138: paid in full to confirm; independent of card.deposit_pct (see the header)
+    last_minute: false, // s138: kept for the live site's reader; there is no last-minute rule any more
     promo_nights: nights.filter((x) => x.source === 'promo').length,
     promo_name: promo?.promo ?? null,
     promo_rate: promo?.rate ?? null,
   };
 }
 
-/** submit-booking's rule (D-262): the server's quote is what is stored; the client only chooses fee or full.
- *  Full when the client says pay_full, when check-in is 4 days or fewer away (the site's rule), or - for a client
- *  that predates pay_full - when its deposit is within 10% of its own total. A client total that differs is logged. */
+/** submit-booking's rule (D-262, s138): the server's quote is what is stored. The amount due to confirm is always the
+ *  stay total. A client `pay_full` flag, `total` or `deposit` is accepted and harmless; a client total that differs is
+ *  logged. `full` stays in the return so callers and the response shape do not change. */
 export function serverAmounts(card: RateCard, checkin: string, checkout: string,
   client: { payFull?: unknown; total?: number; deposit?: number }, now = new Date()) {
   const q = quote(card, checkin, checkout, now);
-  const ct = Number(client.total ?? 0), cd = Number(client.deposit ?? 0);
-  const full = client.payFull === true || q.last_minute || (ct > 0 && cd > 0 && Math.abs(cd - ct) / ct <= 0.10);
-  return { q, full, total: q.total, deposit: full ? q.total : q.deposit, mismatch: ct > 0 && ct !== q.total };
+  const ct = Number(client.total ?? 0);
+  return { q, full: true, total: q.total, deposit: q.total, mismatch: ct > 0 && ct !== q.total };
 }
 
 /** A promotion that is running or still to come (last night today or later), for prose and banners. */
@@ -112,7 +115,7 @@ export function normalizeCard(c: RateCard): RateCard {
     tiers: c.tiers.map((t) => ({ min_nights: Number(t.min_nights), pct: Number(t.pct) })),
     promotions: c.promotions.map((p) => ({ name: String(p.name), first_night: String(p.first_night), last_night: String(p.last_night), nightly_rate: Number(p.nightly_rate) })),
     upcoming: (Array.isArray(c.upcoming) ? c.upcoming : []).filter((u) => Number(u.base) > 0 && Array.isArray(u.tiers)).map((u) => ({
-      effective_from: String(u.effective_from), base: Number(u.base), deposit_pct: Number(u.deposit_pct) > 0 ? Number(u.deposit_pct) : 50,
+      effective_from: String(u.effective_from), base: Number(u.base), deposit_pct: Number(u.deposit_pct) > 0 ? Number(u.deposit_pct) : 100,
       tiers: u.tiers.map((t) => ({ min_nights: Number(t.min_nights), pct: Number(t.pct) })), version_id: u.version_id ?? null })),
   };
 }

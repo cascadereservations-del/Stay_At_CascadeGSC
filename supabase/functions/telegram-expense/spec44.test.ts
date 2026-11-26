@@ -121,6 +121,9 @@ Deno.test('Paid tap: one force-reply question with the expected amount; nothing 
 
 Deno.test('Paid tap: the full payment is the expected amount; an unknown amount must be typed', () => {
   assertStringIncludes(paidPrompt(view(), 12400), 'exactly ₱12,400');
+  // s138 (D-430): a request stored at the whole stay says what to type when the P800 deposit came in the same transfer
+  assertStringIncludes(paidPrompt({ ...view(), total_amount: 12400 }, 12400), 'type ₱13,200');
+  assert(!paidPrompt({ ...view(), total_amount: 12400 }, 6200).includes('deposit'), 'a legacy 50% request has no deposit hint');
   assertStringIncludes(paidPrompt(view(), null), 'Include the amount received.');
 });
 

@@ -8,6 +8,7 @@
 import { withHeader, groups } from '../_shared/cascade-core/format.ts';
 import { hasMoney, maskMoney } from '../_shared/ops-money.ts';
 import { SITE_URL } from '../_shared/cascade-core/facts.ts';
+import { SECURITY_DEPOSIT_PHP } from '../_shared/cascade-core/pricing.ts';
 
 export type Key = 'confirmation' | 'pre_arrival' | 'door_code' | 'mid_stay' | 'checkout_reminder' | 'after_departure' | 'declined';
 export type Channel = 'messenger' | 'email' | 'card_only';
@@ -28,21 +29,20 @@ export function day(d: string, plusDays = 0): string {
   return `${DOW[x.getUTCDay()]}, ${MON[x.getUTCMonth()]} ${x.getUTCDate()}`;
 }
 const peso = (n: number) => '₱' + n.toLocaleString('en-PH', { maximumFractionDigits: 2 });
-const balanceOf = (f: Fields) => Math.max(0, Number(f.total_amount ?? 0) - Number(f.deposit_amount ?? 0));
+const DEP = peso(SECURITY_DEPOSIT_PHP); // s138 (D-430): the one P800, imported from pricing.ts
 export const firstName = (name: string) => String(name ?? '').trim().split(/\s+/)[0] || 'there';
 export const replyChannel = (c: Channel) => c === 'email' ? 'by replying to this e-mail' : 'here in the chat';
 
-/** Message 1's payment bullet (D-257): the balance and the deposit are due a day before check-in (D-251). */
-export function atCheckinLine(f: Fields): string {
-  const bal = balanceOf(f);
-  return bal > 0 ? `${peso(bal)} balance and the ₱1,000 refundable security deposit` : 'the ₱1,000 refundable security deposit only';
+/** Message 1's payment bullet (D-257, s138): the stay is paid in full to confirm, so only the refundable security deposit
+ *  is due a day before check-in (D-251). */
+export function atCheckinLine(_f: Fields): string {
+  return `the ${DEP} refundable security deposit only`;
 }
-/** Message 2's "Before You Arrive" paragraph (D-257). */
+/** Message 2's "Before You Arrive" paragraph (D-257, s138). */
 export function beforeYouArrive(f: Fields, c: Channel): string {
-  const bal = balanceOf(f), due = day(f.checkin_date, -1), where = replyChannel(c);
-  return bal > 0
-    ? `💳 Before You Arrive\nThe ${peso(bal)} balance and the ₱1,000 refundable security deposit are due at least a day before check-in, by ${due}. You may send them by GCash to 0956 011 5744 (account name Cascades, Marifel Suzanne Boncales) and share the receipt ${where}. Your check-in PIN follows once the payment and your IDs are in.`
-    : `💳 Before You Arrive\nThe ₱1,000 refundable security deposit is due at least a day before check-in, by ${due}. You may send it by GCash to 0956 011 5744 (account name Cascades, Marifel Suzanne Boncales) and share the receipt ${where}. Your check-in PIN follows once the deposit and your IDs are in.`;
+  const due = day(f.checkin_date, -1), where = replyChannel(c);
+  return `💳 Before You Arrive
+The ${DEP} refundable security deposit is due at least a day before check-in, by ${due}. You may send it by GCash to 0956 011 5744 (account name Cascades, Marifel Suzanne Boncales) and share the receipt ${where}. Your check-in PIN follows once the deposit and your IDs are in.`;
 }
 
 export const SUBJECT: Record<Key, string> = {
@@ -245,19 +245,17 @@ export function render(key: Key, f: Fields, c: Channel): string {
   }
 }
 
-/** The Finance card that offers message 3 (DESIGN-host-fraud-protection section 4). There is no balance-paid column, so
- *  the balance line says "not recorded yet" and states the policy. The 📨 ⤵ block runs to the end (Show as text). */
+/** The Finance card that offers message 3 (DESIGN-host-fraud-protection section 4). s138 decision E: the security deposit
+ *  has no stored receipt (the one-tap confirm records evidence only on a PENDING booking, and the deposit arrives after
+ *  confirmation), so the card asks the host to check it by hand and states the policy. The 📨 ⤵ block runs to the end. */
 export function doorCodeCard(ref: string, f: Fields): string {
-  const bal = balanceOf(f);
   return [
     `🔑 DOOR CODE READY TO SEND · ${ref}`,
     '',
     `${f.guest_name} · ${day(f.checkin_date)} → ${day(f.checkout_date)} · ${f.pax ?? '?'} guest${f.pax === 1 ? '' : 's'}`,
     `✅ Booking confirmed · ${peso(Number(f.deposit_amount ?? 0))} received`,
     '✅ ID on file',
-    bal > 0
-      ? `⚠️ Balance ${peso(bal)} + ₱1,000 deposit: not recorded yet. Policy: the PIN follows full payment, unless you are collecting on arrival.`
-      : '⚠️ ₱1,000 deposit: not recorded yet. Policy: the PIN follows the deposit, unless you are collecting on arrival.',
+    `⚠️ ${DEP} deposit: confirm received before sending the PIN. Policy: the PIN follows full payment, IDs and the ${DEP} deposit.`,
     '',
     'Set a fresh PIN in the lock app for this stay. After checkout, delete this guest\'s PIN in the lock app.',
     'Do: Show as text, paste it to the guest and type the PIN where it says {{door_pin}}.',
@@ -290,7 +288,7 @@ export function chunks(text: string, max = 2000): string[] {
 }
 
 export const LABEL: Record<Key, string> = {
-  confirmation: 'Message 1 (confirmation)', pre_arrival: 'Message 2 (arrival and balance)', door_code: 'Message 3 (door code)',
+  confirmation: 'Message 1 (confirmation)', pre_arrival: 'Message 2 (arrival and deposit)', door_code: 'Message 3 (door code)',
   mid_stay: 'Message 4 (mid-stay refresh)', checkout_reminder: 'Message 5.1 (check-out reminder)', after_departure: 'Message 5.2 (thank you and reviews)',
   declined: 'Decline message',
 };

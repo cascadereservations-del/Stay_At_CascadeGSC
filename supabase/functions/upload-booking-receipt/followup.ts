@@ -3,7 +3,10 @@
 // (Copy / Revise taps, B82). One paragraph each (templateOf reads to the next blank line), in the guest's register
 // (protocols 07/08/09): calm, guiding, no po in Bisaya. Nothing is sent to the guest by this function.
 export type Lang = 'en' | 'tl' | 'bis';
-export type Verdict = 'match' | 'short' | 'over' | 'not_proof' | 'unread';
+import { SECURITY_DEPOSIT_PHP } from '../_shared/cascade-core/pricing.ts';
+
+/** s138 (D-430): `match_dep` = the amount is the stay total PLUS the P800 refundable deposit, paid in one transfer. */
+export type Verdict = 'match' | 'match_dep' | 'short' | 'over' | 'not_proof' | 'unread';
 
 const peso = (n: number) => '₱' + Number(n).toLocaleString('en-PH');
 
@@ -16,7 +19,18 @@ export function verdictOf(read: { amount: number | null } | null, expected: numb
   if (!read) return 'unread';
   if (read.amount === null) return 'not_proof';
   if (Math.abs(read.amount - expected) < 0.5) return 'match';
+  if (Math.abs(read.amount - (expected + SECURITY_DEPOSIT_PHP)) < 0.5) return 'match_dep';
   return read.amount < expected ? 'short' : 'over';
+}
+
+/** The ⚖️ line of the Finance card. s138: when the stored amount due is the whole stay, an exact match means the stay is paid and the
+ *  P800 deposit is still due; the stay plus P800 means both are in. A legacy request that still holds the 50% fee keeps the old wording. */
+export function verdictLine(v: Verdict, amount: number | null, expected: number, total: number): string | null {
+  if (amount === null || v === 'not_proof' || v === 'unread') return null;
+  const stayFull = total > 0 && expected >= total - 0.5;
+  if (v === 'match') return stayFull ? `⚖️ Amount matches the ${peso(expected)} stay - stay paid; ${peso(SECURITY_DEPOSIT_PHP)} deposit still due` : `⚖️ Amount matches the ${peso(expected)} expected`;
+  if (v === 'match_dep') return `⚖️ ${peso(amount)} = ${peso(expected)} stay + ${peso(SECURITY_DEPOSIT_PHP)} deposit - stay and ${peso(SECURITY_DEPOSIT_PHP)} deposit received`;
+  return `⚖️ ${peso(Math.abs(amount - expected))} ${amount < expected ? 'SHORT' : 'over'} - expected ${peso(expected)}`;
 }
 
 /** The sample reply for the 📨 line, or '' when the host has nothing to ask of the guest (match / over / unread). */
@@ -28,9 +42,9 @@ export function guestFollowUp(v: Verdict, lang: Lang, name: string, expected: nu
     bis: `Hi ${n}! Salamat sa pag-send. The image doesn't show a completed payment yet — murag ang screen before sending. Once done ang ${peso(expected)} transfer, send lang ang confirmation screenshot diri and we'll take care of the confirmation.`,
   }[lang];
   if (v === 'short') return {
-    en: `Hi ${n}, thank you — we've received ${peso(received)}. The initial payment is ${peso(expected)}, so ${peso(expected - received)} remains. You may send the difference through the same GCash QR whenever convenient, and we'll confirm the reservation right after.`,
-    tl: `Hi ${n}! Salamat, received po ang ${peso(received)}. The initial payment is ${peso(expected)}, so ${peso(expected - received)} ang remaining. Puwede po ninyong i-send ang difference through the same GCash QR once convenient, at iko-confirm namin ang reservation right after.`,
-    bis: `Hi ${n}! Salamat, received na ang ${peso(received)}. The initial payment is ${peso(expected)}, so ${peso(expected - received)} ang remaining. Pwede i-send ang difference through the same GCash QR once convenient, and amo dayon i-confirm ang reservation.`,
+    en: `Hi ${n}, thank you — we've received ${peso(received)}. The stay payment is ${peso(expected)}, so ${peso(expected - received)} remains. You may send the difference through the same GCash QR whenever convenient, and we'll confirm the reservation right after.`,
+    tl: `Hi ${n}! Salamat, received po ang ${peso(received)}. The stay payment is ${peso(expected)}, so ${peso(expected - received)} ang remaining. Puwede po ninyong i-send ang difference through the same GCash QR once convenient, at iko-confirm namin ang reservation right after.`,
+    bis: `Hi ${n}! Salamat, received na ang ${peso(received)}. The stay payment is ${peso(expected)}, so ${peso(expected - received)} ang remaining. Pwede i-send ang difference through the same GCash QR once convenient, and amo dayon i-confirm ang reservation.`,
   }[lang];
   return '';
 }

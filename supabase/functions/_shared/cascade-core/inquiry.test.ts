@@ -87,7 +87,8 @@ Deno.test('financeCard: money, contact, timer and the no-timer line; the rate ca
   assert(!financeCard(view(), { rateToday: 12400 }).includes('Rate card today'), 'unchanged rate: no line');
   assert(!financeCard(view(), { rateToday: null }).includes('Rate card today'));
   assertStringIncludes(financeCard(view({ hold_expires_at: UNTIL })), '🗓️ Held until Tue 6 Oct, 10:40 pm; released if no receipt arrives');
-  assertStringIncludes(financeCard(view({ deposit_amount: 12400 })), 'full payment ₱12,400 due now');
+  assertStringIncludes(financeCard(view({ deposit_amount: 12400 })), 'full payment ₱12,400 due now · ₱800 deposit by the day before check-in'); // s138
+  assert(!financeCard(view()).includes('₱800 deposit'), 'a request still holding the old 50% fee does not mention the deposit');
   assertStringIncludes(financeCard(view(), {}), 'Nothing from the guest to answer yet.');
   // unknown money is dropped, never printed as 0
   assert(!financeCard(view({ total_amount: null, deposit_amount: null })).includes('₱'));

@@ -1,6 +1,6 @@
 // SPEC-34 2.2 pins. Run: deno test _shared/cascade-core/pricing.test.ts
 import { assertEquals } from 'jsr:@std/assert@1';
-import { FULL_PAY_WITHIN_DAYS, SEED_CARD, loadCard, quote, serverAmounts, isLastMinute, _resetCardCache, currentCard } from './pricing.ts';
+import { DEPOSIT_RETURN_BUSINESS_DAYS, LONG_STAY_NIGHTS, SECURITY_DEPOSIT_PHP, SEED_CARD, loadCard, quote, serverAmounts, isLongStay, _resetCardCache, currentCard } from './pricing.ts';
 
 const NOW = new Date('2026-09-26T08:00:00Z');
 // The card before SPEC-34, as submit-booking and facts.ts hard-coded it.
@@ -12,7 +12,7 @@ Deno.test('a stay with no promo night costs what it cost before, n = 1..30', () 
   for (let n = 1; n <= 30; n++) {
     const q = quote(SEED_CARD, '2026-11-02', plus('2026-11-02', n), NOW);
     assertEquals(q.total, oldRate(n) * n, `n=${n}`);
-    assertEquals(q.deposit, Math.ceil(oldRate(n) * n / 2), `deposit n=${n}`);
+    assertEquals(q.deposit, q.total, `s138: the amount due to confirm is the whole stay, n=${n}`);
     assertEquals(q.promo_nights, 0);
   }
 });
@@ -20,7 +20,7 @@ Deno.test('a stay with no promo night costs what it cost before, n = 1..30', () 
 Deno.test('Anniversary pins: Oct 16-19 = 4,777; Oct 11-18 = 10,801; Oct 9-12 = 4,925', () => {
   const a = quote(SEED_CARD, '2026-10-16', '2026-10-19', NOW);
   assertEquals([a.total, a.promo_nights, a.nights.map((x) => x.rate)], [4777, 2, [1543, 1543, 1691]]);
-  assertEquals(a.deposit, 2389);
+  assertEquals(a.deposit, 4777); // s138: the whole stay (was the 50% fee, 2,389)
   assertEquals(a.standard_total, 5340);
   assertEquals(quote(SEED_CARD, '2026-10-11', '2026-10-18', NOW).total, 10801);
   const c = quote(SEED_CARD, '2026-10-09', '2026-10-12', NOW);
@@ -32,43 +32,33 @@ Deno.test('a card scheduled for later prices the stays that check in on or after
   const card = { ...SEED_CARD, promotions: [], upcoming: [{ effective_from: '2026-12-01', base: 2000, deposit_pct: 40, tiers: [{ min_nights: 3, pct: 10 }] }] };
   assertEquals(quote(card, '2026-11-27', '2026-11-30', NOW).total, 5073, 'before the start: today\'s card');
   const d = quote(card, '2026-12-05', '2026-12-08', NOW);
-  assertEquals([d.total, d.deposit, d.standard_total, d.tier_rate], [5400, 2160, 6000, 1800], 'from the start: the new card, its fee %');
+  assertEquals([d.total, d.deposit, d.standard_total, d.tier_rate], [5400, 5400, 6000, 1800], 'from the start: the new card; s138: deposit_pct no longer matters, the whole stay is due');
   assertEquals(quote(card, '2026-11-30', '2026-12-02', NOW).total, 2 * 1691, 'a stay straddling the start is priced by its check-in date');
   assertEquals(quote({ ...card, upcoming: undefined }, '2026-12-05', '2026-12-08', NOW).total, 5073, 'a card without upcoming behaves as before');
 });
 
-Deno.test('last minute is 4 Manila days or fewer', () => {
-  assertEquals(quote(SEED_CARD, '2026-09-30', '2026-10-01', NOW).last_minute, true);
+Deno.test('s138 (D-428): there is no last-minute rule - the quote never says so, whatever the days to check-in', () => {
+  assertEquals(quote(SEED_CARD, '2026-09-30', '2026-10-01', NOW).last_minute, false);
   assertEquals(quote(SEED_CARD, '2026-10-01', '2026-10-02', NOW).last_minute, false);
 });
 
-Deno.test('R4 (2026-10-01): the full-payment cutoff is the site\'s 5 Manila days - not 48 hours - and every reader agrees', () => {
-  assertEquals(FULL_PAY_WITHIN_DAYS, 5);
-  // NOW = 26 Sep 16:00 Manila. Days out 0..4 are full-payment-only; 5 and beyond may take the 50% fee.
-  for (let k = 0; k <= 6; k++) {
-    const ci = plus('2026-09-26', k), want = k < 5;
-    assertEquals(isLastMinute(ci, NOW), want, `isLastMinute ${k} days out`);
-    assertEquals(quote(SEED_CARD, ci, plus(ci, 1), NOW).last_minute, want, `quote ${k} days out`);
-    assertEquals(serverAmounts(SEED_CARD, ci, plus(ci, 1), { total: 1780, deposit: 890 }, NOW).full, want, `serverAmounts ${k} days out`);
-  }
-  // 3 days out (inside 5 days, outside the old 48 h rule) is full-payment-only.
-  assertEquals(isLastMinute('2026-09-29', NOW), true);
-  // Manila midnight, not UTC: 26 Sep 17:00 UTC is already 27 Sep 01:00 in Manila, so 2 Oct is 5 days out, not 6.
-  assertEquals(isLastMinute('2026-10-01', new Date('2026-09-26T17:00:00Z')), true);
-  assertEquals(isLastMinute('2026-10-02', new Date('2026-09-26T17:00:00Z')), false);
+Deno.test('s138 (D-429, D-430): the shared constants - P800 deposit, 3 business days to return it, 28 nights is a long stay', () => {
+  assertEquals([SECURITY_DEPOSIT_PHP, DEPOSIT_RETURN_BUSINESS_DAYS, LONG_STAY_NIGHTS], [800, 3, 28]);
+  assertEquals([isLongStay(27), isLongStay(28), isLongStay(60)], [false, true, true]);
 });
 
-Deno.test('submit-booking authority: the card total is stored, whatever the client sent', () => {
+Deno.test('submit-booking authority: the card total is stored, whatever the client sent, and the amount due is always the whole stay (s138)', () => {
   const low = serverAmounts(SEED_CARD, '2026-11-02', '2026-11-05', { total: 4566, deposit: 2283 }, NOW); // 10% under 5,073
-  assertEquals([low.total, low.deposit, low.full, low.mismatch], [5073, 2537, false, true]);
+  assertEquals([low.total, low.deposit, low.full, low.mismatch], [5073, 5073, true, true]);
   const promo = serverAmounts(SEED_CARD, '2026-10-16', '2026-10-19', { total: 5073, deposit: 2537 }, NOW);
-  assertEquals([promo.total, promo.deposit], [4777, 2389]);
+  assertEquals([promo.total, promo.deposit], [4777, 4777]);
+  // a client pay_full flag or a 50% deposit is accepted and harmless: same result
   const full = serverAmounts(SEED_CARD, '2026-11-02', '2026-11-05', { payFull: true, total: 5073, deposit: 2537 }, NOW);
-  assertEquals([full.full, full.deposit], [true, 5073]);
-  const legacyFull = serverAmounts(SEED_CARD, '2026-11-02', '2026-11-05', { total: 5073, deposit: 5073 }, NOW);
-  assertEquals([legacyFull.full, legacyFull.deposit, legacyFull.mismatch], [true, 5073, false]);
+  assertEquals([full.full, full.deposit, full.mismatch], [true, 5073, false]);
+  const half = serverAmounts(SEED_CARD, '2026-11-02', '2026-11-05', { total: 5073, deposit: 2537 }, NOW);
+  assertEquals([half.full, half.deposit, half.mismatch], [true, 5073, false]);
   const near = serverAmounts(SEED_CARD, '2026-09-28', '2026-09-30', { total: 3382, deposit: 1691 }, NOW);
-  assertEquals([near.full, near.deposit], [true, 3382], 'inside 5 days the full amount is due');
+  assertEquals([near.full, near.deposit], [true, 3382]);
 });
 
 Deno.test('loadCard: a failed read falls back to the seed card (never zero), a good read is used', async () => {

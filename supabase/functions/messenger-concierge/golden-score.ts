@@ -1,7 +1,7 @@
 // Voice close-out (2026-09-17): the rubric of docs/response-protocol-final.md §7, scored in code on every golden
 // reply. Pure, no I/O, unit-tested (golden-score.test.ts). A check returns null when it passes, else a short reason.
 // The checks are deliberately narrow: a scorer that cries wolf sends us back to tuning by ear.
-import { quote, SEED_CARD, tierRate, type RateCard } from '../_shared/cascade-core/pricing.ts';
+import { quote, SECURITY_DEPOSIT_PHP, SEED_CARD, tierRate, type RateCard } from '../_shared/cascade-core/pricing.ts';
 import { ASKING_RE, earlyFeeFor, fixEarlyFee, INVITE_RE, isCold, lintReply, paragraphs, type Violation } from './voice.ts';
 export type Reg = 'en' | 'tl' | 'bis';
 /** model = a free answer written by the model; code = a code-owned line in index.ts (closer, bot, dates-first, sticker);
@@ -42,10 +42,10 @@ const UNCONTRACTED_RE = /(?<!\b(?:for|to|of|with|from) )\b(we|you|they) (will|ar
 const CAPACITY_RE = /\b(accommodate|welcome|fit|host|take)s?\b[^.?!\n]{0,25}\b(4|four|5|five|6|six) adults\b|\b(4|four|5|five|6|six) adults (is|are) (fine|okay|ok|welcome|possible)\b/i;
 const ADDRESS_RE = /\b(block|blk\.?)\s*\d+|\blot\s*\d+/i;
 
-/** Every peso figure a reply may state: the rate card, stay totals, savings, the reservation fee and balance,
+/** Every peso figure a reply may state: the rate card, stay totals, savings, the P800 deposit,
  *  the deposit, hourly early check-in fees and the listed fares. Anything else was invented. */
 export function allowedPesos(card: RateCard = SEED_CARD): Set<number> {
-  const base = card.base, ok = new Set<number>([base, 1000, 120, 180, 10, 50]);
+  const base = card.base, ok = new Set<number>([base, 1000, SECURITY_DEPOSIT_PHP, 120, 180, 10, 50]);
   for (let h = 1; h <= 6; h++) ok.add(100 * h);
   const add = (total: number, n: number, rate: number) => {
     const fee = Math.ceil(total * card.deposit_pct / 100);

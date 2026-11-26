@@ -1,9 +1,12 @@
 // rate-card v1 (session 55, SPEC-34, D-262): the booking site's one price source. Public GET, verify_jwt false.
 //   GET /rate-card                              -> { card }            (get_rate_card_v1: prices only)
 //   GET /rate-card?checkin=YYYY-MM-DD&checkout=  -> { card, quote }    (the same quote() submit-booking stores)
+// s138 (D-428..D-430): every direct stay is paid in full to confirm, so quote.deposit = quote.total and last_minute is false
+// (both kept so the live site still reads them); `security_deposit` is the separate refundable P800; `long_stay` is true from
+// 28 nights, which the host arranges (never auto-quoted by Cassy or submit-booking).
 // The site never computes a price itself, so there is no third copy of the math.
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { loadCard, quote } from '../_shared/cascade-core/pricing.ts';
+import { SECURITY_DEPOSIT_PHP, isLongStay, loadCard, quote } from '../_shared/cascade-core/pricing.ts';
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -22,11 +25,11 @@ Deno.serve(async (req) => {
   const card = await loadCard(db);
   const u = new URL(req.url);
   const checkin = u.searchParams.get('checkin'), checkout = u.searchParams.get('checkout');
-  if (!checkin && !checkout) return json({ card });
+  if (!checkin && !checkout) return json({ card, security_deposit: SECURITY_DEPOSIT_PHP });
 
   if (!checkin || !checkout || !DATE.test(checkin) || !DATE.test(checkout) || isNaN(Date.parse(checkin)) || isNaN(Date.parse(checkout)))
     return json({ error: 'invalid_dates' }, 400, 'no-store');
   const n = Math.round((Date.parse(checkout) - Date.parse(checkin)) / 86_400_000);
   if (n < 1 || n > 60) return json({ error: 'invalid_stay_length' }, 400, 'no-store');
-  return json({ card, quote: quote(card, checkin, checkout) });
+  return json({ card, security_deposit: SECURITY_DEPOSIT_PHP, long_stay: isLongStay(n), quote: quote(card, checkin, checkout) });
 });

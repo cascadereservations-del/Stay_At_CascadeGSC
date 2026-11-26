@@ -2,6 +2,8 @@
 // own. The page shows only what this returns, so what is left out here never reaches a guest (no name, contact, address,
 // door code, receipt path or account number is ever an input).
 
+import { SECURITY_DEPOSIT_PHP } from '../_shared/cascade-core/pricing.ts';
+
 export type StatusFacts = {
   ref: string;
   status: string;
@@ -17,8 +19,8 @@ export type StatusFacts = {
 
 export type StatusState = 'held' | 'under_review' | 'awaiting_payment' | 'confirmed' | 'released' | 'cancelled';
 
-// PHP 1,000 refundable security deposit, due with the balance at least one day before check-in (booking-terms.html).
-export const SECURITY_DEPOSIT = 1000;
+// s138 (D-430): the refundable security deposit is the one shared figure (pricing.ts, P800), due with the booking or at least one day before check-in.
+export const SECURITY_DEPOSIT = SECURITY_DEPOSIT_PHP;
 const DAY_MS = 86_400_000;
 
 // Unknown is null, never 0.

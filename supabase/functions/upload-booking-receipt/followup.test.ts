@@ -1,6 +1,6 @@
 // deno test --no-check upload-booking-receipt/followup.test.ts  (from supabase/functions)
 import { assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
-import { CAPTION_MAX, guestFollowUp, hostDoLine, overpaymentLines, priorUseLines, verdictOf, type PriorUse } from './followup.ts';
+import { CAPTION_MAX, guestFollowUp, hostDoLine, overpaymentLines, priorUseLines, verdictLine, verdictOf, type PriorUse } from './followup.ts';
 import { groups, doSend } from '../_shared/cascade-core/format.ts';
 import { lintReply, toneRules } from '../messenger-concierge/voice.ts';
 import { templateOf, TEMPLATE_MARK } from '../_shared/cascade-core/format.ts';
@@ -108,4 +108,18 @@ Deno.test('the worst card overflows the caption, which is why it is sent as its 
   assertEquals(c.length > CAPTION_MAX, true, `worst card is ${c.length} characters; the split branch assumes it exceeds ${CAPTION_MAX}`);
   assertEquals(c.trimEnd().endsWith(guestFollowUp('short', 'tl', 'Bernadette Villanueva', 16910, 1000)), true,
     'the sample reply is last, so a truncated caption would lose exactly the line the Copy tap reads');
+});
+
+Deno.test('s138 (D-430): the stay total, or the stay total plus the P800 deposit, is a match; the card line says which', () => {
+  assertEquals(verdictOf({ amount: 3382 }, 3382), 'match');
+  assertEquals(verdictOf({ amount: 4182 }, 3382), 'match_dep');
+  assertEquals(verdictOf({ amount: 4000 }, 3382), 'over');
+  assertEquals(verdictOf({ amount: 800 }, 3382), 'short');
+  assertEquals(verdictLine('match', 3382, 3382, 3382), '⚖️ Amount matches the ₱3,382 stay - stay paid; ₱800 deposit still due');
+  assertEquals(verdictLine('match_dep', 4182, 3382, 3382), '⚖️ ₱4,182 = ₱3,382 stay + ₱800 deposit - stay and ₱800 deposit received');
+  assertEquals(verdictLine('short', 1000, 3382, 3382), '⚖️ ₱2,382 SHORT - expected ₱3,382');
+  assertEquals(verdictLine('match', 1691, 1691, 3382), '⚖️ Amount matches the ₱1,691 expected'); // a request still holding the old 50% fee
+  assertEquals(verdictLine('not_proof', null, 3382, 3382), null);
+  assertEquals(guestFollowUp('short', 'en', 'Ben', 3382, 1000).includes('The stay payment is ₱3,382, so ₱2,382 remains.'), true);
+  assertEquals(guestFollowUp('match_dep', 'en', 'Ben', 3382, 4182), '');
 });

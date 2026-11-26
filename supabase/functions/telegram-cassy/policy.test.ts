@@ -169,7 +169,7 @@ Deno.test('D-306: a stubbed model reply with revenue and a rate comes out of OPS
 Deno.test('D-306: a draft or revision with an amount is refused in OPS and sent whole to Finance', async () => {
   const sent: { chat: string; text: string }[] = [];
   const send = async (chat: string, text: string) => { sent.push({ chat, text }); };
-  const parts = ['✍️ Guest reply · Messenger', 'Hi Ben, PHP 3,560 total, reservation fee 1,780 to GCash 0956 011 5744.'];
+  const parts = ['✍️ Guest reply · Messenger', 'Hi Ben, PHP 3,560 total, paid in full to GCash 0956 011 5744.'];
   const r = await postDraft(send, { surface: 'ops', chatId: 'OPS', financeChat: 'FIN', refused: OPS_MONEY_REFUSED, parts });
   assertEquals(r.toFinance, true);
   assertEquals(sent.filter((m) => m.chat === 'OPS').map((m) => m.text), [OPS_MONEY_REFUSED]);

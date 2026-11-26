@@ -125,7 +125,7 @@ Deno.test('SPEC-39 (D-300.1): forHost drops the initial-message signature - the 
 Deno.test('D-306 (SPEC-39 change): a money-shaped Airbnb or concierge draft asked in OPS goes to Finance; OPS gets no amount', async () => {
   const sent: Array<{ chat: string; text: string }> = [];
   const send = (chat: string, text: string) => { sent.push({ chat, text }); return Promise.resolve(true); };
-  const draft = `Hi Dale! Oct 20 to 22 comes to ₱3,382, and the ₱1,691 reservation fee holds the dates (GCash 0956 011 5744).\n${SIGN}`;
+  const draft = `Hi Dale! Oct 20 to 22 comes to ₱3,382, and the full amount holds the dates (GCash 0956 011 5744).\n${SIGN}`;
   const head = '✍️ Guest reply · Dale · Airbnb\n⚠️ Airbnb voice check: off_platform. Read it before sending.';
   const r = await postDraft(send, { surface: 'ops', chatId: 'ops-chat', financeChat: 'fin-chat', refused: 'Posted in Finance.', parts: [head, draft] });
   assertEquals(r.toFinance, true);

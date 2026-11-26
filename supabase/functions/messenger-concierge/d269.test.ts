@@ -31,9 +31,8 @@ Deno.test('leafAtClose keeps one closing 🌿 and drops a mid-message one', () =
   assertEquals(leafAtClose('No leaf.'), 'No leaf.');
 });
 
-Deno.test('stayAnchor: "a month" is 30 nights and "2 weeks" 14, priced by code (live: the month total was left to the site)', () => {
-  const m = stayAnchor('If I book for a month, how much?');
-  assert(/for 30 nights/.test(m) && /PHP 40,050/.test(m) && /PHP 53,400/.test(m), m);
+Deno.test('stayAnchor: "2 weeks" is 14 nights, priced by code; "a month" is 28+ nights and is never priced (s138: the host arranges it)', () => {
+  assertEquals(stayAnchor('If I book for a month, how much?'), '');
   assert(/for 14 nights/.test(stayAnchor('2 weeks po magkano?')));
   assertEquals(stayAnchor('how much per night?'), '');
 });

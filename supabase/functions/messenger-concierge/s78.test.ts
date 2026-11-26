@@ -68,60 +68,35 @@ async function turn(text: string, o: { flow?: Flow | null; history?: Array<[stri
 // ---- 1. after the booking: facts only, the booking site's terms per path -------------------------------------------------------
 // Example: Angel turn 19 "We will pay po the deposit pag nasa area na po"; turn 13 "We will send the deposit tomorrow po" got the
 // receipt chase. Code says the terms (persona.ts payTermsLine), no model call. F2 (Fable audit f3c4126): the booking site is the
-// policy source - Pay in Full: "covers the whole stay, and you arrive with only the ₱1,000 refundable deposit to hand over";
-// the 50% fee: "the balance and ₱1,000 refundable deposit are collected at least a day before check-in".
-const feePath = (step: Flow['step'] = 'await_receipt', ageMin = 30) => held(step, ageMin, { deposit: 2537, hold: true });
-Deno.test('s78 #1 Pay in Full path: the deposit handed over on arrival is agreed warmly (no lecture, no card); the stay itself is not', async () => {
+// policy source. s138 (D-428..D-430): one rule for every stay - the full amount confirms it and the ₱800 refundable deposit is due
+// at least a day before check-in; nothing is agreed on arrival.
+Deno.test('s78 #1 / s138: a booked guest who names another payment timing gets the terms; an arrival ask also reaches the host', async () => {
   assertEquals(payTiming('We will pay the deposit when we arrive'), 'arrival'); // golden s78-full-deposit-on-arrival-en
   for (const t of ['Pag dating na lang po namin ibigay ang deposit', 'pagdating na lang po namin ibigay ang deposit', 'ibigay po namin ang deposit pag-dating']) assertEquals(payTiming(t), 'arrival', t);
-  // D-322: the stay card, the "full" switch and the payment message say the same on this path; the 50% path keeps "a day before"
+  // D-322 / s138: the payment nudge and the payment message say the same - the deposit is due a day before check-in, never on arrival
   for (const l of ['en', 'tl'] as const) {
-    const full = P.payNudge({ deposit: '₱5,073', total: '₱5,073', fullOnly: true, near: true, dates: 'Oct 19 to 22', name: 'Angel' }, 'warm', l);
-    const fee = P.payNudge({ deposit: '₱2,537', total: '₱5,073', fullOnly: false, dates: 'Oct 19 to 22', name: 'Angel' }, 'warm', l);
-    assert(/hand over|iaabot/.test(full) && !/before you arrive|a day before/.test(full), full);
-    assert(/a day before check-in/.test(fee) && !/hand over|iaabot/.test(fee), fee);
-    assert(/hand over|iaabot/.test(P.fullSwitchLine('Angel', '₱5,073', l)) && !/before you arrive/.test(P.fullSwitchLine('Angel', '₱5,073', l)));
-    const pm = (f: boolean) => P.paymentMessage({ name: 'Angel', dates: 'Oct 19 to 22', ref: 'DIR-1', until: null, rel: '', hold: false, near: true, deposit: f ? '₱5,073' : '₱2,537', balance: '₱2,536', full: f }, l);
-    assert(/hand over|iaabot/.test(pm(true)) && /a day before check-in/.test(pm(false)), pm(true));
+    const nudge = P.payNudge({ total: '₱5,073', dates: 'Oct 19 to 22', name: 'Angel' }, 'warm', l);
+    assert(/a day before check-in/.test(nudge) && !/hand over|iaabot|balance/.test(nudge), nudge);
+    const pm = P.paymentMessage({ name: 'Angel', dates: 'Oct 19 to 22', ref: 'DIR-1', until: null, rel: '', hold: false, deposit: '₱5,073' }, l);
+    assert(/a day before check-in/.test(pm) && !/hand over|iaabot|balance/.test(pm), pm);
   }
-  const en = await turn('We will pay the deposit when we arrive', { flow: held() });
-  assert(/^Yes, that's right/.test(en.reply) && /hand over/.test(en.reply) && !en.calls.some((c) => c.fx === 'handoff'), en.reply);
-  for (const flow of [held(), held('await_receipt', 26 * 60), held('receipt_sent', 26 * 60)]) {
-    const m = stub('unused');
-    try {
-      const ok = await turn('We will pay po the deposit pag nasa area na po', { flow });
-      assertEquals(m.seen.length, 0);
-      assert(/^Opo, tama po/.test(ok.reply) && /iaabot ninyo pagdating/.test(ok.reply) && !/Para malinaw|a day before/.test(ok.reply), ok.reply);
-      assertEquals(ok.calls.filter((c) => c.fx === 'handoff').length, 0, 'no host card for the site\'s own term');
-      assertEquals(lintReply(ok.reply), [], ok.reply);
-      const later = await turn('We will send the deposit tomorrow po', { flow });
-      assert(/hand over/.test(later.reply) && /5,073/.test(later.reply) && !/a day before/.test(later.reply), later.reply);
-      assertEquals(later.calls.filter((c) => c.fx === 'handoff').length, 0);
-      // the balance on arrival is not the term on this path either: the terms, and the host hears it
-      const bal = await turn('pwede po ba bayad ng balance upon check-in?', { flow });
-      assert(/iaabot ninyo pagdating|hand over/.test(bal.reply) && !/^Opo, tama/.test(bal.reply), bal.reply);
-      assertEquals(bal.calls.filter((c) => c.fx === 'handoff').map((c) => c.detail?.risk), ['payment']);
-    } finally { m.restore(); }
-  }
-});
-Deno.test('s78 #1 50% fee path: deposit or balance on arrival gets "a day before check-in" and a host card; "tomorrow" gets the terms', async () => {
   for (const [say, kind] of [['We will pay po the deposit pag nasa area na po', 'arrival'], ['We will send the deposit tomorrow po', 'later'], ['pwede po ba bayad ng balance upon check-in?', 'arrival']] as const) {
     assertEquals(payTiming(say), kind, say);
-    for (const flow of [feePath(), feePath('await_receipt', 26 * 60), feePath('receipt_sent', 26 * 60)]) {
+    for (const flow of [held(), held('await_receipt', 26 * 60), held('receipt_sent', 26 * 60)]) {
       const m = stub('Sige po, pwede po ninyong bayaran ang deposit pagdating ninyo.');
       try {
         const r = await turn(say, { flow });
         assertEquals(m.seen.length, 0, `code answers: ${say}`);
-        assert(/a day before check-in/.test(r.reply) && /2,536/.test(r.reply) && /1,000/.test(r.reply), r.reply);
-        assert(!/pagdating ninyo|on arrival is fine|upon arrival|tama po/i.test(r.reply), r.reply);
+        assert(/a day before check-in/.test(r.reply) && /5,073/.test(r.reply) && /800/.test(r.reply), r.reply);
+        assert(!/pagdating ninyo|on arrival is fine|upon arrival|tama po|hand over|iaabot|1,000|balance/i.test(r.reply), r.reply);
         assert(!/exact total|dates na kayo|preferred dates/i.test(r.reply), r.reply);
         assertEquals(r.calls.filter((c) => c.fx === 'handoff').map((c) => c.detail?.risk), kind === 'arrival' ? ['payment'] : [], say);
         assertEquals(lintReply(r.reply), [], r.reply);
       } finally { m.restore(); }
     }
   }
-  const fee = P.payTermsLine('Angel', 'en', { total: '₱5,073', balance: '₱2,537', paid: false });
-  assert(fee.includes('remaining ₱2,537 balance and the ₱1,000 refundable security deposit are due at least a day before check-in'), fee);
+  const terms = P.payTermsLine('Angel', 'en', { total: '₱5,073', paid: false });
+  assert(terms.includes('the full ₱5,073 covers the whole stay and confirms it') && terms.includes('the ₱800 refundable security deposit is due at least a day before check-in'), terms);
   // not a timing (F1): a paid claim, questions about the deposit or check-in with no pay verb
   for (const t of ['Sent po DP', 'Is the deposit refundable?', 'Is the deposit refundable at check-in?', 'What time is check in? We arrive tonight, is the unit full?', 'anong oras po pwde makacheckin??', 'paid na po']) assertEquals(payTiming(t), null, t);
 });
@@ -135,7 +110,7 @@ Deno.test('s78 #1: a booked guest\'s question is answered from facts with no boo
     try {
       const r = await turn('Hi good morning po may free drinking water na po sa room?', { flow });
       assert(m.seen.length > 0, 'the model answers the fact');
-      assert(m.seen[0].includes('The stay card\'s payment terms are the ONLY terms') && m.seen[0].includes('arrive with only the PHP 1,000 refundable security deposit to hand over') && m.seen[0].includes('Never agree to the stay itself being paid on arrival'), m.seen[0].slice(0, 300));
+      assert(m.seen[0].includes('The stay card\'s payment terms are the ONLY terms') && m.seen[0].includes('the PHP 800 refundable security deposit is due at least a day before check-in') && m.seen[0].includes('Never agree to the stay or the deposit being paid on arrival'), m.seen[0].slice(0, 300));
       assert(/water dispenser/.test(r.reply), r.reply);
       assert(!/exact total|once may dates|preferred dates|Which dates|kailan po|hold those dates|tinyurl/i.test(r.reply), `${flow.step}: ${r.reply}`);
     } finally { m.restore(); }

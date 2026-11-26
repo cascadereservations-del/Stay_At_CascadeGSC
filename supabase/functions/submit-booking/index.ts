@@ -3,10 +3,7 @@
 // Creates the booking request and returns a short-lived, booking-scoped token
 // for the optional private receipt upload. The browser never supplies a
 // Storage path or URL and cannot write to booking-receipts directly.
-// v11.7 (2026-07-02): FIX last-minute deposit. The site charges 100% when check-in is
-//   under 5 days away (else 50%; was 48h until D-185, 2026-09-18; R4 2026-10-01 follows the site). The old sanity check only accepted ~50% and clamped the full
-//   payment back to 50%, so last-minute bookings were recorded + emailed as 50%. Now accept
-//   the client deposit if it matches EITHER the 50% reservation fee OR the full total.
+// v11.7 history: the 50% fee and last-minute branches are gone (s138): the stored deposit_amount is the full total.
 // v12.1: remove service-signed decision URLs; Module C requires named AAL2 Finance review.
 // v11.5: email relay -> GAS action='ackEmail'. v11.4: approve/decline buttons.
 // v11.2: calendar hold on submit. v11.1: plain-text finance summary. v11: receipt to Finance.
@@ -19,9 +16,10 @@ import { mintStatusToken } from '../_shared/guest-access-token.ts';
 // and carries guest_context_v1 lines for a returning direct guest (empty for a first-timer).
 import { cardMarkup, financeCard, opsCard, siteNotes, viaOf, type InquiryView } from '../_shared/cascade-core/inquiry.ts'; // SPEC-38: the request card with its decision buttons
 import { guestContext, guestContextLines } from '../_shared/cascade-core/tools.ts';
-// v17 (session 55, SPEC-34, D-262): the stored rate card is authoritative. The client's total is ignored (it only
-// chooses fee or full: pay_full); the server stores and returns its own total and deposit.
-import { FULL_PAY_WITHIN_DAYS, loadCard, serverAmounts } from '../_shared/cascade-core/pricing.ts';
+// v17 (session 55, SPEC-34, D-262): the stored rate card is authoritative. The client's total is ignored; the server
+// stores and returns its own total and deposit. v19 (s138, D-428..D-430): every stay is paid in full to confirm, so
+// deposit_amount = total_amount always; a client pay_full is accepted and harmless; 28+ nights is refused (host arranges).
+import { isLongStay, loadCard, serverAmounts } from '../_shared/cascade-core/pricing.ts';
 import { callerHash, clientIp } from './caller.ts'; // v18 (s78, TASKS #21): the hourly cap per caller
 
 const CORS = {
@@ -110,6 +108,10 @@ Deno.serve(async (req) => {
 
   if (nights < minNights)
     return json({ error: 'below_minimum_nights', min_nights: minNights }, 400);
+  // s138 (D-429): 28+ nights is arranged by the host (first month to confirm, then monthly), never auto-quoted or stored.
+  // The site shows a server error by its `error` code, so the code is stable and `message` is guest-readable.
+  if (isLongStay(nights))
+    return json({ error: 'long_stay_host_arranges', nights, message: 'Stays of 28 nights or more are arranged by our host, with the first month paid to confirm and then monthly. Please message us at cascadereservations@gmail.com or on Messenger.' }, 400);
   if (nights > maxNights)
     return json({ error: 'above_maximum_nights', max_nights: maxNights }, 400);
 
@@ -129,9 +131,9 @@ Deno.serve(async (req) => {
   }
 
   const card = await loadCard(db);
-  const depositPct = card.deposit_pct;
+  const depositPct = 100; // s138: the amount due to confirm is the whole stay; the stored card's deposit_pct is no longer read
   const amounts = serverAmounts(card, checkinStr, checkoutStr, { payFull: body.pay_full, total: clientTotal, deposit: clientDeposit });
-  const { q, full: payFull } = amounts;
+  const { q } = amounts;
   const totalAmount   = amounts.total;
   const depositAmount = amounts.deposit;
   if (amounts.mismatch) console.log(JSON.stringify({ event: 'client_total_mismatch', client_total: clientTotal, client_deposit: clientDeposit, total: totalAmount, deposit: depositAmount }));
@@ -214,13 +216,14 @@ Deno.serve(async (req) => {
   const ref = inquiry.id.slice(0, 8).toUpperCase();
   const receiptUploadSecret = Deno.env.get('BOOKING_RECEIPT_UPLOAD_SECRET');
   // v14 (session 26, hold-before-pay, D-160 #1): an advance booking is a 24 h HOLD created before
-  // the guest pays, so the receipt token lives as long as the hold. Last-minute (full payment) keeps 15 min.
-  // D-162: a hold is offered only 5+ days out (the free-cancellation line), only when the site asked
-  // for one, and never for a full payment. The hold itself is a booking_holds row (open_booking_hold_v1,
+  // the guest pays, so the receipt token lives as long as the hold. A request without a hold keeps 15 min.
+  // D-162: a hold is offered only 5+ days out (the free-cancellation line) and only when the site asked
+  // for one (s138: a full payment no longer excludes a hold, every stay is one). The hold itself is a booking_holds row (open_booking_hold_v1,
   // service_role cannot write the table) that the lifecycle guard and the hourly releaser read.
   const HOLD_HOURS = 24;
+  const HOLD_MIN_DAYS_OUT = 5; // unchanged D-162 line (the free-cancellation edge), no longer shared with a pay rule
   const daysOut = Math.round((checkin.getTime() - today.getTime()) / 86_400_000);
-  const isHold = body.hold === true && daysOut >= FULL_PAY_WITHIN_DAYS && !payFull;
+  const isHold = body.hold === true && daysOut >= HOLD_MIN_DAYS_OUT;
   let holdExpiresAt: string | null = null;
   if (isHold) {
     const { data: hold, error: holdErr } = await db.rpc('open_booking_hold_v1', { p_booking_id: inquiry.id, p_hours: HOLD_HOURS });
@@ -247,7 +250,7 @@ Deno.serve(async (req) => {
     payee_name:       guestName,
     booking_id:       inquiry.id,
     external_ref:     inquiry.id,
-    notes:            `Direct booking — ${nights}n, ${pax} pax. Deposit ₱${depositAmount.toLocaleString()}.`,
+    notes:            `Direct booking — ${nights}n, ${pax} pax. Due to confirm ₱${depositAmount.toLocaleString()} (full stay).`,
     tax_treatment:    'vat_exempt',
     logged_by:        'submit-booking',
   }).then(({ error: te }) => {
@@ -353,7 +356,7 @@ Deno.serve(async (req) => {
     nights,
     total_amount:   totalAmount,
     deposit_amount: depositAmount,
-    pay_full:       payFull,
+    pay_full:       true, // s138: always paid in full; kept for the live site's reader
     promo_nights:   q.promo_nights,
     currency:       'PHP',
     receipt_upload_token: receiptUploadToken,

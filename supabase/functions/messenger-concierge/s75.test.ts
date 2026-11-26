@@ -172,7 +172,7 @@ Deno.test('s76: "during your stay from Nov 18 to 20" loses the range when the fl
 // ---- 6. the name once after the greeting -------------------------------------------------------------------------------------
 // Example: voice.ts nameOnce (code rule) + golden s63-month-tl.
 Deno.test('D-311.5: "Hi Ben!" then "Ben, para sa..." - the second name goes', () => {
-  const live = 'Hi Ben! Salamat sa pag-message sa Cascade Hideaway.\n\nBen, para sa 30 nights po, bumababa ang direct rate namin sa PHP 1,335 per night mula sa standard PHP 1,780. Lumalabas na mga PHP 40,050 lang ito para sa buong stay imbes na PHP 53,400.\n\nWe\'d be delighted to have you. Kailan ninyo gustong mag-stay? Share lang dito ang check-in at check-out and iche-check namin agad.\n\nCassy, Cascade Concierge';
+  const live = 'Hi Ben! Salamat sa pag-message sa Cascade Hideaway.\n\nBen, para sa 30 nights po, ina-arrange ng host namin nang personal ang ganitong stay: ang first month ang magko-confirm, at monthly na ang bayad pagkatapos.\n\nWe\'d be delighted to have you. Kailan ninyo gustong mag-stay? Share lang dito ang check-in at check-out and iche-check namin agad.\n\nCassy, Cascade Concierge';
   const fixed = nameOnce(live, 'Ben');
   assert(fixed.includes('\n\nPara sa 30 nights po'), fixed);
   assertEquals((fixed.match(/\bBen\b/g) ?? []).length, 1);
@@ -200,7 +200,7 @@ Deno.test('D-311.5: "Ben, yes po, free parking..." in English loses the "po"; En
 // ---- 8. Taglish: four paragraphs at most, three "po" at most, the welcome joined to the dates ask --------------------------------
 // Example: booking.ts flowLead + persona.ts compose's three-"po" cap (code rules) + golden first-two-months-tl.
 Deno.test('D-311.5: a Taglish two-month inquiry is four paragraphs, three "po" at most, "We\'d be delighted to have you." beside the dates ask', async () => {
-  const m = stub('Para sa 60 nights po, bumababa ang direct rate namin sa PHP 1,335 per night mula sa standard PHP 1,780. Mga PHP 80,100 na lang po ito para sa buong stay imbes na PHP 106,800.\n\nKasama na rin dito ang drinking water for the stay at complimentary mid-stay refresh with fresh linens and towels para komportable ang mahaba ninyong stay.');
+  const m = stub('Para sa 60 nights po, personal na ina-arrange ng host namin ang ganitong stay, kaya sila na po ang magme-message dito.\n\nKasama na rin dito ang drinking water for the stay at complimentary mid-stay refresh with fresh linens and towels para komportable ang mahaba ninyong stay.');
   try {
     const r = await turn('Hello po, pwede po magtanong about sa booking for two months?');
     assert(paragraphs(r.reply).length <= 4, r.reply);
@@ -247,11 +247,12 @@ Deno.test('audit D1: a discount ask with a stay length or another question keeps
     assertEquals(hostLines(r.reply), 1, r.reply);
     assertEquals(r.calls.filter((c) => c.fx === 'handoff').map((c) => c.detail.risk), ['policy_exception']);
   } finally { five.restore(); }
-  const thirty = stub('For 30 nights, your direct rate comes down to PHP 1,335 per night from the standard PHP 1,780, about PHP 40,050 for the stay.');
+  // s138 (D-429): 30 nights is a long stay - code quotes no total, the model is told so, and the haggle line still opens the reply
+  const thirty = stub('Our host arranges stays this long personally, so we will leave the rate to them.');
   try {
     const r = await turn('is there a discount for 30 nights?');
-    assert(thirty.seen[0].includes('PHP 1,335'), thirty.seen[0].slice(0, 300));
-    assert(r.reply.includes('1,335') && r.reply.includes(P.haggleLine('en')), r.reply);
+    assert(thirty.seen[0].includes('28 nights or more: quote no total'), thirty.seen[0].slice(0, 300));
+    assert(!/1,335|40,050/.test(r.reply) && r.reply.includes(P.haggleLine('en')), r.reply);
     assertEquals(hostLines(r.reply), 1, r.reply);
   } finally { thirty.restore(); }
   // the model forwards anyway: its sentence goes, code's host line stays the only one
