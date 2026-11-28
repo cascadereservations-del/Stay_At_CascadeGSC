@@ -1,0 +1,90 @@
+{
+  "schema_version": 1,
+  "release_id": "turnover_who_is_inside_20261213",
+  "phase": "expand",
+  "source": {
+    "branch": "fix/turnover-who-is-inside",
+    "commit": "ab329e0a628566992979adcd4b8f0cd00def0383"
+  },
+  "migrations": [
+    "20261213000000_turnover_who_is_inside.sql"
+  ],
+  "migration_sha256": {
+    "20261213000000_turnover_who_is_inside.sql": "dce4121cc39620f55d324f7f471e114f0301a4657fcb9b8c53b7aa4833c4ed2b"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20261128T170641Z",
+    "verified_at": "2026-11-28T17:11:15.088Z",
+    "production_rule": "Adds public.stay_phase_v1 (upcoming / inside / departed by the clock: the stay's own times, else app_settings house_times, else 14:00 in / 12:00 out) and public.staff_current_next_stays_at_v1 (fixed clock). staff_current_next_stays_v1 now calls the latter with Manila now(); get_admin_overview_v1 changes one where-clause (currentStays). Return shapes and grants are unchanged. It stops (55000) unless both live bodies are the 2026-11-29 ones or these. No table, column or row changes.",
+    "notes": "restore_point and verified_at are placeholders: restamp them with a fresh backup at apply time (scripts/migrations/fill-restore-point.mjs). Independent of record_offline_booking_20261211 and void_cancels_confirmed_calendar_20261212 (touches none of their functions); apply after them so the CLI order stays ascending."
+  },
+  "forward_verification": [
+    {
+      "name": "stays_body_is_the_new_one",
+      "query": "select md5(replace(prosrc, chr(13), '')) = 'acb8d787e00683d629fbc2c47e12f8ba' from pg_proc where oid = 'public.staff_current_next_stays_v1(uuid)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "admin_overview_body_is_the_new_one",
+      "query": "select md5(replace(prosrc, chr(13), '')) = '382132f2b8fc01ac4a3dbf3f79b11ae4' from pg_proc where oid = 'public.get_admin_overview_v1(uuid)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "new_functions_are_closed_to_clients",
+      "query": "select not has_function_privilege('anon', 'public.stay_phase_v1(date, date, time, time, timestamp)', 'execute') and not has_function_privilege('authenticated', 'public.stay_phase_v1(date, date, time, time, timestamp)', 'execute') and not has_function_privilege('service_role', 'public.stay_phase_v1(date, date, time, time, timestamp)', 'execute') and not has_function_privilege('anon', 'public.staff_current_next_stays_at_v1(uuid, timestamp)', 'execute') and not has_function_privilege('authenticated', 'public.staff_current_next_stays_at_v1(uuid, timestamp)', 'execute') and not has_function_privilege('service_role', 'public.staff_current_next_stays_at_v1(uuid, timestamp)', 'execute')",
+      "expect": true
+    },
+    {
+      "name": "existing_grants_unchanged",
+      "query": "select has_function_privilege('service_role', 'public.staff_current_next_stays_v1(uuid)', 'execute') and not has_function_privilege('authenticated', 'public.staff_current_next_stays_v1(uuid)', 'execute') and has_function_privilege('authenticated', 'public.get_admin_overview_v1(uuid)', 'execute') and not has_function_privilege('anon', 'public.get_admin_overview_v1(uuid)', 'execute')",
+      "expect": true
+    },
+    {
+      "name": "definer_chain_shares_one_owner",
+      "query": "select count(distinct proowner) = 1 from pg_proc where oid in ('public.stay_phase_v1(date, date, time, time, timestamp)'::regprocedure, 'public.staff_current_next_stays_at_v1(uuid, timestamp)'::regprocedure, 'public.staff_current_next_stays_v1(uuid)'::regprocedure, 'public.get_admin_overview_v1(uuid)'::regprocedure, 'public.staff_home_v1(uuid)'::regprocedure)",
+      "expect": true
+    },
+    {
+      "name": "turnover_rule_holds",
+      "query": "select public.stay_phase_v1('2030-01-01', '2030-01-03', null, null, '2030-01-03 11:59') = 'inside' and public.stay_phase_v1('2030-01-01', '2030-01-03', null, null, '2030-01-03 12:00') = 'departed' and public.stay_phase_v1('2030-01-03', '2030-01-04', null, null, '2030-01-03 13:59') = 'upcoming' and public.stay_phase_v1('2030-01-03', '2030-01-04', null, null, '2030-01-03 14:00') = 'inside'",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "any time; it restores both previous bodies and drops the two new functions",
+    "steps": [
+      {
+        "name": "restore_previous_bodies",
+        "action": "apply supabase/rollbacks/20261213_turnover_who_is_inside.sql with run-sql-on-host.sh"
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "no_flag_read_models_only",
+      "required_state": "None. Callers (staff_home_v1 -> Cascade Staff Today card, admin dashboard overview) read the same shapes. The Today card already says 'arriving' when next checks in today and nobody is inside (lib.js todayCardState)."
+    }
+  ],
+  "compatibility": {
+    "mode": "widening",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": true,
+    "evidence": "Rehearsed 2026-11-29 on a throwaway copy of production backup 20261128T160149Z (alfred) with CASCADE_REHEARSAL_PRE_SQL restoring the two production ACLs the --no-acl copy lacks. Forward: 1/1 migration, checks 6/6, pgTAP turnover_who_is_inside 26/26, 148 tables before and after, 0 leftovers. Opus 5.5 audit: logic PASS; its test blocker (plan count) and should-fix items fixed in ab329e0. Rollback is byte-identical to the live bodies read 2026-11-29 (md5 checked); not rehearsed. Not applied to production."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour, or restore_point / verified_at are still the placeholders",
+    "the migration guard raises 55000 (unknown live function body)",
+    "the pgTAP suite turnover_who_is_inside has not passed on this commit",
+    "the Opus 5.5 review of this SQL has not passed"
+  ]
+}
