@@ -127,10 +127,16 @@ export function statedName(text: string): string | null {
 }
 
 export type StayRow = { guest_name: string | null; raw_summary: string | null; checkin_date: string; checkout_date: string; source: string | null };
-/** In-house / arriving / departing lines for a host card, from confirmed calendar rows; `today` is YYYY-MM-DD (Manila). */
-export function stayLines(rows: StayRow[], today: string): string[] {
+/** In-house / arriving / departing lines for a host card, from confirmed calendar rows; `today` is YYYY-MM-DD (Manila).
+ *  `nowHm` (Manila "HH:MM", 24 h) makes in-house follow the house times (app_settings house_times: in 14:00, out 12:00), like
+ *  SQL stay_phase_v1 (20261213): on a turnover morning the departing guest is still in the house, the arriving one is not yet. */
+export const HOUSE_IN = '14:00', HOUSE_OUT = '12:00';
+export function stayLines(rows: StayRow[], today: string, nowHm?: string): string[] {
   const who = (r: StayRow) => `${r.guest_name || r.raw_summary || 'unnamed'} · ${r.checkin_date} to ${r.checkout_date} · ${r.source ?? '?'}`;
-  const inHouse = rows.filter((r) => r.checkin_date <= today && today < r.checkout_date);
+  const inHouse = rows.filter((r) => nowHm
+    ? (r.checkin_date < today || (r.checkin_date === today && nowHm >= HOUSE_IN))
+      && (today < r.checkout_date || (r.checkout_date === today && nowHm < HOUSE_OUT))
+    : r.checkin_date <= today && today < r.checkout_date);
   const arriving = rows.filter((r) => r.checkin_date === today);
   const departing = rows.filter((r) => r.checkout_date === today);
   return [

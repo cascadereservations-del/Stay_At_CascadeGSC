@@ -553,7 +553,8 @@ async function openHandoff(db: Db, thread: Thread, text: string, risk: RiskCode,
       .eq('status', 'confirmed').lte('checkin_date', today).gte('checkout_date', today).limit(6);
     const earlier = thread.history.filter((h) => h.role === 'guest').slice(-3).map((h) => h.text);
     const said = [text, ...earlier].map(statedName).find(Boolean);
-    context = [...stayLines((stays ?? []) as StayRow[], today), ...(said ? [`Says their name is: ${said}`] : []),
+    const nowHm = new Date(nowMs + 8 * 3_600_000).toISOString().slice(11, 16); // Manila HH:MM, 24 h
+    context = [...stayLines((stays ?? []) as StayRow[], today, nowHm),...(said ? [`Says their name is: ${said}`] : []),
       ...(earlier.length ? ['Earlier from them:', ...earlier.reverse().map((t) => `· ${t.slice(0, 160)}`)] : [])];
   }
   const body = withHeader(risk === 'access' || risk === 'safety' ? 'alert' : 'guest', `handoff · ${risk} · ${hhmm}`, [
