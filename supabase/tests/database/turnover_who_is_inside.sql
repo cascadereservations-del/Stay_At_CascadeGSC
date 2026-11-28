@@ -4,7 +4,7 @@
 --   K  2030-01-04 -> 01-06 blocked (never a stay)            C  2030-01-10 -> 01-12 (next after B)
 --   L  2030-02-01 -> 02-03 with its own late check-out 15:00
 begin;
-select plan(24);
+select plan(26);
 
 -- shape and access
 select ok(not has_function_privilege('anon', 'public.stay_phase_v1(date, date, time, time, timestamp)', 'execute')
@@ -39,6 +39,7 @@ select is(public.stay_phase_v1(null, '2030-02-03', null, null, '2030-02-03 10:00
 
 -- a bad house_times value falls back to 14:00 / 12:00 instead of breaking the Today card
 update public.app_settings set value = '{"check_in":"2pm","check_out":"noon"}'::jsonb where key = 'house_times';
+select is((select value->>'check_out' from public.app_settings where key = 'house_times'), 'noon', 'fallback fixture: house_times row exists and holds the unreadable value');
 select is(public.stay_phase_v1('2030-01-01', '2030-01-03', null, null, '2030-01-03 11:59'), 'inside', 'phase: unreadable house_times falls back to 12:00 out');
 update public.app_settings set value = '{"check_in":"14:00","check_out":"12:00"}'::jsonb where key = 'house_times';
 
@@ -56,7 +57,7 @@ insert into tw
 select a.at,
        (select s.uid from public.staff_current_next_stays_at_v1('e2121300-0000-4000-8000-000000000013', a.at) s where s.slot = 'current'),
        (select s.uid from public.staff_current_next_stays_at_v1('e2121300-0000-4000-8000-000000000013', a.at) s where s.slot = 'next')
-  from unnest(array['2030-01-02 10:00', '2030-01-03 00:41', '2030-01-03 11:59', '2030-01-03 12:30', '2030-01-03 14:01',
+  from unnest(array['2030-01-02 10:00', '2030-01-03 00:41', '2030-01-03 11:59', '2030-01-03 12:30', '2030-01-03 13:59', '2030-01-03 14:01',
                     '2030-01-04 12:00', '2030-02-03 14:30', '2030-02-03 15:00']::timestamp[]) a(at);
 
 select is((select cur from tw where at = '2030-01-02 10:00'), 'synthetic-turnover-A', 'mid-stay: current = the guest staying');
@@ -67,9 +68,16 @@ select is((select cur from tw where at = '2030-01-03 12:30'), null, 'turnover 12
 select is((select nxt from tw where at = '2030-01-03 12:30'), 'synthetic-turnover-B', 'turnover 12:30: next = the arriving guest, so the card says arriving');
 select is((select cur from tw where at = '2030-01-03 14:01'), 'synthetic-turnover-B', 'turnover 14:01: the arriving guest is inside');
 select is((select nxt from tw where at = '2030-01-03 14:01'), 'synthetic-turnover-C', 'turnover 14:01: next skips the blocked row');
+select ok((select cur is null and nxt = 'synthetic-turnover-B' from tw where at = '2030-01-03 13:59'), 'turnover 13:59: still nobody inside, next = the arriving guest');
 select ok((select cur is null and nxt = 'synthetic-turnover-C' from tw where at = '2030-01-04 12:00'), 'B checked out at 12:00: empty, next = C');
 select ok((select (select cur from tw where at = '2030-02-03 14:30') = 'synthetic-turnover-L' and (select cur from tw where at = '2030-02-03 15:00') is null),
   'a late check-out keeps the guest inside until their own time');
+
+-- through the definer chain, as the app's caller: the definer must be able to run the revoked helper
+set local role service_role;
+select is((select string_agg(slot || ':' || uid, ',') from public.staff_current_next_stays_v1('e2121300-0000-4000-8000-000000000013')),
+  'next:synthetic-turnover-A', 'service_role: staff_current_next_stays_v1 runs through the definer chain (today: nobody in, next = A in 2030)');
+reset role;
 
 select * from finish();
 rollback;
