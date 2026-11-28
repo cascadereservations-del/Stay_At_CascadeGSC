@@ -72,8 +72,8 @@
     "mode": "narrowing",
     "old_reader": true,
     "old_writer": false,
-    "verified": false,
-    "evidence": "Not rehearsed yet with the guard. Not applied to production."
+    "verified": true,
+    "evidence": "Rehearsed 2026-11-28 on a throwaway copy of production backup 20261126T124215Z (alfred), after 20261210 and 20261211. Forward: 3/3 migrations, checks 6/6, new suite 18/18, direct_booking_trigger_permissions 4/4. Control without 20261212: new suite 11/18 (guard and calendar assertions fail as expected). Seven older suites fail the same execute-permission assertions in forward and control (the --no-acl copy). Rollback: 4/4 files applied, old cascade body restored, guard absent, checks 5/5. 0 leftovers. Not applied to production."
   },
   "approvals": {
     "production_required": true,
