@@ -5,3 +5,4 @@ blob-report/
 playwright/.cache/
 
 desktop.ini
+.lane-out/

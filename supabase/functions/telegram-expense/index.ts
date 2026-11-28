@@ -1423,15 +1423,15 @@ async function handleCallbackQueryInner(cq:any,db:any){
   // like vf:ack; the RPC decides WHO may answer (owner or admin) and stores it once in recon_status.
   if(data.startsWith('cb:block:')){
     const[,,want,answer]=data.split(':');const who=cq.from?.first_name??'staff';
-    const{data:rows,error:bErr}=await db.from('calendar_events').select('uid').eq('source','airbnb').eq('status','blocked');
+    const{data:rows,error:bErr}=await db.from('calendar_events').select('uid, checkin_date').eq('source','airbnb').eq('status','blocked');
     if(bErr)throw new Error('Could not read the calendar: '+bErr.message);
-    let uid='';for(const r of (rows??[]) as Array<{uid:string}>){if(await ackHash(r.uid)===want){uid=r.uid;break;}}
+    let uid='',ci='';for(const r of (rows??[]) as Array<{uid:string;checkin_date?:string|null}>){if(await ackHash(r.uid)===want){uid=r.uid;ci=String(r.checkin_date??'').slice(0,10);break;}}
     if(!uid){await tgEdit(chatId,msgId,`${cq.message?.text??''}\n\n✅ That block has already left the Airbnb calendar. Nothing to answer.`);return;}
     const{data:r,error}=await db.rpc('telegram_answer_calendar_block_v2',{p_telegram_user_id:cq.from?.id,p_uid:uid,p_answer:answer});
     if(error)throw new Error(error.message);
     let line:string,keep=false;
     if(!r?.ok){const x=blockRefusal(String(r?.reason??''),who);line=x.line;keep=x.keep;}
-    else line=blockRecorded(answer,who);
+    else line=blockRecorded(answer,who,/^\d{4}-\d{2}-\d{2}$/.test(ci)?ci:undefined);
     await tgEdit(chatId,msgId,`${cq.message?.text??''}\n\n${line}`,keep?cq.message?.reply_markup:undefined);
     // SPEC-41: Brownout and Something else ask one follow-up; the answer is recorded already, so the question may be skipped.
     if(r?.ok&&BLOCK_PROMPTS[answer])await ask(db,chatId,cq.from?.id,answer==='brownout'?'block_brownout':'block_other',{uid},BLOCK_PROMPTS[answer]);

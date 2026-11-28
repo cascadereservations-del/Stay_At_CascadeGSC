@@ -1,6 +1,6 @@
 import { assert, assertEquals } from 'jsr:@std/assert@1';
 import { SEED_CARD } from '../_shared/cascade-core/pricing.ts';
-import { handleReplyContext, type Booking, type Deps, type Thread, type Turn } from './logic.ts';
+import { handleReplyContext, ThreadReadError, type Booking, type Deps, type Thread, type Turn } from './logic.ts';
 
 const NOW = new Date('2026-11-28T04:00:00Z'); // Manila 12:00, 2026-11-28
 const PSID = 'zz-psid-1';
@@ -201,4 +201,94 @@ Deno.test('context: body validation and a missing thread', async () => {
   assertEquals((await run(deps, { psid: PSID, booking_id: 'not-a-uuid' })).status, 400);
   assertEquals((await run(deps, { psid: 'nobody' })).status, 404);
   assertEquals((await handleReplyContext(new Request('https://example.test/x', { method: 'GET' }), deps)).status, 405);
+});
+
+Deno.test('context: guests from chat need a guest cue (B-1)', async () => {
+  const mk = (text: string, pax?: number) => thread([guest(text, '2026-11-27T10:00:00Z')], pax ? flowOf({ pax, updated_at: '2026-11-26T01:00:00Z' }) : null);
+  // a bare number is never the party: the flow's 2 stays
+  const a = await run(fake({ thread: mk('Dec 3 to 5 po available?', 2) }).deps);
+  assertEquals(a.j.values.guests.v, 2);
+  assertEquals(a.j.values.guests.src, 'chat');
+  // no flow, no cue: no guests at all
+  const b = await run(fake({ thread: mk('Is Dec 5 available?') }).deps);
+  assertEquals(b.j.values.guests.v, null);
+  // a real cue is read, newer than the flow
+  const c = await run(fake({ thread: mk('Dec 20-22 for 2 adults') }).deps);
+  assertEquals(c.j.values.guests.v, 2);
+  const d = await run(fake({ thread: mk('Dec 20 to 22 para sa 3 nights') }).deps);
+  assertEquals(d.j.values.guests.v, null, '"for N nights" is not a party');
+  const e = await run(fake({ thread: mk('Dec 20-22 for 12 people') }).deps);
+  assertEquals(e.j.values.guests.v, null, 'the 1-8 cap holds');
+});
+
+Deno.test('context: a rejected picked booking falls back to the flow booking; picked_differs_from_thread (B-4)', async () => {
+  const t = thread([guest('hi', '2026-11-27T10:00:00Z')], flowOf({ step: 'confirmed', booking_id: BID }));
+  // picked does not exist: falls back to this thread's flow booking, and the two ids differ
+  const fb = await run(fake({ thread: t, booking: stay() }).deps, { psid: PSID, booking_id: OTHER });
+  assertEquals(fb.j.link, 'flow');
+  assertEquals(fb.j.booking.id, BID);
+  assertEquals(fb.j.picked_differs_from_thread, true);
+  // picked a live, different booking: bound as picked, differs
+  const other = stay({ id: OTHER });
+  const calls: string[] = [];
+  const f2 = fake({ thread: t, booking: other });
+  const lb = f2.deps.loadBooking; f2.deps.loadBooking = (id) => { calls.push(id); return lb(id); };
+  const pk = await run(f2.deps, { psid: PSID, booking_id: OTHER });
+  assertEquals(pk.j.link, 'picked');
+  assertEquals(pk.j.picked_differs_from_thread, true);
+  // same id, or no flow booking: false
+  const same = await run(fake({ thread: t, booking: stay() }).deps, { psid: PSID, booking_id: BID });
+  assertEquals(same.j.picked_differs_from_thread, false);
+  const noflow = await run(fake({ booking: stay() }).deps, { text: 'hi', booking_id: BID });
+  assertEquals(noflow.j.picked_differs_from_thread, false);
+});
+
+Deno.test('context: a read or build failure is 503 or 500 with codes only (B-5)', async () => {
+  const t = thread([guest('Sensitive guest words', '2026-11-27T10:00:00Z')]);
+  const { deps } = fake({ thread: t });
+  const down: Deps = { ...deps, loadThread: () => Promise.reject(new ThreadReadError()) };
+  const r1 = await run(down);
+  assertEquals(r1.status, 503);
+  assertEquals(r1.j.error, 'thread_unavailable');
+  const boom: Deps = { ...deps, rateCard: () => Promise.reject(new Error('Sensitive guest words and psid zz-psid-1')) };
+  const r2 = await run(boom, { psid: PSID, text: 'Dec 20 to 22 for 2 adults' });
+  assertEquals(r2.status, 500);
+  assertEquals(r2.j, { ok: false, error: 'context_failed' });
+  assert(!r2.raw.includes('Sensitive'));
+});
+
+Deno.test('context: values.deposit is the refundable security deposit, never the amount paid (B-6)', async () => {
+  const t = thread([guest('hi', '2026-11-27T10:00:00Z')], flowOf({ step: 'confirmed', booking_id: BID }));
+  const bound = await run(fake({ thread: t, booking: stay({ deposit_amount: 2000 }) }).deps);
+  assertEquals(bound.j.values.deposit, { v: 800, src: 'booking', at: null });
+  assertEquals(bound.j.values.paid.v, 2000);
+  const quote = await run(fake({ thread: thread([guest('Dec 20 to 22 for 2 adults', '2026-11-27T10:00:00Z')]) }).deps);
+  assertEquals(quote.j.values.deposit.v, 800);
+  assertEquals(quote.j.values.deposit.src, 'quote');
+});
+
+Deno.test('context: a new long stay owes monthly, not a day before check-in (B-3)', async () => {
+  // 30 nights, total 30000, first 28 nights = ceil(30000 x 28 / 30) = 28000 paid
+  const long = stay({ checkin_date: '2026-12-01', checkout_date: '2026-12-31', total_amount: 30000, deposit_amount: 28000 });
+  const t = thread([guest('hi', '2026-11-27T10:00:00Z')], flowOf({ step: 'confirmed', booking_id: BID }));
+  const r = await run(fake({ thread: t, booking: long, idOnFile: true }).deps);
+  assertEquals(r.j.values.balance.v, 2000, 'the numeric balance is kept');
+  assert(!/due a day before check-in/.test(r.j.values.balance_line.v), r.j.values.balance_line.v);
+  assert(/first month paid/i.test(r.j.values.balance_line.v));
+  assertEquals(r.j.pin_allowed, true);
+  // a legacy 50% part payment of the same length still owes before check-in and blocks the PIN
+  const legacy = await run(fake({ thread: t, booking: stay({ checkin_date: '2026-12-01', checkout_date: '2026-12-31', total_amount: 30000, deposit_amount: 15000 }), idOnFile: true }).deps);
+  assert(/due a day before check-in/.test(legacy.j.values.balance_line.v));
+  assertEquals(legacy.j.pin_allowed, false);
+});
+
+Deno.test('index.ts guards: no pin setting key; selected columns match the types (B-7)', async () => {
+  const src = await Deno.readTextFile(new URL('./index.ts', import.meta.url));
+  const keys = /\.in\('key',\s*\[([^\]]*)\]/.exec(src)?.[1] ?? '';
+  assert(keys.length > 0 && !/pin/i.test(keys), 'the settings keys carry no pin');
+  assertEquals([...keys.matchAll(/'([a-z_]+)'/g)].map((m) => m[1]), ['wifi_ssid', 'wifi_password', 'onground_name', 'onground_phone']);
+  const cols = (table: string) => new RegExp(String.raw`from\('${table}'\)\.select\('([^']*)'\)`).exec(src)?.[1].split(',').map((c) => c.trim());
+  assertEquals(cols('concierge_threads'), ['psid', 'guest_name', 'history', 'booking_flow']);
+  assertEquals(cols('booking_inquiries'), ['id', 'guest_id', 'guest_name', 'checkin_date', 'checkout_date', 'pax', 'total_amount', 'deposit_amount', 'status']);
+  assert(!/pin/i.test(cols('booking_inquiries')!.join(',')));
 });

@@ -5,7 +5,7 @@
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 import { currentCard, loadCard } from '../_shared/cascade-core/pricing.ts';
-import { handleReplyContext, json, type Booking, type Deps, type Thread, type Turn } from './logic.ts';
+import { handleReplyContext, json, ThreadReadError, type Booking, type Deps, type Thread, type Turn } from './logic.ts';
 
 function realDeps(): Deps | null {
   const url = Deno.env.get('SUPABASE_URL');
@@ -26,7 +26,8 @@ function realDeps(): Deps | null {
       return { ok: true };
     },
     async loadThread(psid) {
-      const { data } = await db.from('concierge_threads').select('psid, guest_name, history, booking_flow').eq('psid', psid).maybeSingle();
+      const { data, error } = await db.from('concierge_threads').select('psid, guest_name, history, booking_flow').eq('psid', psid).maybeSingle();
+      if (error) throw new ThreadReadError(); // a read failure is a 503, not a missing thread
       return data ? { psid: data.psid as string, guest_name: (data.guest_name ?? null) as string | null, history: (Array.isArray(data.history) ? data.history : []) as Turn[], booking_flow: (data.booking_flow ?? null) as Thread['booking_flow'] } : null;
     },
     async loadBooking(id) {

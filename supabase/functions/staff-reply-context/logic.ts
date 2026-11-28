@@ -11,7 +11,7 @@ import { bearerToken, StaffAuthError } from '../_shared/staff-auth.ts';
 import { datesOf, detectLang, parsePax, quoteTotal, type Flow } from '../messenger-concierge/booking.ts'; // not edited; imported only
 import { fillPlaceholders } from '../_shared/cascade-core/house.ts';
 import { GUIDE_URL, SITE_URL } from '../_shared/cascade-core/facts.ts';
-import type { RateCard } from '../_shared/cascade-core/pricing.ts';
+import { isNewLongStay, legacyBalance, SECURITY_DEPOSIT_PHP, type RateCard } from '../_shared/cascade-core/pricing.ts';
 
 export const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -55,6 +55,9 @@ export interface Deps {
   now(): Date;
 }
 
+/** loadThread could not read (a database error, not a missing row): answered 503, never as thread_not_found. */
+export class ThreadReadError extends Error { constructor() { super('thread_unavailable'); } }
+
 export function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), { status, headers: { ...CORS, 'Content-Type': 'application/json' } });
 }
@@ -97,8 +100,18 @@ function newestDates(msgs: { at: string; text: string }[], now: Date): Said | nu
   }
   return null;
 }
+const W = String.raw`\d{1,2}|one|two|three|four|five|six|isa|dalawa|tatlo|apat|duha|tulo|upat`;
+/** B6 (contract 0.3 item 6): a message states a party size only with a guest cue: a count beside a guest word, "for / para sa N" not
+ *  followed by nights or days, or the trailing "dates?, N" form. A bare number ("Dec 3 to 5 po available?") is never a party. */
+const PAX_CUE = [
+  new RegExp(String.raw`\b(?:${W})\s*(?:po|pa|ba|po\s+ba)?\s*(?:adults?|pax|persons?|people|guests?|tao|tawo|kami|kids?|children|child|bata|matanda)\b`, 'i'),
+  new RegExp(String.raw`\b(?:for|para sa|kaming)\s+(?:${W})\b(?!\s*(?:nights?|days?|gabi|araw))`, 'i'),
+  /(?:\?|(?:-|–|\bto|\buntil|\bhanggang)\s*(?:[a-z]+\.?\s*)?\d{1,2}\s*,)\s*[1-6]\s*[.!]?\s*$/i,
+];
+export const hasGuestCue = (text: string) => PAX_CUE.some((re) => re.test(text));
 function newestPax(msgs: { at: string; text: string }[]): { n: number; at: string } | null {
   for (const m of msgs) {
+    if (!hasGuestCue(m.text)) continue;
     const n = parsePax(m.text);
     if (n != null && n >= 1 && n <= 8) return { n, at: m.at };
   }
@@ -125,7 +138,14 @@ export async function handleReplyContext(req: Request, deps: Deps): Promise<Resp
   }
   const who = await deps.authenticate(token);
   if (!who.ok) return json({ ok: false, error: who.error }, who.status); // nothing below runs for a refused caller
+  try { return await respond(req, deps); } catch (e) {
+    if (e instanceof ThreadReadError) return json({ ok: false, error: 'thread_unavailable' }, 503);
+    console.log('staff_reply_context_error', 'context_failed'); // the code only: never the error text, which could carry guest data
+    return json({ ok: false, error: 'context_failed' }, 500);
+  }
+}
 
+async function respond(req: Request, deps: Deps): Promise<Response> {
   let body: Record<string, unknown>;
   try { body = await req.json(); } catch { return json({ ok: false, error: 'invalid_json' }, 400); }
   if (!body || typeof body !== 'object') return json({ ok: false, error: 'invalid_json' }, 400);
@@ -148,14 +168,11 @@ export async function handleReplyContext(req: Request, deps: Deps): Promise<Resp
 
   // ---- binding: the picked booking, else this thread's own flow. Never a name or a date match. ----
   const flowId = typeof flow?.booking_id === 'string' && UUID_RE.test(flow.booking_id) ? flow.booking_id : null;
-  const bindId = picked ?? flowId;
-  const link: 'flow' | 'picked' | 'none' = picked ? 'picked' : flowId ? 'flow' : 'none';
-  let booking: Booking | null = null;
-  if (bindId) {
-    const b = await deps.loadBooking(bindId);
-    if (b && (b.status === 'confirmed' || b.status === 'pending')) booking = b;
-  }
-  const bound = booking ? link : 'none';
+  const live = async (id: string) => { const b = await deps.loadBooking(id); return b && (b.status === 'confirmed' || b.status === 'pending') ? b : null; };
+  let booking: Booking | null = null, bound: 'flow' | 'picked' | 'none' = 'none';
+  if (picked) { booking = await live(picked); if (booking) bound = 'picked'; }
+  if (!booking && flowId && flowId !== picked) { booking = await live(flowId); if (booking) bound = 'flow'; } // a rejected pick falls back to this thread's own booking
+  const pickedDiffers = !!picked && !!flowId && picked !== flowId;
   const stage = stageOf(booking, flow, today);
 
   // ---- dates and party: booking > newest guest message (only if newer than the flow) > stored flow; a past check-in is dropped ----
@@ -195,17 +212,19 @@ export async function handleReplyContext(req: Request, deps: Deps): Promise<Resp
     const t = Number(booking.total_amount), d = Number(booking.deposit_amount);
     total = booking.total_amount == null || !Number.isFinite(t) ? val(null, null) : val(t, 'booking');
     deposit = booking.deposit_amount == null || !Number.isFinite(d) ? val(null, null) : val(d, 'booking');
-    if (booking.status === 'confirmed' && deposit.v != null) {
+    deposit = val(SECURITY_DEPOSIT_PHP, 'booking'); // the refundable security deposit, never the amount paid (contract 0.3 item 4)
+    if (booking.status === 'confirmed' && booking.deposit_amount != null && Number.isFinite(d)) {
       paid = val(d, 'booking');
       if (total.v != null) {
         balance = val(Math.max(0, t - d), 'booking');
-        balanceLine = val(balance.v! > 0 ? `Balance ${peso(balance.v!)}, due a day before check-in` : 'Paid in full', 'booking');
+        const nts = nightsBetween(booking.checkin_date, booking.checkout_date);
+        balanceLine = val(isNewLongStay(t, d, nts) ? `First month paid, ${peso(balance.v!)} to follow monthly` : balance.v! > 0 ? `Balance ${peso(balance.v!)}, due a day before check-in` : 'Paid in full', 'booking');
       }
     }
   } else if (ci && co) {
     const card = await deps.rateCard();
     const q = quoteTotal(ci, co, card);
-    if (Number.isFinite(q.total) && q.total > 0) { total = val(q.total, 'quote', nowIso); deposit = val(q.deposit, 'quote', nowIso); }
+    if (Number.isFinite(q.total) && q.total > 0) { total = val(q.total, 'quote', nowIso); deposit = val(SECURITY_DEPOSIT_PHP, 'quote', nowIso); }
   }
 
   // ---- language: the flow's register, else read now from the newest guest message ----
@@ -238,7 +257,8 @@ export async function handleReplyContext(req: Request, deps: Deps): Promise<Resp
       wifi_name: get('wifi_ssid'), wifi_password: get('wifi_password'),
     };
     const idOk = booking.guest_id ? await deps.idOnFile(booking.guest_id) : false;
-    pinAllowed = idOk && balance.v === 0;
+    // the shared rule: nothing owing now (a new long stay owes monthly, later); the amount paid must be known and above 0
+    pinAllowed = idOk && paid.v != null && paid.v > 0 && total.v != null && legacyBalance({ total: total.v, deposit: paid.v, nights: nightsBetween(booking.checkin_date, booking.checkout_date) }) === null;
   }
 
   const flowAt = ms(flow?.updated_at), newestGuest = Math.max(0, ...history.filter((t) => t?.role === 'guest').map((t) => ms(t.at)).filter(Number.isFinite));
@@ -247,7 +267,7 @@ export async function handleReplyContext(req: Request, deps: Deps): Promise<Resp
 
   console.log('staff_reply_context', JSON.stringify({ stage, link: bound, gated: !!gated, stale })); // counts and states only: no guest text, name or PSID
   return json({
-    ok: true, stage, link: bound,
+    ok: true, stage, link: bound, picked_differs_from_thread: pickedDiffers,
     booking: booking ? { id: booking.id, ref: `DIR-${booking.id.slice(0, 8).toUpperCase()}`, status: booking.status, channel: booking.channel } : null,
     values,
     ...(gated ? { gated } : {}),

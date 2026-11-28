@@ -53,3 +53,9 @@ Deno.test('cleaner tapping direct keeps the buttons', () => {
   assertEquals(x, { line: '⛔ Marifel is not allowed to answer for the calendar.', keep: true });
   assertEquals(x.line.includes('record=1'), false);
 });
+
+Deno.test('index.ts passes the matched block check-in date to blockRecorded (record deep link)', async () => {
+  const src = await Deno.readTextFile(new URL('./index.ts', import.meta.url));
+  assert(/blockRecorded\(answer,\s*who,\s*[^)\s][^)]*\)/.test(src), 'blockRecorded needs a third (check-in) argument');
+  assert(/select\('uid,\s*checkin_date'\)/.test(src), 'the block lookup must read checkin_date');
+});
