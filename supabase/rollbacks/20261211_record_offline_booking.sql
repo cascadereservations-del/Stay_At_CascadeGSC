@@ -48,9 +48,14 @@ revoke all on function public.decide_direct_booking_without_finance_review(uuid,
 -- 2. The function, then the column unless it holds information.
 drop function if exists public.record_offline_booking_v1(uuid, date, date, text, text, text, text, integer, numeric, numeric, text, text, text, text, boolean, text[], text);
 do $c$
+declare v_keep boolean := false;
 begin
-  if exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'booking_inquiries' and column_name = 'channel')
-     and exists (select 1 from public.booking_inquiries where channel <> 'site') then
+  -- The channel query runs through EXECUTE, and only when the column exists: PL/pgSQL parses a whole IF condition at once, so an
+  -- AND does not shield a reference to a column this script may already have dropped (audit A r2 N-1).
+  if exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'booking_inquiries' and column_name = 'channel') then
+    execute $q$select exists (select 1 from public.booking_inquiries where channel <> 'site')$q$ into v_keep;
+  end if;
+  if v_keep then
     raise notice 'record_offline_booking rollback: booking_inquiries.channel kept, a booking carries a channel other than site';
   else
     alter table public.booking_inquiries drop constraint if exists booking_inquiries_channel_check;
@@ -60,7 +65,7 @@ end $c$;
 
 -- read-back
 do $$
-declare v text;
+declare v text; v_keep boolean;
 begin
   select md5(replace(p.prosrc, chr(13), '')) into v
     from pg_proc p where p.oid = to_regprocedure('public.decide_direct_booking_without_finance_review(uuid,text,text)');
@@ -70,9 +75,11 @@ begin
   if to_regprocedure('public.record_offline_booking_v1(uuid,date,date,text,text,text,text,integer,numeric,numeric,text,text,text,text,boolean,text[],text)') is not null then
     raise exception 'record_offline_booking rollback: record_offline_booking_v1 still exists';
   end if;
-  if exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'booking_inquiries' and column_name = 'channel')
-     and not exists (select 1 from public.booking_inquiries where channel <> 'site') then
-    raise exception 'record_offline_booking rollback: booking_inquiries.channel still exists although every booking is site';
+  if exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'booking_inquiries' and column_name = 'channel') then
+    execute $q$select exists (select 1 from public.booking_inquiries where channel <> 'site')$q$ into v_keep;
+    if not v_keep then
+      raise exception 'record_offline_booking rollback: booking_inquiries.channel still exists although every booking is site';
+    end if;
   end if;
 end $$;
 
