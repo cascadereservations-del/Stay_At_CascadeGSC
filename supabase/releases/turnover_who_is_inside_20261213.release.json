@@ -4,7 +4,7 @@
   "phase": "expand",
   "source": {
     "branch": "fix/turnover-who-is-inside",
-    "commit": "38e700403e1421a3c8db5772d2cb98cf790d4fb2"
+    "commit": "ab329e0a628566992979adcd4b8f0cd00def0383"
   },
   "migrations": [
     "20261213000000_turnover_who_is_inside.sql"
@@ -72,8 +72,8 @@
     "mode": "widening",
     "old_reader": true,
     "old_writer": true,
-    "verified": false,
-    "evidence": "Pending rehearsal."
+    "verified": true,
+    "evidence": "Rehearsed 2026-11-29 on a throwaway copy of production backup 20261128T160149Z (alfred) with CASCADE_REHEARSAL_PRE_SQL restoring the two production ACLs the --no-acl copy lacks. Forward: 1/1 migration, checks 6/6, pgTAP turnover_who_is_inside 26/26, 148 tables before and after, 0 leftovers. Opus 5.5 audit: logic PASS; its test blocker (plan count) and should-fix items fixed in ab329e0. Rollback is byte-identical to the live bodies read 2026-11-29 (md5 checked); not rehearsed. Not applied to production."
   },
   "approvals": {
     "production_required": true,
