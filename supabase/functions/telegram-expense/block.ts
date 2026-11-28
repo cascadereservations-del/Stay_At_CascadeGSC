@@ -4,9 +4,14 @@
 /** What the card says after a tap: `Recorded: brownout, by Marifel.` */
 export const BLOCK_LABEL: Record<string, string> = {
   brownout: 'brownout', maint: 'maintenance', owner: 'owner use', other: 'something else',
-  direct: 'a direct booking is coming', unblock: 'to be unblocked on Airbnb',
+  direct: 'Facebook / direct booking', unblock: 'to be unblocked on Airbnb',
 };
-export const blockRecorded = (answer: string, who: string) => `Recorded: ${BLOCK_LABEL[answer] ?? answer}, by ${who}.`;
+/** The Staff app (GitHub Pages root of the Cascade-Staff repo; same host and repo as BANK_PAGE in _shared/cascade-core/staffpay.ts). */
+export const STAFF_URL = 'https://cascadereservations-del.github.io/Cascade-Staff/';
+/** B4: a recorded `direct` tap also says where to log the guest: the Staff calendar opens the record form on the blocked check-in date (`checkin` YYYY-MM-DD, optional). */
+export const recordLink = (checkin?: string | null) => `${STAFF_URL}#calendar${/^\d{4}-\d{2}-\d{2}$/.test(checkin ?? '') ? `/${checkin}` : ''}?record=1`;
+export const blockRecorded = (answer: string, who: string, checkin?: string | null) =>
+  `Recorded: ${BLOCK_LABEL[answer] ?? answer}, by ${who}.${answer === 'direct' ? ` Log the guest: ${recordLink(checkin)}` : ''}`;
 
 /** The RPC's refusals, for a person. `keep` = the buttons stay for someone who may answer. */
 export function blockRefusal(reason: string, who: string): { line: string; keep: boolean } {

@@ -1,6 +1,6 @@
 // deno test supabase/functions/calendar-sync/blocks.test.ts - D-290: a brownout block explains the Airbnb block Marifel makes by hand.
 import { assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
-import { blockCardText, blocksOverdue, blocksToAsk, blocksToTriage, explain, partialLine, type CalRow, type DirectEvidence, type Notice } from './blocks.ts';
+import { BLOCK_ANSWERS, blockCardText, blocksOverdue, blocksToAsk, blocksToTriage, explain, partialLine, type CalRow, type DirectEvidence, type Notice } from './blocks.ts';
 
 const row = (o: Partial<CalRow>): CalRow => ({
   uid: 'ab1', source: 'airbnb', status: 'blocked', checkin_date: '2026-10-14', checkout_date: '2026-10-16',
@@ -136,4 +136,11 @@ Deno.test('audit L5a: a pending block that overlaps a confirmed Airbnb stay is n
   assertEquals(blocksToTriage([blk, stay], '2026-10-02', null).map((r) => r.uid), [], 'a stay covers it');
   assertEquals(blocksToTriage([blk], '2026-10-02', null).map((r) => r.uid), ['blk1'], 'no stay: still triaged');
   assertEquals(blocksToTriage([blk, { ...stay, status: 'cancelled' }], '2026-10-02', null).map((r) => r.uid), ['blk1'], 'a cancelled stay covers nothing');
+});
+
+Deno.test('BLOCK_ANSWERS has five codes and direct is last', () => {
+  assertEquals(BLOCK_ANSWERS.map((a) => a.code), ['brownout', 'maint', 'owner', 'other', 'direct']);
+  assertEquals(BLOCK_ANSWERS[BLOCK_ANSWERS.length - 1].label, '📘 Facebook / direct booking');
+  // callback_data is `cb:block:<16 hex>:<code>` - well inside Telegram's 64 bytes for every code
+  for (const a of BLOCK_ANSWERS) assertEquals(`cb:block:${'a'.repeat(16)}:${a.code}`.length <= 64, true);
 });

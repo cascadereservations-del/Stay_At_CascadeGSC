@@ -112,6 +112,7 @@ export const BLOCK_ANSWERS = [
   { code: 'maint', label: '🔧 Maintenance' },
   { code: 'owner', label: '🏠 Owner use' },
   { code: 'other', label: '✏️ Something else' },
+  { code: 'direct', label: '📘 Facebook / direct booking' },
 ] as const;
 
 /** 'The SOCOTECO notice for Oct 15 covers the night of Oct 14. Nothing explains the night of Oct 16.' - only when a notice covers some of the nights. */

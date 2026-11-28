@@ -394,6 +394,9 @@ verify_jwt = true
 [functions.host-reply]
 verify_jwt = true
 
+[functions.staff-reply-context]
+verify_jwt = true
+
 [functions.guest-reply-draft]
 verify_jwt = true
 

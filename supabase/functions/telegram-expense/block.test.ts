@@ -1,6 +1,6 @@
 // deno test supabase/functions/telegram-expense/block.test.ts - SPEC-41: the OPS blocked-date card's answers, refusals and follow-up prompts.
 import { assert, assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
-import { blockNoted, blockRecorded, blockRefusal, BLOCK_BROWNOUT_PROMPT, BLOCK_OTHER_PROMPT, BLOCK_PROMPTS } from './block.ts';
+import { blockNoted, blockRecorded, blockRefusal, STAFF_URL, BLOCK_BROWNOUT_PROMPT, BLOCK_OTHER_PROMPT, BLOCK_PROMPTS } from './block.ts';
 import { refusal, routeText } from './reply.ts';
 
 Deno.test('SPEC-41: after a tap the card ends "Recorded: <label>, by <name>."', () => {
@@ -8,7 +8,7 @@ Deno.test('SPEC-41: after a tap the card ends "Recorded: <label>, by <name>."', 
   assertEquals(blockRecorded('maint', 'Marifel'), 'Recorded: maintenance, by Marifel.');
   assertEquals(blockRecorded('owner', 'Marifel'), 'Recorded: owner use, by Marifel.');
   assertEquals(blockRecorded('other', 'Marifel'), 'Recorded: something else, by Marifel.');
-  assertEquals(blockRecorded('direct', 'Lloyd'), 'Recorded: a direct booking is coming, by Lloyd.');
+  assertEquals(blockRecorded('direct', 'Lloyd', '2026-12-01'), `Recorded: Facebook / direct booking, by Lloyd. Log the guest: ${STAFF_URL}#calendar/2026-12-01?record=1`);
   assertEquals(blockRecorded('unblock', 'Lloyd'), 'Recorded: to be unblocked on Airbnb, by Lloyd.');
 });
 
@@ -35,4 +35,21 @@ Deno.test('SPEC-41: block_brownout and block_other are flows: the person being a
   }
   assertEquals(refusal('block_brownout').includes('10-11 8am 8h NGCP'), true);
   assertEquals(routeText({ awaiting: true, replyToCountCard: false, replyToBot: false, text: '/menu' }), { kind: 'passthrough' }, 'a command is never an answer');
+});
+
+Deno.test('blockRecorded direct carries the record deep link', () => {
+  assertEquals(STAFF_URL, 'https://cascadereservations-del.github.io/Cascade-Staff/');
+  assertEquals(blockRecorded('direct', 'Lloyd', '2026-12-01'), 'Recorded: Facebook / direct booking, by Lloyd. Log the guest: https://cascadereservations-del.github.io/Cascade-Staff/#calendar/2026-12-01?record=1');
+  // no date known (the handler does not pass one yet): the link still opens the calendar's record form
+  assertEquals(blockRecorded('direct', 'Lloyd'), 'Recorded: Facebook / direct booking, by Lloyd. Log the guest: https://cascadereservations-del.github.io/Cascade-Staff/#calendar?record=1');
+  assertEquals(blockRecorded('direct', 'Lloyd', 'not-a-date').includes('#calendar?record=1'), true);
+  // every other answer is unchanged and carries no link
+  assertEquals(blockRecorded('maint', 'Ana', '2026-12-01'), 'Recorded: maintenance, by Ana.');
+});
+
+Deno.test('cleaner tapping direct keeps the buttons', () => {
+  // the RPC refuses a cleaner with not_authorized; the card keeps its buttons and says so, and no record link is offered
+  const x = blockRefusal('not_authorized', 'Marifel');
+  assertEquals(x, { line: '⛔ Marifel is not allowed to answer for the calendar.', keep: true });
+  assertEquals(x.line.includes('record=1'), false);
 });
