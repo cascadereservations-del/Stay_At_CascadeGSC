@@ -190,11 +190,13 @@ for (const mode of ['refused', 'noExpiry']) {
     const { posts, uploads } = await mock(page, { hold: mode });
     await toContact(page, plus(10), plus(11));
     await page.locator('#bsNext2').click();
+    await expect(page.locator('#bsS3')).toBeVisible();                       /* #bsH3 reads right even while hidden: wait for the step itself */
     await expect(page.locator('#bsH3')).toHaveText('Pay and confirm');
     expect(posts.length).toBe(1);                                            /* the hold-first POST was made once */
     await expect(page.locator('#bsHeld')).toBeHidden();
     /* editing a contact field must not produce "Your dates are held under ..." */
     await page.locator('#bsBack').click(); await page.locator('#bsName').fill('Another Guest'); await page.locator('#bsNext2').click();
+    await expect(page.locator('#bsS3')).toBeVisible();                       /* the second hold request has answered and the sheet has moved on */
     await expect(page.locator('#bsH3')).toHaveText('Pay and confirm');
     await expect(page.locator('#bsHeldNote')).toBeHidden();
     expect(await page.locator('#bookSheet').innerText()).not.toMatch(/\bheld\b|holding|hold my/i);

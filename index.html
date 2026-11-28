@@ -11469,6 +11469,52 @@ body.theme-quiet-luxury #conciergePanel, body.theme-quiet-luxury #conciergeTrigg
     if (on) { b.dataset.l = b.textContent; b.textContent = label; } else if (b.dataset.l) { b.textContent = b.dataset.l; }
   }
 
+  /* payment QRs: both are fetched when the sheet opens (never on a plain page load) and kept in memory. #bsQr gets a src only once
+     that method's file has loaded, so it never sits on a failed request or shows the other method's code. A failed fetch is retried
+     after each QR_WAIT delay. Opening the sheet, every step 3 repaint (method toggle included) and 'online' each try again at once
+     with a fresh set of retries. */
+  var QR_WAIT = [1000, 3000, 8000];
+  var QRS = { gcash: { url: 'assets/images/qr-gcash.png', state: '', fails: 0 }, bank: { url: 'assets/images/qr-unionbank.png', state: '', fails: 0 } };
+  function loadQr(m) {
+    var q = QRS[m];
+    if (q.state === 'ok' || q.state === 'loading') return;
+    clearTimeout(q.timer); q.state = 'loading';
+    var img = q.img = new Image();
+    img.onload = function () { q.state = 'ok'; q.fails = 0; showQr(); };
+    img.onerror = function () { qrFailed(m); };
+    img.src = q.url;
+  }
+  function qrFailed(m) {
+    var q = QRS[m], wait = QR_WAIT[q.fails++];
+    q.state = 'failed'; clearTimeout(q.timer);
+    if (wait) q.timer = setTimeout(function () { loadQr(m); }, wait);
+  }
+  function loadQrs() {
+    Object.keys(QRS).forEach(function (m) {
+      if (QRS[m].state !== 'loading') QRS[m].fails = 0;   /* a trigger must not use up, or cancel, the automatic retries */
+      loadQr(m);
+    });
+  }
+  function showQr() {
+    var el = $('bsQr'), q = QRS[S.method === 'gcash' ? 'gcash' : 'bank'], want = q.state === 'ok' ? q.url : null;
+    if (el.getAttribute('src') === want) return;
+    el.removeAttribute('src');                      /* drop the old picture first: a browser may keep painting it while the next one loads */
+    if (want) el.src = want;
+  }
+  window.addEventListener('online', function () {
+    Object.keys(QRS).forEach(function (m) {
+      var q = QRS[m];
+      if (!q.state || q.state === 'ok') return;     /* '' = the sheet was never opened */
+      if (q.img) q.img.onload = q.img.onerror = null;   /* a request stuck since the drop is abandoned */
+      q.state = 'failed'; q.fails = 0; loadQr(m);
+    });
+  });
+  $('bsQr').addEventListener('error', function () {
+    if (!this.getAttribute('src')) return;
+    this.removeAttribute('src');
+    qrFailed(S.method === 'gcash' ? 'gcash' : 'bank');
+  });
+
   /* step 3 */
   function acct() {
     var g = $('gcashNumber'), b = $('bankAcctNumber');
@@ -11496,7 +11542,7 @@ body.theme-quiet-luxury #conciergePanel, body.theme-quiet-luxury #conciergeTrigg
     setText('bsHoldLine', !mn ? '' : holdOn ? 'We’ll hold ' + fmtMd(S.ci) + ' to ' + (S.ci.slice(0, 7) === S.co.slice(0, 7) ? +S.co.slice(8) : fmtMd(S.co)) + ' for 24 hours. Pay the full stay amount to confirm.'
       : 'We confirm your booking once we have checked your payment. Send the full stay amount to book ' + rangeLabel() + '.');
     $('bsG').setAttribute('aria-pressed', String(gc)); $('bsB').setAttribute('aria-pressed', String(!gc));
-    var qr = $('bsQr'); qr.src = gc ? 'assets/images/qr-gcash.png' : 'assets/images/qr-unionbank.png'; qr.alt = gc ? 'GCash QR code for ' + PAY_NAME : 'UnionBank InstaPay QR code';
+    $('bsQr').alt = gc ? 'GCash QR code for ' + PAY_NAME : 'UnionBank InstaPay QR code'; showQr(); loadQrs();
     setText('bsAcctT', gc ? 'Scan with GCash' : 'UnionBank InstaPay or bank transfer');
     setText('bsAcctB', (gc ? 'Or send to ' + a.gcash : 'Account no. ' + a.bank) + ' · ' + PAY_NAME + '. Put your name in the message or notes.');
     setText('bsCopyNum', gc ? 'Copy number' : 'Copy account no.'); setText('bsCopyAmt', 'Copy amount');
@@ -11592,7 +11638,7 @@ body.theme-quiet-luxury #conciergePanel, body.theme-quiet-luxury #conciergeTrigg
     if (o.guests) S.guests = Math.min(MAX_GUESTS, Math.max(MIN_GUESTS, o.guests));
     if (S.ci && S.co && nightsOf(S.ci, S.co) >= RULE.LONG_STAY_NIGHTS && S.step > 1) S.step = 1;   /* arranged with the host, never auto-quoted */
     if (!dlg.open) { dlg.showModal(); document.body.classList.add('bs-open'); }
-    S.open = true; autoAdvance(); save(); ensureQuote(); show(S.step);
+    S.open = true; autoAdvance(); save(); ensureQuote(); loadQrs(); show(S.step);
   }
   function close() { if (dlg.open) dlg.close(); }
   dlg.addEventListener('close', function () {

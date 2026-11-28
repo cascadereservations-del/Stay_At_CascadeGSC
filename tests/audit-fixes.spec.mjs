@@ -14,6 +14,25 @@ async function stub(page) {
   await page.route('**/functions/v1/submit-booking', json({ ok: true, ref: 'CH-TEST1', hold: true, hold_expires_at: new Date(Date.now() + 86400000).toISOString(), receipt_upload_token: 'hold-token-1' }));
 }
 const qrLog = (page) => { const log = []; page.on('request', (r) => { if (/\/qr-[a-z]+\.png/.test(r.url())) log.push(r.url().split('/').pop()); }); return log; };
+const BOTH = ['qr-gcash.png', 'qr-unionbank.png'];
+/* open the sheet on the test dates and fill the details; `pay` = go on to the payment step */
+async function toPayStep(page, pay = true) {
+  await page.evaluate(([ci, co]) => window.CascadeSheet.open({ ci, co }), [CI, CO]);
+  await expect(page.locator('#bsTotal')).toContainText('₱');
+  await page.locator('#bsNext1').click();
+  await expect(page.locator('#bsH2')).toBeVisible();
+  await page.locator('#bsName').fill('Maria Santos'); await page.locator('#bsPhone').fill('917 123 4567');
+  if (!pay) return;
+  await page.locator('#bsNext2').click();
+  await expect(page.locator('#bsS3')).toBeVisible();
+}
+/* the QR files drop until `up` is set */
+async function qrNetwork(page) {
+  const net = { up: false, asked: 0, failed: [] };
+  await page.route('**/assets/images/qr-*.png', (route) => { net.asked++; return net.up ? route.continue() : route.abort(); });
+  page.on('requestfailed', (r) => { if (/\/qr-[a-z]+\.png/.test(r.url())) net.failed.push(r.url()); });
+  return net;
+}
 const decoded = (page) => page.locator('#bsQr').evaluate((i) => (i.complete ? i.naturalWidth : 0));
 async function expectQr(page, file, alt) {
   await expect(page.locator('#bsQr')).toBeVisible();
@@ -40,7 +59,7 @@ async function expectBarShown(page) {
 }
 
 test.describe('audit: payment QR weight', () => {
-  test('no QR is requested until the payment step, then GCash and UnionBank both decode, also after a restore', async ({ page }) => {
+  test('no QR is requested until the sheet opens, then GCash and UnionBank both decode, also after a restore', async ({ page }) => {
     await stub(page);
     const log = qrLog(page);
     await page.goto('/index.html', { waitUntil: 'networkidle' });
@@ -52,13 +71,12 @@ test.describe('audit: payment QR weight', () => {
     await expect(page.locator('#bsTotal')).toContainText('₱');
     await page.locator('#bsNext1').click();
     await expect(page.locator('#bsH2')).toBeVisible();
-    expect(log, 'dates and details steps').toEqual([]);
+    await expect.poll(() => [...new Set(log)].sort(), 'both preloaded before the payment step').toEqual(BOTH);
     await page.locator('#bsName').fill('Maria Santos'); await page.locator('#bsPhone').fill('917 123 4567');
     await page.locator('#bsNext2').click();
     await expectQr(page, 'qr-gcash.png', /^GCash QR code for \S/);
     await page.locator('#bsB').click();
     await expectQr(page, 'qr-unionbank.png', 'UnionBank InstaPay QR code');
-    expect([...new Set(log)].sort()).toEqual(['qr-gcash.png', 'qr-unionbank.png']);
 
     await page.reload();                         /* restored from sessionStorage cascade.sheet.v1, bank still chosen */
     await expect(page.locator('#bsH3')).toBeVisible();
@@ -66,6 +84,76 @@ test.describe('audit: payment QR weight', () => {
     await page.locator('#bsG').click();
     await expectQr(page, 'qr-gcash.png', /^GCash QR code for \S/);
   });
+
+  test('a slow UnionBank file was fetched when the sheet opened, so it is already decoded at the toggle', async ({ page }) => {
+    await stub(page);
+    await page.route('**/assets/images/qr-unionbank.png', async (route) => { await new Promise((r) => setTimeout(r, 4000)); await route.continue(); });
+    await page.goto('/index.html');
+    const arrived = page.waitForEvent('requestfinished', { predicate: (r) => r.url().endsWith('qr-unionbank.png'), timeout: 12000 });
+    await toPayStep(page);
+    await arrived;
+    await expectQr(page, 'qr-gcash.png', /^GCash QR code for \S/);
+    await page.locator('#bsB').click();
+    expect(await decoded(page), 'decoded with no further waiting').toBeGreaterThan(0);
+    await expect(page.locator('#bsQr')).toHaveAttribute('src', 'assets/images/qr-unionbank.png');
+  });
+
+  test('while UnionBank is still on its way, the UnionBank label never sits over the GCash code', async ({ page }) => {
+    await stub(page);
+    let release; const held = new Promise((r) => { release = r; });
+    await page.route('**/assets/images/qr-unionbank.png', async (route) => { await held; await route.continue(); });
+    await page.goto('/index.html');
+    await toPayStep(page);
+    await expectQr(page, 'qr-gcash.png', /^GCash QR code for \S/);
+    await page.locator('#bsB').click();
+    await expect(page.locator('#bsQr')).toHaveAttribute('alt', 'UnionBank InstaPay QR code');
+    expect(await page.locator('#bsQr').getAttribute('src')).toBeNull();
+    expect(await decoded(page)).toBe(0);
+    release();
+    await expectQr(page, 'qr-unionbank.png', 'UnionBank InstaPay QR code');
+  });
+
+  test('the first QR requests drop: the retry fills both once the network is back, with no tap needed', async ({ page }) => {
+    await stub(page);
+    const net = await qrNetwork(page);
+    await page.goto('/index.html');
+    await toPayStep(page);
+    await expect.poll(() => net.failed.length).toBeGreaterThanOrEqual(2);
+    expect(await decoded(page)).toBe(0);
+    net.up = true;
+    await expect(page.locator('#bsQr'), 'the longest wait between retries is 8 s').toHaveAttribute('src', /qr-gcash/, { timeout: 15000 });
+    await expectQr(page, 'qr-gcash.png', /^GCash QR code for \S/);
+    await page.locator('#bsB').click();
+    await expectQr(page, 'qr-unionbank.png', 'UnionBank InstaPay QR code');
+  });
+
+  for (const recover of ['online event', 'method toggle']) {
+    test(`retries stop after three; the ${recover} fetches both again`, async ({ page }) => {
+      await stub(page);
+      const net = await qrNetwork(page);
+      await page.clock.install();
+      await page.goto('/index.html');
+      await toPayStep(page, false);
+      /* 1 try + 3 retries for each of the 2 files; the clock is fast-forwarded past each wait */
+      await expect.poll(async () => { await page.clock.runFor(8100); return net.failed.length; }, { timeout: 15000 }).toBe(8);
+      await page.clock.runFor(60000);
+      await page.waitForLoadState('networkidle');
+      expect(net.asked, 'bounded').toBe(8);
+      await page.locator('#bsNext2').click();
+      await expect(page.locator('#bsS3')).toBeVisible();
+      await expect.poll(async () => { await page.clock.runFor(8100); return net.failed.length; }, { message: 'painting the payment step starts one more bounded round', timeout: 15000 }).toBe(16);
+      await page.clock.runFor(60000);
+      await page.waitForLoadState('networkidle');
+      expect(net.asked, 'bounded again').toBe(16);
+      expect(await decoded(page)).toBe(0);
+      net.up = true;
+      if (recover === 'online event') await page.evaluate(() => dispatchEvent(new Event('online')));
+      else await page.locator('#bsG').click();
+      await expectQr(page, 'qr-gcash.png', /^GCash QR code for \S/);
+      await page.locator('#bsB').click();
+      await expectQr(page, 'qr-unionbank.png', 'UnionBank InstaPay QR code');
+    });
+  }
 });
 
 test.describe('audit: greeting', () => {
