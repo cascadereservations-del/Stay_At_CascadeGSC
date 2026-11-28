@@ -227,11 +227,15 @@ Deno.test('paxFromCue: the count comes from the cue itself, never a day of month
     ['Dec 3 to 5 for six people', 6], ['Dec 3 to 5 kami 2', 2], ['available for 3 to 5 Dec?', null], ['Dec 3 for 2 weeks po', null],
     ['Dec 3 to 5 po available?', null], ['Dec 5 guests', null], ['2 adults and 2 kids Dec 20-22', 4], ['Dec 3 to 5, 3', 3],
     ['dalawa ka tao', 2], ['for 3 Dec', null], ['Dec 20-22 for 12 people', null],
+    ['maybe 3 guests', 3], ['12/5 guests', null], ['December 25 2 pax', 2], ['Sept 3 to 5, 2 kids', 2],
+    ['may 2 bata kami', null], // known null: Tagalog 'may' and the month May are ambiguous; staff fill the field
   ];
   for (const [t, want] of cases) assertEquals(paxFromCue(t), want, t);
   assertEquals(hasGuestCue('Dec 3 to 5, 2 kids'), paxFromCue('Dec 3 to 5, 2 kids') != null, 'the gate and the reader agree');
   const big = ('dec 1- to ' + '\t \n   ').repeat(200) + ' '.repeat(1000) + 'for '.repeat(100);
-  const t0 = performance.now(); paxFromCue(big); assert(performance.now() - t0 < 50, 'linear on long whitespace');
+  for (const b of [big, 'a'.repeat(4000), 'decemberx'.repeat(440), '1'.repeat(4000)]) {
+    const t0 = performance.now(); paxFromCue(b); assert(performance.now() - t0 < 50, 'linear on long runs');
+  }
 });
 
 Deno.test('context: a rejected picked booking falls back to the flow booking; picked_differs_from_thread (B-4)', async () => {

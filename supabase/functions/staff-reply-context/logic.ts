@@ -105,11 +105,12 @@ const NUM: Record<string, number> = {
   isa: 1, dalawa: 2, tatlo: 3, apat: 4, lima: 5, anim: 6, pito: 7, walo: 8, usa: 1, duha: 2, tulo: 3, upat: 4, unom: 6,
 };
 const W = String.raw`\d{1,2}|${Object.keys(NUM).join('|')}`;
-const MONTH = String.raw`jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec|enero|pebrero|marso|abril|mayo|hunyo|hulyo|agosto|setyembre|oktubre|nobyembre|disyembre`;
-/** A number that is part of a date (right after a month, a dash or "to/until/hanggang") is never a party size. */
-const NOT_DATE = String.raw`(?<!(?:\b(?:${MONTH})[a-z]*\.?\s*)|(?:[-–]\s*)|(?:\b(?:to|until|hanggang|til)\s+))`;
+// Whole month words only, no open [a-z]* suffix: the lookbehind stays bounded, and 'maybe' is not a month (audit B r3-1, r3-2).
+const MONTH = String.raw`(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sept?(?:ember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?|enero|pebrero|marso|abril|mayo|hunyo|hulyo|agosto|setyembre|oktubre|nobyembre|disyembre)\b`;
+/** A number that is part of a date (right after a month, a slash date, a dash or "to/until/hanggang") is never a party size. */
+const NOT_DATE = String.raw`(?<!(?:\b${MONTH}\.?\s*)|(?:\d\s*\/\s*)|(?:[-–]\s*)|(?:\b(?:to|until|hanggang|til)\s+))`;
 /** "for N" that is a length of stay ("for 2 weeks") or a date range ("for 3 to 5 Dec", "for 3 Dec") is not a party. */
-const STAY_LEN = String.raw`(?!\s*(?:nights?|days?|weeks?|months?|wks?|gabi|araw|linggo|buwan|semana|bulan)\b)(?!\s*(?:[-–]|to\b|until\b|hanggang\b)\s*\d)(?!\s*(?:${MONTH})[a-z]*\b)`;
+const STAY_LEN = String.raw`(?!\s*(?:nights?|days?|weeks?|months?|wks?|gabi|araw|linggo|buwan|semana|bulan)\b)(?!\s*(?:[-–]|to\b|until\b|hanggang\b)\s*\d)(?!\s*${MONTH})`;
 const ADULT_W = 'adults?|matanda|dagko', KID_W = 'kids?|children|child|bata|anak|toddlers?|infants?|baby|babies';
 const ANY_W = 'pax|persons?|people|guests?|tao|tawo|heads?';
 const CNT = (words: string) => new RegExp(String.raw`${NOT_DATE}\b(${W})\s*(?:po|pa|ka|ba|po\s+ba|na)?\s*(?:${words})\b`, 'gi');
