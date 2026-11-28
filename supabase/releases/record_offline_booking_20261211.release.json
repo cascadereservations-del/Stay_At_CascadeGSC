@@ -4,7 +4,7 @@
   "phase": "expand",
   "source": {
     "branch": "rb/record-offline-sql",
-    "commit": "RESTAMP-AT-APPLY: the commit of this branch that is applied (not the base sha)"
+    "commit": "a79c540"
   },
   "migrations": [
     "20261211000000_record_offline_booking.sql"
