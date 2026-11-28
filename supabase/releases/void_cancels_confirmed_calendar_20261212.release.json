@@ -4,7 +4,7 @@
   "phase": "expand",
   "source": {
     "branch": "fix/void-cancels-confirmed-calendar",
-    "commit": "0000000000000000000000000000000000000000"
+    "commit": "1f7ea535154ef7849763a8b5a1c6c52ca9956306"
   },
   "migrations": [
     "20261212000000_void_cancels_confirmed_calendar.sql"
