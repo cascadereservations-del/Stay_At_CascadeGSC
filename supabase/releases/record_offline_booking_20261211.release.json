@@ -4,7 +4,7 @@
   "phase": "expand",
   "source": {
     "branch": "rb/record-offline-sql",
-    "commit": "a79c540"
+    "commit": "a79c54053566d7ce70cf5c51fc9f95040804bf71"
   },
   "migrations": [
     "20261211000000_record_offline_booking.sql"
