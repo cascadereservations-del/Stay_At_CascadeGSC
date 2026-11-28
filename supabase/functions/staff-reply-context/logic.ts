@@ -8,7 +8,7 @@
 // staff member picked, and only while that booking is confirmed with check-out today or later. A name or dates that merely match a
 // stay never bind. The door PIN does not exist in the system and is never read or returned. No guest text, name or PSID is logged.
 import { bearerToken, StaffAuthError } from '../_shared/staff-auth.ts';
-import { datesOf, detectLang, parsePax, quoteTotal, type Flow } from '../messenger-concierge/booking.ts'; // not edited; imported only
+import { datesOf, detectLang, quoteTotal, type Flow } from '../messenger-concierge/booking.ts'; // not edited; imported only
 import { fillPlaceholders } from '../_shared/cascade-core/house.ts';
 import { GUIDE_URL, SITE_URL } from '../_shared/cascade-core/facts.ts';
 import { isNewLongStay, legacyBalance, SECURITY_DEPOSIT_PHP, type RateCard } from '../_shared/cascade-core/pricing.ts';
@@ -100,20 +100,44 @@ function newestDates(msgs: { at: string; text: string }[], now: Date): Said | nu
   }
   return null;
 }
-const W = String.raw`\d{1,2}|one|two|three|four|five|six|isa|dalawa|tatlo|apat|duha|tulo|upat`;
-/** B6 (contract 0.3 item 6): a message states a party size only with a guest cue: a count beside a guest word, "for / para sa N" not
- *  followed by nights or days, or the trailing "dates?, N" form. A bare number ("Dec 3 to 5 po available?") is never a party. */
-const PAX_CUE = [
-  new RegExp(String.raw`\b(?:${W})\s*(?:po|pa|ba|po\s+ba)?\s*(?:adults?|pax|persons?|people|guests?|tao|tawo|kami|kids?|children|child|bata|matanda)\b`, 'i'),
-  new RegExp(String.raw`\b(?:for|para sa|kaming)\s+(?:${W})\b(?!\s*(?:nights?|days?|gabi|araw))`, 'i'),
-  /(?:\?|(?:-|–|\bto|\buntil|\bhanggang)\s*(?:[a-z]+\.?\s*)?\d{1,2}\s*,)\s*[1-6]\s*[.!]?\s*$/i,
-];
-export const hasGuestCue = (text: string) => PAX_CUE.some((re) => re.test(text));
+const NUM: Record<string, number> = {
+  one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8,
+  isa: 1, dalawa: 2, tatlo: 3, apat: 4, lima: 5, anim: 6, pito: 7, walo: 8, usa: 1, duha: 2, tulo: 3, upat: 4, unom: 6,
+};
+const W = String.raw`\d{1,2}|${Object.keys(NUM).join('|')}`;
+const MONTH = String.raw`jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec|enero|pebrero|marso|abril|mayo|hunyo|hulyo|agosto|setyembre|oktubre|nobyembre|disyembre`;
+/** A number that is part of a date (right after a month, a dash or "to/until/hanggang") is never a party size. */
+const NOT_DATE = String.raw`(?<!(?:\b(?:${MONTH})[a-z]*\.?\s*)|(?:[-–]\s*)|(?:\b(?:to|until|hanggang|til)\s+))`;
+/** "for N" that is a length of stay ("for 2 weeks") or a date range ("for 3 to 5 Dec", "for 3 Dec") is not a party. */
+const STAY_LEN = String.raw`(?!\s*(?:nights?|days?|weeks?|months?|wks?|gabi|araw|linggo|buwan|semana|bulan)\b)(?!\s*(?:[-–]|to\b|until\b|hanggang\b)\s*\d)(?!\s*(?:${MONTH})[a-z]*\b)`;
+const ADULT_W = 'adults?|matanda|dagko', KID_W = 'kids?|children|child|bata|anak|toddlers?|infants?|baby|babies';
+const ANY_W = 'pax|persons?|people|guests?|tao|tawo|heads?';
+const CNT = (words: string) => new RegExp(String.raw`${NOT_DATE}\b(${W})\s*(?:po|pa|ka|ba|po\s+ba|na)?\s*(?:${words})\b`, 'gi');
+const FOR_N = new RegExp(String.raw`\b(?:for|para sa|para|kaming|kami|we are|we're)\s+(?:po\s+)?(${W})\b${STAY_LEN}`, 'i');
+const TRAIL = /(?:\?|(?:-|–|\bto|\buntil|\bhanggang)\s*(?:[a-z]+\.?\s*)?\d{1,2}\s*,)\s*([1-8])\s*[.!]?\s*$/i;
+const num = (t: string) => { const k = t.toLowerCase(); return /^\d+$/.test(k) ? Number(k) : NUM[k] ?? NaN; };
+const sum = (re: RegExp, text: string) => { let n = 0, hit = false; for (const m of text.matchAll(re)) { n += num(m[1]); hit = true; } return hit ? n : null; };
+/** B6 (contract 0.3 items 6 and 8): the party size a guest message states, read FROM the cue itself (audit B r2 N-2: the gate and the
+ *  reader are one regex), or null. "N guests/pax/people" wins; else adults + kids; else "for / para sa / kami N" (not a length of stay
+ *  or a date range); else the trailing "dates?, N" form. A bare number ("Dec 3 to 5 po available?") is never a party. Outside 1..8 ->
+ *  null, never a fallback to another number. */
+export function paxFromCue(text: string): number | null {
+  const t = String(text ?? '').slice(0, MAX_TEXT).replace(/\s+/g, ' '); // one space per run: keeps the lookbehinds linear
+  const pick = (): number | null => {
+    const total = sum(CNT(ANY_W), t); if (total != null) return total;
+    const a = sum(CNT(ADULT_W), t), k = sum(CNT(KID_W), t); if (a != null || k != null) return (a ?? 0) + (k ?? 0);
+    const f = FOR_N.exec(t); if (f) return num(f[1]);
+    const tr = TRAIL.exec(t); if (tr) return Number(tr[1]);
+    return null;
+  };
+  const n = pick();
+  return n != null && Number.isInteger(n) && n >= 1 && n <= 8 ? n : null;
+}
+export const hasGuestCue = (text: string) => paxFromCue(text) != null;
 function newestPax(msgs: { at: string; text: string }[]): { n: number; at: string } | null {
   for (const m of msgs) {
-    if (!hasGuestCue(m.text)) continue;
-    const n = parsePax(m.text);
-    if (n != null && n >= 1 && n <= 8) return { n, at: m.at };
+    const n = paxFromCue(m.text);
+    if (n != null) return { n, at: m.at };
   }
   return null;
 }
@@ -169,6 +193,8 @@ async function respond(req: Request, deps: Deps): Promise<Response> {
   // ---- binding: the picked booking, else this thread's own flow. Never a name or a date match. ----
   const flowId = typeof flow?.booking_id === 'string' && UUID_RE.test(flow.booking_id) ? flow.booking_id : null;
   const live = async (id: string) => { const b = await deps.loadBooking(id); return b && (b.status === 'confirmed' || b.status === 'pending') ? b : null; };
+  // A confirmed pick that is already checked out still binds (post-stay replies, stage checked_out); staff chose it and see
+  // picked_differs_from_thread when it is not this thread's booking. gated and pin_allowed stay off for it (provenStay).
   let booking: Booking | null = null, bound: 'flow' | 'picked' | 'none' = 'none';
   if (picked) { booking = await live(picked); if (booking) bound = 'picked'; }
   if (!booking && flowId && flowId !== picked) { booking = await live(flowId); if (booking) bound = 'flow'; } // a rejected pick falls back to this thread's own booking
@@ -211,7 +237,6 @@ async function respond(req: Request, deps: Deps): Promise<Response> {
   if (booking) {
     const t = Number(booking.total_amount), d = Number(booking.deposit_amount);
     total = booking.total_amount == null || !Number.isFinite(t) ? val(null, null) : val(t, 'booking');
-    deposit = booking.deposit_amount == null || !Number.isFinite(d) ? val(null, null) : val(d, 'booking');
     deposit = val(SECURITY_DEPOSIT_PHP, 'booking'); // the refundable security deposit, never the amount paid (contract 0.3 item 4)
     if (booking.status === 'confirmed' && booking.deposit_amount != null && Number.isFinite(d)) {
       paid = val(d, 'booking');

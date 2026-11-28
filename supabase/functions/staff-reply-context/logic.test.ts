@@ -1,6 +1,6 @@
 import { assert, assertEquals } from 'jsr:@std/assert@1';
 import { SEED_CARD } from '../_shared/cascade-core/pricing.ts';
-import { handleReplyContext, ThreadReadError, type Booking, type Deps, type Thread, type Turn } from './logic.ts';
+import { handleReplyContext, hasGuestCue, paxFromCue, ThreadReadError, type Booking, type Deps, type Thread, type Turn } from './logic.ts';
 
 const NOW = new Date('2026-11-28T04:00:00Z'); // Manila 12:00, 2026-11-28
 const PSID = 'zz-psid-1';
@@ -219,6 +219,19 @@ Deno.test('context: guests from chat need a guest cue (B-1)', async () => {
   assertEquals(d.j.values.guests.v, null, '"for N nights" is not a party');
   const e = await run(fake({ thread: mk('Dec 20-22 for 12 people') }).deps);
   assertEquals(e.j.values.guests.v, null, 'the 1-8 cap holds');
+});
+
+Deno.test('paxFromCue: the count comes from the cue itself, never a day of month (audit B r2 N-2)', () => {
+  const cases: [string, number | null][] = [
+    ['Dec 3 to 5, 2 kids', 2], ['Dec 3-5 po, 2 matanda', 2], ['Dec 3 to 5 2 bata', 2], ['Dec 3 to 5, five guests', 5],
+    ['Dec 3 to 5 for six people', 6], ['Dec 3 to 5 kami 2', 2], ['available for 3 to 5 Dec?', null], ['Dec 3 for 2 weeks po', null],
+    ['Dec 3 to 5 po available?', null], ['Dec 5 guests', null], ['2 adults and 2 kids Dec 20-22', 4], ['Dec 3 to 5, 3', 3],
+    ['dalawa ka tao', 2], ['for 3 Dec', null], ['Dec 20-22 for 12 people', null],
+  ];
+  for (const [t, want] of cases) assertEquals(paxFromCue(t), want, t);
+  assertEquals(hasGuestCue('Dec 3 to 5, 2 kids'), paxFromCue('Dec 3 to 5, 2 kids') != null, 'the gate and the reader agree');
+  const big = ('dec 1- to ' + '\t \n   ').repeat(200) + ' '.repeat(1000) + 'for '.repeat(100);
+  const t0 = performance.now(); paxFromCue(big); assert(performance.now() - t0 < 50, 'linear on long whitespace');
 });
 
 Deno.test('context: a rejected picked booking falls back to the flow booking; picked_differs_from_thread (B-4)', async () => {
