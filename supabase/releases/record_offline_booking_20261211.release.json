@@ -15,8 +15,8 @@
   "backup": {
     "required": true,
     "scope": "production",
-    "restore_point": "PLACEHOLDER-restamp-at-apply-time",
-    "verified_at": "1970-01-01T00:00:00.000Z",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20261128T160149Z",
+    "verified_at": "2026-11-28T16:08:08.141Z",
     "production_rule": "Record a booking made outside the site (phase 1). 20261211000000 adds booking_inquiries.channel (text, not null, default site, check: site, messenger, facebook, walk_in, phone, other), the function record_offline_booking_v1 (signed-in owners and admins only, 17 arguments, returns jsonb) and ONE added predicate in decide_direct_booking_without_finance_review(uuid,text,text): an Airbnb blocked row labelled direct no longer conflicts when the transaction setting cascade.offline_booking_id (read as empty when unset) equals the booking id and the block note names the booking reference. Without that setting (every site confirm) the engine behaves as before. The migration stops (55000) unless the engine body is the one it was cut from (md5 8f9384913791779afd0cd38ed5152220, carriage returns removed) and re-hashes the patched body (7b6bc2ccdf2fefddc0e21c36d7a7590c). Nothing is granted to anon or service_role. The function relabels overlapping Airbnb blocks to direct (note DIR <ref> confirmed), writes the hold, the booking, the income row (pending_review, full total at check-in) and the optional Messenger thread link, then confirms through the one-tap core; any refusal rolls the whole sub-block back.",
     "notes": "restore_point and verified_at are placeholders: restamp them with a fresh backup at apply time (scripts/migrations/fill-restore-point.mjs). The migration carries no begin/commit (the runner wraps it); the rollback carries its own; it keeps the channel column with a NOTICE once a booking carries a channel other than site. Before apply, read the live engine md5 (read-only) and compare it with 8f9384913791779afd0cd38ed5152220. Apply the SQL before the Staff release that calls the function."
   },
