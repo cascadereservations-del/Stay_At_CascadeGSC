@@ -1,0 +1,80 @@
+{
+  "schema_version": 1,
+  "release_id": "void_cancels_confirmed_calendar_20261212",
+  "phase": "expand",
+  "source": {
+    "branch": "fix/void-cancels-confirmed-calendar",
+    "commit": "0000000000000000000000000000000000000000"
+  },
+  "migrations": [
+    "20261212000000_void_cancels_confirmed_calendar.sql"
+  ],
+  "migration_sha256": {
+    "20261212000000_void_cancels_confirmed_calendar.sql": "dcfbe0fbfe8bdef6b05f4a9ecab5f6b56091ab9bd4dce58f04833bc3eae0ac19"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "C:/Cascade-Backups/PLACEHOLDER",
+    "verified_at": "1970-01-01T00:00:00Z",
+    "production_rule": "Re-creates public.fn_direct_booking_cascade() with one changed where-clause: a voided direct-booking income row now cancels the calendar rows 'direct:<id>' and 'cascade-direct-<id>' (before: only the first). It stops (55000) unless the live body is the 20261008100000 one or this one. No table, column, grant, trigger or stored row changes; calendar rows left confirmed by an earlier void are not repaired.",
+    "notes": "restore_point and verified_at are placeholders: restamp them with a fresh backup at apply time (scripts/migrations/fill-restore-point.mjs). record_offline_booking_20261211 is a separate release with an older timestamp that does not touch this function: apply it first, or the CLI will see 20261211 as out of order."
+  },
+  "forward_verification": [
+    {
+      "name": "cascade_body_is_the_new_one",
+      "query": "select md5(replace(prosrc, chr(13), '')) = '6df13b3b647844b6b7d76d5d12835393' from pg_proc where oid = 'public.fn_direct_booking_cascade()'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "cascade_is_definer_with_empty_search_path",
+      "query": "select prosecdef and proconfig = array['search_path=\"\"'] from pg_proc where oid = 'public.fn_direct_booking_cascade()'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "no_client_role_executes_the_cascade",
+      "query": "select not has_function_privilege('anon', 'public.fn_direct_booking_cascade()', 'execute') and not has_function_privilege('authenticated', 'public.fn_direct_booking_cascade()', 'execute') and not has_function_privilege('service_role', 'public.fn_direct_booking_cascade()', 'execute')",
+      "expect": true
+    },
+    {
+      "name": "cascade_trigger_is_still_attached",
+      "query": "select count(*) = 1 from pg_trigger where tgrelid = 'public.transactions'::regclass and tgname = 'trg_direct_booking_cascade' and tgenabled = 'O'",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "any time; it restores the previous function body",
+    "steps": [
+      {
+        "name": "restore_previous_cascade_body",
+        "action": "apply supabase/rollbacks/20261212_void_cancels_confirmed_calendar.sql with run-sql-on-host.sh"
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "no_flag_database_trigger_only",
+      "required_state": "None. No caller changes."
+    }
+  ],
+  "compatibility": {
+    "mode": "widening",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": false,
+    "evidence": "Not rehearsed yet. Not applied to production."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour, or restore_point / verified_at are still the placeholders",
+    "the migration guard raises 55000 (unknown live function body)",
+    "the pgTAP suite void_cancels_confirmed_calendar has not passed on this commit",
+    "the Opus 5.5 review of this SQL has not passed"
+  ]
+}
