@@ -10,14 +10,14 @@
     "20261212000000_void_cancels_confirmed_calendar.sql"
   ],
   "migration_sha256": {
-    "20261212000000_void_cancels_confirmed_calendar.sql": "dcfbe0fbfe8bdef6b05f4a9ecab5f6b56091ab9bd4dce58f04833bc3eae0ac19"
+    "20261212000000_void_cancels_confirmed_calendar.sql": "bf883ca3b3295d8c8e447aeceaec4e9a6208a969deb63470c51d6bbb1dd1de6e"
   },
   "backup": {
     "required": true,
     "scope": "production",
     "restore_point": "C:/Cascade-Backups/PLACEHOLDER",
     "verified_at": "1970-01-01T00:00:00Z",
-    "production_rule": "Re-creates public.fn_direct_booking_cascade() with one changed where-clause: a voided direct-booking income row now cancels the calendar rows 'direct:<id>' and 'cascade-direct-<id>' (before: only the first). It stops (55000) unless the live body is the 20261008100000 one or this one. No table, column, grant, trigger or stored row changes; calendar rows left confirmed by an earlier void are not repaired.",
+    "production_rule": "Re-creates public.fn_direct_booking_cascade() with one changed where-clause: a voided direct-booking income row now cancels the calendar rows 'direct:<id>' and 'cascade-direct-<id>' (before: only the first). It stops (55000) unless the live body is the 20261008100000 one or this one. It also adds the BEFORE trigger trg_guard_direct_booking_income_void: voiding the income row of a CONFIRMED direct booking is refused (42501) unless the signed-in user has manage_booking (owner or admin); the service role is refused too. No table, column, existing trigger or stored row changes; calendar rows left confirmed by an earlier void are not repaired.",
     "notes": "restore_point and verified_at are placeholders: restamp them with a fresh backup at apply time (scripts/migrations/fill-restore-point.mjs). record_offline_booking_20261211 is a separate release with an older timestamp that does not touch this function: apply it first, or the CLI will see 20261211 as out of order."
   },
   "forward_verification": [
@@ -40,11 +40,21 @@
       "name": "cascade_trigger_is_still_attached",
       "query": "select count(*) = 1 from pg_trigger where tgrelid = 'public.transactions'::regclass and tgname = 'trg_direct_booking_cascade' and tgenabled = 'O'",
       "expect": true
+    },
+    {
+      "name": "void_guard_is_a_before_trigger",
+      "query": "select count(*) = 1 from pg_trigger where tgrelid = 'public.transactions'::regclass and tgname = 'trg_guard_direct_booking_income_void' and tgenabled = 'O' and pg_get_triggerdef(oid) like '%BEFORE UPDATE OF status%'",
+      "expect": true
+    },
+    {
+      "name": "void_guard_is_closed_and_definer",
+      "query": "select p.prosecdef and p.proconfig = array['search_path=\"\"'] and not has_function_privilege('anon', p.oid, 'execute') and not has_function_privilege('authenticated', p.oid, 'execute') and not has_function_privilege('service_role', p.oid, 'execute') from pg_proc p where p.oid = 'public.guard_direct_booking_income_void()'::regprocedure",
+      "expect": true
     }
   ],
   "rollback": {
     "strategy": "compensating",
-    "safe_until": "any time; it restores the previous function body",
+    "safe_until": "any time; it drops the void guard and restores the previous function body",
     "steps": [
       {
         "name": "restore_previous_cascade_body",
@@ -54,16 +64,16 @@
   },
   "feature_flags": [
     {
-      "name": "no_flag_database_trigger_only",
-      "required_state": "None. No caller changes."
+      "name": "no_flag_database_triggers_only",
+      "required_state": "The dashboard needs no change. Deploy telegram-expense with the matching message change (branch fix/void-needs-app), or it reports success for a refused void."
     }
   ],
   "compatibility": {
-    "mode": "widening",
+    "mode": "narrowing",
     "old_reader": true,
-    "old_writer": true,
+    "old_writer": false,
     "verified": false,
-    "evidence": "Not rehearsed yet. Not applied to production."
+    "evidence": "Not rehearsed yet with the guard. Not applied to production."
   },
   "approvals": {
     "production_required": true,
@@ -75,6 +85,7 @@
     "the restore point is older than one hour, or restore_point / verified_at are still the placeholders",
     "the migration guard raises 55000 (unknown live function body)",
     "the pgTAP suite void_cancels_confirmed_calendar has not passed on this commit",
-    "the Opus 5.5 review of this SQL has not passed"
+    "the Opus 5.5 review of this SQL has not passed",
+    "telegram-expense with the refused-void message is not ready to deploy"
   ]
 }

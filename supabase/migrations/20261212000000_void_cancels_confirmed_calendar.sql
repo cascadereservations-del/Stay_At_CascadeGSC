@@ -36,3 +36,26 @@ exception when others then
   return new;
 end $$;
 revoke all on function public.fn_direct_booking_cascade() from public, anon, authenticated, service_role;
+
+-- D-440 (Lloyd 2026-11-28): a void that would cancel a CONFIRMED booking is for an owner or admin only (manage_booking), signed in
+-- to the app. Its own BEFORE trigger with no exception block, because the cascade's handler would swallow a raise. A writer with
+-- no signed-in user (the Telegram bot's service role) is refused too: the app is where this is done. Voids for pending, cancelled
+-- or expired bookings (hold expiry, supersede, decline) and every non-booking row pass untouched.
+create or replace function public.guard_direct_booking_income_void()
+returns trigger language plpgsql security definer set search_path = '' as $$
+begin
+  if exists (select 1 from public.booking_inquiries b
+              where b.id = new.booking_id and b.status = 'confirmed'
+                and not coalesce(public.current_staff_authorized('manage_booking', b.property_id), false)) then
+    raise exception using errcode = '42501', hint = 'owner_or_admin_in_app',
+      message = 'Only an owner or admin can void this payment, in the app: it cancels a confirmed booking.';
+  end if;
+  return new;
+end $$;
+revoke all on function public.guard_direct_booking_income_void() from public, anon, authenticated, service_role;
+drop trigger if exists trg_guard_direct_booking_income_void on public.transactions;
+create trigger trg_guard_direct_booking_income_void
+before update of status on public.transactions
+for each row
+when (new.source = 'direct_booking' and new.status = 'void' and old.status is distinct from 'void')
+execute function public.guard_direct_booking_income_void();

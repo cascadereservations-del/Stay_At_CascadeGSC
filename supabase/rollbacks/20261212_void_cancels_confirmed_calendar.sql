@@ -2,6 +2,9 @@
 -- fn_direct_booking_cascade (md5(replace(prosrc, chr(13), '')) e08fe137097dbb2ac4f40eafbbcbd57d). Calendar rows already cancelled by a void stay cancelled.
 begin;
 
+drop trigger if exists trg_guard_direct_booking_income_void on public.transactions;
+drop function if exists public.guard_direct_booking_income_void();
+
 do $guard$
 declare v text;
 begin
