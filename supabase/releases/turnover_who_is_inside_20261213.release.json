@@ -15,8 +15,8 @@
   "backup": {
     "required": true,
     "scope": "production",
-    "restore_point": "C:/Cascade-Backups/PLACEHOLDER",
-    "verified_at": "1970-01-01T00:00:00Z",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20261128T170641Z",
+    "verified_at": "2026-11-28T17:11:15.088Z",
     "production_rule": "Adds public.stay_phase_v1 (upcoming / inside / departed by the clock: the stay's own times, else app_settings house_times, else 14:00 in / 12:00 out) and public.staff_current_next_stays_at_v1 (fixed clock). staff_current_next_stays_v1 now calls the latter with Manila now(); get_admin_overview_v1 changes one where-clause (currentStays). Return shapes and grants are unchanged. It stops (55000) unless both live bodies are the 2026-11-29 ones or these. No table, column or row changes.",
     "notes": "restore_point and verified_at are placeholders: restamp them with a fresh backup at apply time (scripts/migrations/fill-restore-point.mjs). Independent of record_offline_booking_20261211 and void_cancels_confirmed_calendar_20261212 (touches none of their functions); apply after them so the CLI order stays ascending."
   },
