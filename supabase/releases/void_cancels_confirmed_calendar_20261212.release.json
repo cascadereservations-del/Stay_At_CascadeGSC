@@ -1,0 +1,90 @@
+{
+  "schema_version": 1,
+  "release_id": "void_cancels_confirmed_calendar_20261212",
+  "phase": "expand",
+  "source": {
+    "branch": "fix/void-cancels-confirmed-calendar",
+    "commit": "5a282b04c0585ee1a3249dcd1a0e96ccc563b9d9"
+  },
+  "migrations": [
+    "20261212000000_void_cancels_confirmed_calendar.sql"
+  ],
+  "migration_sha256": {
+    "20261212000000_void_cancels_confirmed_calendar.sql": "bf883ca3b3295d8c8e447aeceaec4e9a6208a969deb63470c51d6bbb1dd1de6e"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "C:/Cascade-Backups/PLACEHOLDER",
+    "verified_at": "1970-01-01T00:00:00Z",
+    "production_rule": "Re-creates public.fn_direct_booking_cascade() with one changed where-clause: a voided direct-booking income row now cancels the calendar rows 'direct:<id>' and 'cascade-direct-<id>' (before: only the first). It stops (55000) unless the live body is the 20261008100000 one or this one. It also adds the BEFORE trigger trg_guard_direct_booking_income_void: voiding the income row of a CONFIRMED direct booking is refused (42501) unless the signed-in user has manage_booking (owner or admin); the service role is refused too. No table, column, existing trigger or stored row changes; calendar rows left confirmed by an earlier void are not repaired.",
+    "notes": "restore_point and verified_at are placeholders: restamp them with a fresh backup at apply time (scripts/migrations/fill-restore-point.mjs). record_offline_booking_20261211 is a separate release with an older timestamp that does not touch this function: apply it first, or the CLI will see 20261211 as out of order."
+  },
+  "forward_verification": [
+    {
+      "name": "cascade_body_is_the_new_one",
+      "query": "select md5(replace(prosrc, chr(13), '')) = '6df13b3b647844b6b7d76d5d12835393' from pg_proc where oid = 'public.fn_direct_booking_cascade()'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "cascade_is_definer_with_empty_search_path",
+      "query": "select prosecdef and proconfig = array['search_path=\"\"'] from pg_proc where oid = 'public.fn_direct_booking_cascade()'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "no_client_role_executes_the_cascade",
+      "query": "select not has_function_privilege('anon', 'public.fn_direct_booking_cascade()', 'execute') and not has_function_privilege('authenticated', 'public.fn_direct_booking_cascade()', 'execute') and not has_function_privilege('service_role', 'public.fn_direct_booking_cascade()', 'execute')",
+      "expect": true
+    },
+    {
+      "name": "cascade_trigger_is_still_attached",
+      "query": "select count(*) = 1 from pg_trigger where tgrelid = 'public.transactions'::regclass and tgname = 'trg_direct_booking_cascade' and tgenabled = 'O'",
+      "expect": true
+    },
+    {
+      "name": "void_guard_is_a_before_trigger",
+      "query": "select count(*) = 1 from pg_trigger where tgrelid = 'public.transactions'::regclass and tgname = 'trg_guard_direct_booking_income_void' and tgenabled = 'O' and pg_get_triggerdef(oid) like '%BEFORE UPDATE OF status%'",
+      "expect": true
+    },
+    {
+      "name": "void_guard_is_closed_and_definer",
+      "query": "select p.prosecdef and p.proconfig = array['search_path=\"\"'] and not has_function_privilege('anon', p.oid, 'execute') and not has_function_privilege('authenticated', p.oid, 'execute') and not has_function_privilege('service_role', p.oid, 'execute') from pg_proc p where p.oid = 'public.guard_direct_booking_income_void()'::regprocedure",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "any time; it drops the void guard and restores the previous function body",
+    "steps": [
+      {
+        "name": "restore_previous_cascade_body",
+        "action": "apply supabase/rollbacks/20261212_void_cancels_confirmed_calendar.sql with run-sql-on-host.sh"
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "no_flag_database_triggers_only",
+      "required_state": "None. No caller or edge function changes: telegram-expense (waves branch) voids expenses only, through telegram_expense_review_v1, which answers locked for a direct_booking row."
+    }
+  ],
+  "compatibility": {
+    "mode": "narrowing",
+    "old_reader": true,
+    "old_writer": false,
+    "verified": true,
+    "evidence": "Rehearsed 2026-11-28 on a throwaway copy of production backup 20261126T124215Z (alfred), after 20261210 and 20261211. Forward: 3/3 migrations, checks 6/6, new suite 18/18, direct_booking_trigger_permissions 4/4. Control without 20261212: new suite 11/18 (guard and calendar assertions fail as expected). Seven older suites fail the same execute-permission assertions in forward and control (the --no-acl copy). Rollback: 4/4 files applied, old cascade body restored, guard absent, checks 5/5. 0 leftovers. Not applied to production."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour, or restore_point / verified_at are still the placeholders",
+    "the migration guard raises 55000 (unknown live function body)",
+    "the pgTAP suite void_cancels_confirmed_calendar has not passed on this commit",
+    "the Opus 5.5 review of this SQL has not passed"
+  ]
+}
