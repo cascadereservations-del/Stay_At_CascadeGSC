@@ -72,8 +72,8 @@
     "mode": "widening",
     "old_reader": true,
     "old_writer": true,
-    "verified": false,
-    "evidence": "Not rehearsed: lane A had no runnable local Postgres with Supabase schemas (no Docker, no pgTAP in WSL). The md5 guard simulation (scripts/ci/check-md5-guards.mjs) runs here; the pgTAP suite supabase/tests/database/record_offline_booking.sql runs in CI and in the migration rehearsal on the host. Not applied to production."
+    "verified": true,
+    "evidence": "Rehearsed 2026-11-28 on host alfred (migration-rehearsal-on-host.sh) against backup 20261126T124215Z with 20261210000000 replayed first: both migrations applied, forward verification 6/6, pgTAP record_offline_booking 61/61, record-then-cancel scenario 10/10 (record over an unexplained Airbnb block, cancel with record_booking_lifecycle_action: booking and calendar row cancelled, income row untouched, block keeps direct/auto), rollback with every booking site 5/5 (engine md5 back to 8f9384913791779afd0cd38ed5152220, function, column and check dropped), re-apply plus rollback with one non-site booking 6/6 (column and channel kept). inquiry_one_tap, staff_decide_direct_booking, telegram_inquiry_decisions and verifier_direct_uid fail only their grant checks (7 total), identically in a control run with 20261210000000 alone: the backup is taken --no-acl, so pre-existing functions keep the default PUBLIC execute in the copy. Not applied to production."
   },
   "approvals": {
     "production_required": true,
@@ -90,7 +90,7 @@
   "risks": [
     "The engine is patched in place (one predicate). It is inert unless a booking carries an Airbnb block labelled direct whose note names its reference AND the transaction setting names the booking; only record_offline_booking_v1 sets it, and it resets it right after the core call.",
     "record_offline_booking_v1 writes the income row with payment_method null (the contract names none); the ledger shows it as pending_review.",
-    "The rollback was not rehearsed (the rehearsal script has no rollback mode); it keeps the channel column when a booking carries a channel other than site.",
+    "The rollback was rehearsed both ways (all site: column dropped; one non-site: column kept with a NOTICE). Running it twice fails at the engine step (55000) by design.",
     "An overlapping manual calendar row (confirmed or blocked, not a brownout hold) answers conflict / manual_block."
   ]
 }
