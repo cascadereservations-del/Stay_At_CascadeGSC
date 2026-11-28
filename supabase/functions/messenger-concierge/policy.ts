@@ -128,7 +128,7 @@ export function statedName(text: string): string | null {
 
 export type StayRow = { guest_name: string | null; raw_summary: string | null; checkin_date: string; checkout_date: string; source: string | null };
 /** In-house / arriving / departing lines for a host card, from confirmed calendar rows; `today` is YYYY-MM-DD (Manila).
- *  `nowHm` (Manila "HH:MM", 24 h) makes in-house follow the house times (app_settings house_times: in 14:00, out 12:00), like
+ *  `nowHm` (Manila "HH:MM", 24 h) makes in-house follow the house times, hard-coded here as in 14:00 / out 12:00 (the app_settings house_times values on 2026-11-29; per-stay times are not read), like
  *  SQL stay_phase_v1 (20261213): on a turnover morning the departing guest is still in the house, the arriving one is not yet. */
 export const HOUSE_IN = '14:00', HOUSE_OUT = '12:00';
 export function stayLines(rows: StayRow[], today: string, nowHm?: string): string[] {
