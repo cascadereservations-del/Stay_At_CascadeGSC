@@ -4,7 +4,7 @@
   "phase": "expand",
   "source": {
     "branch": "fix/void-cancels-confirmed-calendar",
-    "commit": "1f7ea535154ef7849763a8b5a1c6c52ca9956306"
+    "commit": "5a282b04c0585ee1a3249dcd1a0e96ccc563b9d9"
   },
   "migrations": [
     "20261212000000_void_cancels_confirmed_calendar.sql"
@@ -65,7 +65,7 @@
   "feature_flags": [
     {
       "name": "no_flag_database_triggers_only",
-      "required_state": "The dashboard needs no change. Deploy telegram-expense with the matching message change (branch fix/void-needs-app), or it reports success for a refused void."
+      "required_state": "None. No caller or edge function changes: telegram-expense (waves branch) voids expenses only, through telegram_expense_review_v1, which answers locked for a direct_booking row."
     }
   ],
   "compatibility": {
@@ -85,7 +85,6 @@
     "the restore point is older than one hour, or restore_point / verified_at are still the placeholders",
     "the migration guard raises 55000 (unknown live function body)",
     "the pgTAP suite void_cancels_confirmed_calendar has not passed on this commit",
-    "the Opus 5.5 review of this SQL has not passed",
-    "telegram-expense with the refused-void message is not ready to deploy"
+    "the Opus 5.5 review of this SQL has not passed"
   ]
 }
