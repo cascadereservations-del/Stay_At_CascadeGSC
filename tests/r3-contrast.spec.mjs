@@ -64,14 +64,19 @@ for (const theme of ['midday', 'night']) {
       await page.goto(`/?theme-time=${theme}`);
       await page.waitForTimeout(1500);
       const height = await page.evaluate(() => document.documentElement.scrollHeight);
+      let measured = 0;
       for (const y of [900, 2700, 4500, 6300, Math.min(9000, height - 900)]) {
-        await page.evaluate((yy) => window.scrollTo(0, yy), y);
+        await page.evaluate((yy) => window.scrollTo({ top: yy, behavior: 'instant' }), y);
+        /* audit 2026-11-28: the bar steps aside while a booking card's Reserve button is on screen, so there is nothing to measure there */
+        if (await page.evaluate(() => [...document.querySelectorAll('#qbwSubmit, #book-direct .iv-primary')].some((e) => { const r = e.getBoundingClientRect(); return r.bottom > 0 && r.top < innerHeight; }))) continue;
+        measured++;
         await expect(page.locator('#stickyBookCta')).toHaveCSS('opacity', '1');
         await page.waitForTimeout(400);
         const res = await minContrast(page, '#stickyBookCta', '#stickyBookCta .sticky-book-cta-rate strong, #stickyBookCta .sticky-book-cta-rate span, #stickyBookCta .sticky-book-cta-btn');
         expect(res.length).toBeGreaterThan(2);
         for (const r of res) expect(r.min, `scrollY ${y}, ${r.name}: ${r.min}`).toBeGreaterThanOrEqual(AA);
       }
+      expect(measured, 'positions with the bar shown').toBeGreaterThanOrEqual(3);
     });
   });
 }

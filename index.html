@@ -5014,9 +5014,10 @@
       var base = { morning: { c: 'sand', g: 'liquid', w: 'cool', hi: 'Good morning' }, midday: { c: 'sand', g: 'liquid', w: 'balanced', hi: 'Good afternoon' },
                    dusk: { c: 'espresso', g: 'liquid', w: 'warm', hi: 'Good evening' }, night: { c: 'espresso', g: 'frosted', w: 'balanced', hi: 'Good evening' } }[tod] || { c: 'sand', g: 'liquid', w: 'balanced', hi: 'Hello' };
       var r = { theme: base.c, glass: base.g, warmth: base.w, tod: tod, wx: wx || 'clear' };
+      var hi = tod === 'midday' && !forcedTod && hourNow() < 12 ? 'Good morning' : base.hi;   /* the midday look starts at 10:00, the word "afternoon" at 12:00 */
       if (r.wx === 'cloudy') { r.glass = 'frosted'; if (r.warmth === 'warm') r.warmth = 'balanced'; }
       if (r.wx === 'rain') { r.glass = 'frosted'; r.warmth = 'cool'; }
-      r.greet = base.hi + ' from GenSan' + (r.wx === 'rain' ? ' · light rain, cozy ' + (tod === 'night' || tod === 'dusk' ? 'night' : 'day') + ' in?' : r.wx === 'cloudy' ? ' · a soft, cloudy day' : tod === 'night' ? ' · clear night' : ' · clear skies');
+      r.greet = hi + ' from GenSan' + (r.wx === 'rain' ? ' · light rain, cozy ' + (tod === 'night' || tod === 'dusk' ? 'night' : 'day') + ' in?' : r.wx === 'cloudy' ? ' · a soft, cloudy day' : tod === 'night' ? ' · clear night' : ' · clear skies');
       return r;
     }
     function apply(r) {
@@ -6830,6 +6831,28 @@ body.theme-quiet-luxury #conciergePanel, body.theme-quiet-luxury #conciergeTrigg
   :root body.theme-quiet-luxury #heroBookBar.hero-bk.gs-lg::before { display: none !important; }
   :root:not([data-theme="espresso"]) body.theme-quiet-luxury .hero-bk-cta, :root:not([data-theme="espresso"]) body.theme-quiet-luxury #heroBookBar #qbwSubmit { background-color: #F4E9D2; }
 }
+/* ---------- dock chat: below 1024px, while the booking bar shows, the chat button sits inside it, left of Reserve ---------- */
+@media (max-width: 1023px) {
+  body.theme-quiet-luxury.gs-dock-chat .sticky-book-cta.gs-dock .sticky-book-cta-rate { flex: 1 1 auto; min-width: 0; }
+  body.theme-quiet-luxury.gs-dock-chat .sticky-book-cta.gs-dock .sticky-book-cta-btn { flex: 0 0 auto; margin-left: 3.25rem; }
+  body.theme-quiet-luxury.gs-dock-chat #conciergeFloat { bottom: calc(.875rem + env(safe-area-inset-bottom, 0px) + (var(--dock-h, 4.125rem) - 44px) / 2); }
+  body.theme-quiet-luxury.gs-dock-chat #conciergeFloat #conciergeTrigger {
+    width: 44px; height: 44px; margin-right: calc(var(--dock-chat-right, 8.5rem) - 1.25rem);
+    background: transparent; border: 1px solid var(--gs-line2); box-shadow: none; -webkit-backdrop-filter: none !important; backdrop-filter: none !important; animation: none;
+  }
+  body.theme-quiet-luxury.gs-dock-chat #conciergeFloat #conciergeTrigger svg { width: 20px; height: 20px; }
+  /* the open panel starts above the bar's top edge */
+  body.theme-quiet-luxury.gs-dock-chat #conciergeFloat .concierge-panel { margin-bottom: calc((var(--dock-h, 4.125rem) - 44px) / 2); }
+}
+@media (max-width: 389px) {
+  body.theme-quiet-luxury.gs-dock-chat .sticky-book-cta.gs-dock { padding-left: .875rem; gap: .5rem; }
+  body.theme-quiet-luxury.gs-dock-chat .sticky-book-cta.gs-dock .sticky-book-cta-btn { padding-inline: .875rem; }
+}
+@media (max-width: 359px) {
+  body.theme-quiet-luxury.gs-dock-chat .sticky-book-cta.gs-dock .sticky-book-cta-btn { padding-inline: .75rem; }
+  body.theme-quiet-luxury.gs-dock-chat .sticky-book-cta.gs-dock .sticky-book-cta-rate { font-size: .8125rem; }
+  body.theme-quiet-luxury.gs-dock-chat .sticky-book-cta.gs-dock .sticky-book-cta-rate strong { font-size: 1rem; }
+}
 /* ============================================================
    ROUND R4 (s137): owner request 2026-11-26.
    R4.1 the hero 97 percent line is gone (the proof section lower down says it once).
@@ -7516,9 +7539,9 @@ body.theme-quiet-luxury #conciergePanel, body.theme-quiet-luxury #conciergeTrigg
                 <div class="pay-method-card">
                   <div class="pay-qr-wrap">
                     <div class="pay-qr-box" role="img" aria-label="GCash QR code for Marifel Suzanne Boncales">
-                      <!-- Not loading="lazy": these sit inside #bookingStep2, which is display:none at parse time, so a lazy image never gets a layout box and the fetch is never started - the guest reaches the payment step and sees an empty white square (D-203). -->
+                      <!-- Not loading="lazy": these sit inside #bookingStep2, which is display:none at parse time, so a lazy image never gets a layout box and the fetch is never started - the guest reaches the payment step and sees an empty white square (D-203). The legacy form is hidden, so these carry data-src (no download at first load) and showStep2() sets src. -->
                       <img
-                        src="assets/images/qr-gcash.png"
+                        data-src="assets/images/qr-gcash.png"
                         alt="GCash QR code: scan to send payment"
                         width="220" height="220">
                     </div>
@@ -7582,7 +7605,7 @@ body.theme-quiet-luxury #conciergePanel, body.theme-quiet-luxury #conciergeTrigg
                   <div class="pay-qr-wrap">
                     <div class="pay-qr-box" role="img" aria-label="UnionBank QR code for InstaPay transfer">
                       <img
-                        src="assets/images/qr-unionbank.png"
+                        data-src="assets/images/qr-unionbank.png"
                         alt="UnionBank InstaPay QR code"
                         width="220" height="220">
                     </div>
@@ -8364,7 +8387,7 @@ body.theme-quiet-luxury #conciergePanel, body.theme-quiet-luxury #conciergeTrigg
           <p class="bs-sub" id="bsDepLine">Refundable deposit &#8369;800, separate: send it with your payment or by the day before check-in. Returned as soon as possible, within 3 business days of check-out, to the same account.</p>
           <div class="bs-seg" role="group" aria-label="Payment method"><button type="button" id="bsG" aria-pressed="true">GCash</button><button type="button" id="bsB" aria-pressed="false">Bank transfer</button></div>
           <div class="bs-acct">
-            <img id="bsQr" src="assets/images/qr-gcash.png" alt="GCash QR code" width="220" height="220">
+            <img id="bsQr" alt="GCash QR code" width="220" height="220">
             <div><strong id="bsAcctT"></strong><span id="bsAcctB"></span>
               <div class="bs-copy"><button type="button" id="bsCopyNum">Copy number</button><button type="button" id="bsCopyAmt">Copy amount</button></div></div>
           </div>
@@ -9520,6 +9543,7 @@ body.theme-quiet-luxury #conciergePanel, body.theme-quiet-luxury #conciergeTrigg
         if (bankRef&&nm&&nm.value.trim()) bankRef.textContent=nm.value.trim()+' / '+fmtDate(state.checkin);
 
         function showStep2(){
+          step2.querySelectorAll('img[data-src]').forEach(function(i){ i.src=i.getAttribute('data-src'); });
           step1.hidden=true; step2.hidden=false;
           stepInd1.classList.remove('is-active'); stepInd1.classList.add('is-done');
           stepInd2.classList.add('is-active');
@@ -10389,11 +10413,15 @@ body.theme-quiet-luxury #conciergePanel, body.theme-quiet-luxury #conciergeTrigg
         ];
         var collisionVis = false; /* true = collision detected, hide concierge */
 
+        /* docked = seated inside the shown booking bar (body.gs-dock-chat): it follows the bar, so the auto-hide does not apply */
+        var wasDocked = false;
+        function isDocked() { return document.body.classList.contains('gs-dock-chat'); }
+
         function checkCollision() {
           /* NOTE: do NOT early-return when is-hidden — the check must run to recover
              from a previous collision once the user scrolls away from the CTA */
           var triggerRect = trigger.getBoundingClientRect();
-          if (triggerRect.width === 0) return;
+          if (triggerRect.width === 0 || isDocked()) return;
           /* Expand the trigger rect by 12px padding for comfortable clearance */
           var pad = 12;
           var fl = triggerRect.left - pad, fr = triggerRect.right + pad;
@@ -10441,14 +10469,17 @@ body.theme-quiet-luxury #conciergePanel, body.theme-quiet-luxury #conciergeTrigg
         var directVis  = false; /* true while the #book-direct card is in view (free-cancellation line) */
 
         function updateFloatVis() {
-          var shouldHide = heroVis || collisionVis || bookingVis || directVis;
+          var docked = isDocked(), leftDock = wasDocked && !docked;
+          wasDocked = docked;
+          var shouldHide = !docked && (heroVis || collisionVis || bookingVis || directVis);
+          if (leftDock) float_el.style.transition = 'none';   /* it jumps back to the corner: never fade out from there */
           if (shouldHide) {
             float_el.classList.add('is-hidden');
             float_el.classList.remove('is-entering');
             closePanel();
           } else {
             /* Entrance animation — only on the very first reveal */
-            if (!hasEnteredOnce) {
+            if (!hasEnteredOnce && !docked) {
               hasEnteredOnce = true;
               float_el.classList.add('is-entering');
               /* Remove after animation so hover transforms aren't blocked */
@@ -10460,7 +10491,13 @@ body.theme-quiet-luxury #conciergePanel, body.theme-quiet-luxury #conciergeTrigg
             /* Run collision check after float becomes visible */
             requestAnimationFrame(checkCollision);
           }
+          if (leftDock) { void float_el.offsetWidth; float_el.style.transition = ''; }
         }
+
+        document.addEventListener('cascade:dock', function () {
+          updateFloatVis();
+          requestAnimationFrame(checkCollision);   /* a collision flag from before docking is stale */
+        });
 
         if ('IntersectionObserver' in window) {
           /* Hide when any part of hero is still in view (threshold 0.01 = almost off-screen) */
@@ -11039,14 +11076,8 @@ body.theme-quiet-luxury #conciergePanel, body.theme-quiet-luxury #conciergeTrigg
 
   <!-- ============================================================
        CONCIERGE FLOAT — messaging shortcut, bottom-right
-       Hides when #booking section is in viewport
+       Auto-hides over the hero and CTAs; sits inside the booking bar while that is shown below 1024px
   ============================================================ -->
-  <!-- Persistent bottom booking CTA — mobile only, hidden once #booking is in view -->
-  <div class="sticky-book-cta gs-dock" id="stickyBookCta" role="region" aria-label="Book direct" aria-hidden="true">
-    <span class="sticky-book-cta-rate"><strong>Book direct</strong><span>No platform fees<span data-price-only="from"></span></span></span>
-    <a class="sticky-book-cta-btn gs-cta" href="#contact" id="stickyBookCtaBtn" data-gs-book>Reserve</a>
-  </div>
-
   <div class="concierge-float is-hidden" id="conciergeFloat" aria-label="Contact us" role="complementary">
 
     <!-- Expandable panel -->
@@ -11108,29 +11139,60 @@ body.theme-quiet-luxury #conciergePanel, body.theme-quiet-luxury #conciergeTrigg
 
   </div><!-- /.concierge-float -->
 
+  <!-- Persistent bottom booking bar. After the chat in source so Tab order matches the docked layout: chat, then Reserve. -->
+  <div class="sticky-book-cta gs-dock" id="stickyBookCta" role="region" aria-label="Book direct" aria-hidden="true">
+    <span class="sticky-book-cta-rate"><strong>Book direct</strong><span>No platform fees<span data-price-only="from"></span></span></span>
+    <a class="sticky-book-cta-btn gs-cta" href="#contact" id="stickyBookCtaBtn" data-gs-book>Reserve</a>
+  </div>
+
 
 <script>
-  /* ── Sticky bottom booking CTA (mobile) — hidden once #booking is in view ── */
+  /* ── Sticky bottom booking bar. It steps aside while the hero or a booking card's Reserve button is on screen.
+     While it is shown below 1024px, body.gs-dock-chat seats the chat button inside it (CSS: "dock chat"). ── */
   (function () {
     'use strict';
-    var cta     = document.getElementById('stickyBookCta');
-    var booking = document.getElementById('booking');
-    if (!cta || !booking) return;
+    var cta = document.getElementById('stickyBookCta'), btn = document.getElementById('stickyBookCtaBtn');
+    if (!cta || !btn) return;
+    var targets = [document.getElementById('qbwSubmit'), document.querySelector('#book-direct .iv-primary')].filter(Boolean);
+    var seen = targets.map(function () { return false; }), ready = false;
+    var narrow = window.matchMedia('(max-width: 1023px)');
 
-    function setHidden(hidden) {
+    /* where the chat button sits: just left of Reserve (offsets ignore the bar's slide transform) */
+    function place() {
+      var root = document.documentElement;
+      root.style.setProperty('--dock-h', cta.offsetHeight + 'px');
+      root.style.setProperty('--dock-chat-right', (root.clientWidth - (cta.offsetLeft + cta.clientLeft + btn.offsetLeft) + 8) + 'px');
+    }
+    function update() {
+      if (!ready) return;
+      /* body.gs-hero-in (gs-theme) already hides the bar over the hero, so aria-hidden and the chat follow it too */
+      var hidden = seen.indexOf(true) >= 0 || document.body.classList.contains('gs-hero-in');
       cta.classList.toggle('is-hidden', hidden);
       cta.setAttribute('aria-hidden', hidden ? 'true' : 'false');
+      var docked = !hidden && narrow.matches;
+      if (docked !== document.body.classList.contains('gs-dock-chat')) {
+        document.body.classList.toggle('gs-dock-chat', docked);
+        place();
+        document.dispatchEvent(new CustomEvent('cascade:dock'));
+      }
     }
 
+    new MutationObserver(update).observe(document.body, { attributes: true, attributeFilter: ['class'] });
+    window.addEventListener('resize', function () { update(); place(); });
+    if ('ResizeObserver' in window) { var ro = new ResizeObserver(place); ro.observe(cta); ro.observe(btn); }
+
     if ('IntersectionObserver' in window) {
-      new IntersectionObserver(function (entries) {
-        setHidden(entries[0].isIntersecting);
-      }, { threshold: 0.01 }).observe(booking);
+      var io = new IntersectionObserver(function (entries) {
+        entries.forEach(function (e) { seen[targets.indexOf(e.target)] = e.isIntersecting; });
+        ready = true; update();
+      });
+      targets.forEach(function (t) { io.observe(t); });
     } else {
-      window.addEventListener('scroll', function () {
-        var r = booking.getBoundingClientRect();
-        setHidden(r.top < window.innerHeight && r.bottom > 0);
-      }, { passive: true });
+      var check = function () {
+        seen = targets.map(function (t) { var r = t.getBoundingClientRect(); return r.height > 0 && r.top < window.innerHeight && r.bottom > 0; });
+        ready = true; update();
+      };
+      window.addEventListener('scroll', check, { passive: true }); check();
     }
   }());
 </script>
@@ -11822,7 +11884,8 @@ body.theme-quiet-luxury #conciergePanel, body.theme-quiet-luxury #conciergeTrigg
   function n1() {
     if (!pending || (dlg && dlg.open)) return;
     var hero = $('qbwSubmit'), dockBtn = $('stickyBookCtaBtn'), rate = document.querySelector('#stickyBookCta .sticky-book-cta-rate');
-    var played = heroIn ? play(hero, 'gs-n1', 600) : play(dockBtn, 'gs-n1', 600);
+    var dockOff = !!(dockBtn && dockBtn.parentNode.classList.contains('is-hidden'));
+    var played = heroIn ? play(hero, 'gs-n1', 600) : play(dockOff ? null : dockBtn, 'gs-n1', 600);   /* a hidden dock keeps the nudge pending */
     if (played) {
       pending = '';
       if (!heroIn && rate) { rate.classList.remove('gs-n1-fade'); void rate.offsetWidth; rate.classList.add('gs-n1-fade'); setTimeout(function () { rate.classList.remove('gs-n1-fade'); }, 500); }
