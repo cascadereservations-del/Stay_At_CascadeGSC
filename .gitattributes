@@ -12,3 +12,5 @@ supabase/migrations/20261209*.sql text eol=lf
 supabase/rollbacks/20261209_*.sql text eol=lf
 supabase/migrations/20261210*.sql text eol=lf
 supabase/rollbacks/20261210_*.sql text eol=lf
+supabase/migrations/20261211*.sql text eol=lf
+supabase/rollbacks/20261211_*.sql text eol=lf

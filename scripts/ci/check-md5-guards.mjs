@@ -13,7 +13,12 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'
 
 // Guards that are known not to match and are accepted, as { migration, signature, reason }. Keep it empty unless a
 // mismatch is understood and cannot be bridged.
-export const ALLOWLIST = [];
+export const ALLOWLIST = [
+  // The simulator does not follow 'alter function ... rename to'. The engine was created as decide_direct_booking in
+  // 20260901010000 and renamed in 20260905010000 (lines 427-428); its body is unchanged since. The guard's md5 was computed
+  // from that body (8f9384913791779afd0cd38ed5152220) and the pgTAP suite record_offline_booking checks the patched result.
+  { migration: '20261211000000_record_offline_booking.sql', signature: 'public.decide_direct_booking_without_finance_review(uuid,text,text)', reason: 'renamed engine, not tracked by the simulator' },
+];
 
 export function buildPreparedChain(sourceSupabase) {
   const manifest = JSON.parse(readFileSync(path.join(sourceSupabase, 'recovery', 'baseline.json'), 'utf8'));
