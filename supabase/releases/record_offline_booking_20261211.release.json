@@ -4,21 +4,21 @@
   "phase": "expand",
   "source": {
     "branch": "rb/record-offline-sql",
-    "commit": "b5f81708dfdfd61bcf182cc6cd3675a6166c7553"
+    "commit": "RESTAMP-AT-APPLY: the commit of this branch that is applied (not the base sha)"
   },
   "migrations": [
     "20261211000000_record_offline_booking.sql"
   ],
   "migration_sha256": {
-    "20261211000000_record_offline_booking.sql": "aebaf6d50c54645d73cc7e9f238ca39dc6cd91809ab6c131c6f457f6da3f7e1d"
+    "20261211000000_record_offline_booking.sql": "3dfc1dbc3198cd050dfabeec30635e3b2b27e7236fb8c4ef2da788b0f0e8006d"
   },
   "backup": {
     "required": true,
     "scope": "production",
     "restore_point": "PLACEHOLDER-restamp-at-apply-time",
     "verified_at": "1970-01-01T00:00:00.000Z",
-    "production_rule": "Record a booking made outside the site (phase 1). 20261211000000 adds booking_inquiries.channel (text, not null, default site, check: site, messenger, facebook, walk_in, phone, other), the function record_offline_booking_v1 (signed-in owners and admins only, 17 arguments, returns jsonb) and ONE added predicate in decide_direct_booking_without_finance_review(uuid,text,text): an Airbnb blocked row labelled direct no longer conflicts when the transaction setting cascade.offline_booking_id equals the booking id and the block note names the booking reference. Without that setting (every site confirm) the engine behaves as before. The migration stops (55000) unless the engine body is the one it was cut from (md5 8f9384913791779afd0cd38ed5152220, carriage returns removed) and re-hashes the patched body (2342d3f0ee88eb5f98c1260577391618). Nothing is granted to anon or service_role. The function relabels overlapping Airbnb blocks to direct (note DIR <ref> confirmed), writes the hold, the booking, the income row (pending_review, full total at check-in) and the optional Messenger thread link, then confirms through the one-tap core; any refusal rolls the whole sub-block back.",
-    "notes": "restore_point and verified_at are placeholders: restamp them with a fresh backup at apply time (scripts/migrations/fill-restore-point.mjs). The migration carries no begin/commit (the runner wraps it); the rollback carries its own and refuses (55000) once a booking carries a channel other than site. Before apply, read the live engine md5 (read-only) and compare it with 8f9384913791779afd0cd38ed5152220. Apply the SQL before the Staff release that calls the function."
+    "production_rule": "Record a booking made outside the site (phase 1). 20261211000000 adds booking_inquiries.channel (text, not null, default site, check: site, messenger, facebook, walk_in, phone, other), the function record_offline_booking_v1 (signed-in owners and admins only, 17 arguments, returns jsonb) and ONE added predicate in decide_direct_booking_without_finance_review(uuid,text,text): an Airbnb blocked row labelled direct no longer conflicts when the transaction setting cascade.offline_booking_id (read as empty when unset) equals the booking id and the block note names the booking reference. Without that setting (every site confirm) the engine behaves as before. The migration stops (55000) unless the engine body is the one it was cut from (md5 8f9384913791779afd0cd38ed5152220, carriage returns removed) and re-hashes the patched body (7b6bc2ccdf2fefddc0e21c36d7a7590c). Nothing is granted to anon or service_role. The function relabels overlapping Airbnb blocks to direct (note DIR <ref> confirmed), writes the hold, the booking, the income row (pending_review, full total at check-in) and the optional Messenger thread link, then confirms through the one-tap core; any refusal rolls the whole sub-block back.",
+    "notes": "restore_point and verified_at are placeholders: restamp them with a fresh backup at apply time (scripts/migrations/fill-restore-point.mjs). The migration carries no begin/commit (the runner wraps it); the rollback carries its own; it keeps the channel column with a NOTICE once a booking carries a channel other than site. Before apply, read the live engine md5 (read-only) and compare it with 8f9384913791779afd0cd38ed5152220. Apply the SQL before the Staff release that calls the function."
   },
   "forward_verification": [
     {
@@ -28,7 +28,7 @@
     },
     {
       "name": "engine_has_the_patched_body",
-      "query": "select md5(replace(prosrc, chr(13), '')) = '2342d3f0ee88eb5f98c1260577391618' from pg_proc where oid = 'public.decide_direct_booking_without_finance_review(uuid,text,text)'::regprocedure",
+      "query": "select md5(replace(prosrc, chr(13), '')) = '7b6bc2ccdf2fefddc0e21c36d7a7590c' from pg_proc where oid = 'public.decide_direct_booking_without_finance_review(uuid,text,text)'::regprocedure",
       "expect": true
     },
     {
@@ -54,11 +54,11 @@
   ],
   "rollback": {
     "strategy": "compensating",
-    "safe_until": "until a booking carries a channel other than site (the rollback refuses with 55000 rather than lose where it came from)",
+    "safe_until": "always for the engine and the function; the channel column and its check are kept (NOTICE) once a booking carries a channel other than site, so no channel is lost",
     "steps": [
       {
         "name": "restore_engine_and_drop_additions",
-        "action": "apply supabase/rollbacks/20261211_record_offline_booking.sql with run-sql-on-host.sh (takes the one predicate out of the engine, md5 back to 8f9384913791779afd0cd38ed5152220, drops record_offline_booking_v1, the channel check and the channel column). Bookings already recorded stay as confirmed direct bookings; the Airbnb blocks relabelled direct stay so (calendar-sync resets them after a cancel)."
+        "action": "apply supabase/rollbacks/20261211_record_offline_booking.sql with run-sql-on-host.sh (takes the one predicate out of the engine, md5 back to 8f9384913791779afd0cd38ed5152220, drops record_offline_booking_v1, and the channel check and column when every booking is site, else keeps them with a NOTICE). Bookings already recorded stay as confirmed direct bookings; the Airbnb blocks relabelled direct stay so (calendar-sync resets them after a cancel)."
       }
     ]
   },
@@ -90,7 +90,7 @@
   "risks": [
     "The engine is patched in place (one predicate). It is inert unless a booking carries an Airbnb block labelled direct whose note names its reference AND the transaction setting names the booking; only record_offline_booking_v1 sets it, and it resets it right after the core call.",
     "record_offline_booking_v1 writes the income row with payment_method null (the contract names none); the ledger shows it as pending_review.",
-    "The rollback was not rehearsed (the rehearsal script has no rollback mode) and refuses once a booking carries a channel other than site.",
-    "A non-brownout manual calendar row that overlaps is not classified by the contract; the engine reports it as a plain conflict without a reason."
+    "The rollback was not rehearsed (the rehearsal script has no rollback mode); it keeps the channel column when a booking carries a channel other than site.",
+    "An overlapping manual calendar row (confirmed or blocked, not a brownout hold) answers conflict / manual_block."
   ]
 }

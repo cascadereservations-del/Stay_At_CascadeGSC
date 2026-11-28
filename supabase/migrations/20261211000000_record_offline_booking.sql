@@ -13,8 +13,8 @@
 --                 property lock, replay by key, validation, thread routing, conflict classification, then one begin..exception
 --                 sub-block of writes that any refusal of the core undoes in full.
 -- Grants restated (ML-21). The migration carries no begin/commit (the runner wraps it).
--- Rollback: supabase/rollbacks/20261211_record_offline_booking.sql (puts the engine body back, drops the function and the column;
--- refuses while a booking carries a channel other than 'site'). Bookings the function recorded stay, like any confirmed booking.
+-- Rollback: supabase/rollbacks/20261211_record_offline_booking.sql (puts the engine body back, drops the function and, when every booking is 'site', the column;
+-- keeps the column, with a NOTICE, while a booking carries a channel other than 'site'). Bookings the function recorded stay, like any confirmed booking.
 
 -- 0. Guard: the engine is the body this release was written against (20260901010000_canonical_booking_decision.sql, renamed at 20260905010000:428).
 --    No later migration redefines it (grep of supabase/migrations, 2026-11-28).
@@ -56,7 +56,7 @@ begin
   v_old := $a$and ce.uid not in ('direct:' || v_booking.id::text, 'cascade-direct-' || v_booking.id::text)$a$;
   v_to  := v_old || $a$
       and not (ce.source = 'airbnb' and ce.status = 'blocked' and ce.block_reason = 'direct'
-               and current_setting('cascade.offline_booking_id', true) = v_booking.id::text
+               and coalesce(current_setting('cascade.offline_booking_id', true), '') = v_booking.id::text
                and position(upper(left(v_booking.id::text, 8)) in upper(coalesce(ce.block_note, ''))) > 0)$a$;
   if v_def is null or (length(v_def) - length(replace(v_def, v_old, ''))) / length(v_old) <> 1 then
     raise exception 'record_offline_booking: engine conflict-query anchor not found exactly once; re-cut from the live body' using errcode = '55000';
@@ -64,7 +64,7 @@ begin
   execute replace(v_def, v_old, v_to);
   select md5(replace(p.prosrc, chr(13), '')) into v_md5
     from pg_proc p where p.oid = to_regprocedure('public.decide_direct_booking_without_finance_review(uuid,text,text)');
-  if v_md5 is distinct from '2342d3f0ee88eb5f98c1260577391618' then
+  if v_md5 is distinct from '7b6bc2ccdf2fefddc0e21c36d7a7590c' then
     raise exception 'record_offline_booking: the patched engine body is not the expected one (md5 %)', v_md5 using errcode = '55000';
   end if;
 end $p$;
@@ -102,7 +102,7 @@ declare
   v_digits text;
   v_phone_e164 text;
   v_email_norm text;
-  v_override text[] := coalesce(p_override_block_uids, '{}'::text[]);
+  v_override text[] := array_remove(coalesce(p_override_block_uids, '{}'::text[]), null);
   v_exist public.booking_inquiries%rowtype;
   v_flow jsonb;
   v_flow_b public.booking_inquiries%rowtype;
@@ -143,6 +143,9 @@ begin
   if found then
     if v_exist.property_id is distinct from p_property_id or v_exist.source is distinct from 'direct' then
       return jsonb_build_object('ok', false, 'outcome', 'invalid_input', 'field', 'idempotency_key');
+    end if;
+    if v_exist.status is distinct from 'confirmed' then
+      return jsonb_build_object('ok', false, 'outcome', 'invalid_state', 'status', v_exist.status, 'booking_id', v_exist.id);
     end if;
     v_replay := true;
     v_in := v_exist.checkin_date;
@@ -244,6 +247,12 @@ begin
                   and ce.source = 'manual' and ce.uid like 'brownout:%') then
       return jsonb_build_object('ok', false, 'outcome', 'conflict', 'reason', 'brownout_hold');
     end if;
+    if exists (select 1 from public.calendar_events ce
+                where ce.property_id = p_property_id and ce.status <> 'cancelled'
+                  and ce.checkin_date < p_checkout and ce.checkout_date > p_checkin
+                  and ce.source = 'manual' and ce.status in ('confirmed', 'blocked')) then
+      return jsonb_build_object('ok', false, 'outcome', 'conflict', 'reason', 'manual_block');
+    end if;
     select coalesce(jsonb_agg(jsonb_build_object('uid', ce.uid, 'reason', ce.block_reason, 'from', ce.checkin_date, 'to', ce.checkout_date)
                               order by ce.checkin_date, ce.uid), '[]'::jsonb)
       into v_labelled
@@ -334,6 +343,11 @@ begin
       -- 4.9 Anything but confirmed undoes 4.1 to 4.8 and answers with the core's outcome.
       if v_core ->> 'outcome' is distinct from 'confirmed' then
         raise exception using errcode = 'RB001', message = v_core::text;
+      end if;
+      -- The core answers a key it already holds as confirmed + already_processed: that key belongs to another confirm, and nothing here may stay.
+      if coalesce((v_core ->> 'already_processed')::boolean, false) then
+        raise exception using errcode = 'RB001',
+          message = jsonb_build_object('outcome', 'invalid_input', 'field', 'idempotency_key')::text;
       end if;
     exception
       when sqlstate 'RB001' then

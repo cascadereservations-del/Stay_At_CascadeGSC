@@ -5,9 +5,9 @@
 --   users   b1 owner  b2 admin  b3 finance  b4 cleaner (all with access to the property)
 --   windows (days from today)  300 Airbnb stay  310 direct hold  320 brownout  330 unexplained block  340 assumed block  350 owner_use block
 --           360 replay  370+380 reference reuse  390 cash without note  400 partly paid  410 confirmation off  420/430/440 thread routing
---           450+455 thread save  460 site confirm  470 past stay thread  480 dates  490 validation
+--           450+455 thread save  460 site confirm  470+475 key used by a staff confirm  480 dates  490 validation  500 manual block  510 null override
 begin;
-select plan(55);
+select plan(61);
 
 -- Same numbers as run_system_verifier_v1 reads: no preparation night, so a block that is one night longer than the stay is V1m.
 insert into public.app_settings(key, value) values ('airbnb_prep_nights', '0'::jsonb) on conflict (key) do update set value = excluded.value;
@@ -171,8 +171,12 @@ select is((select r ->> 'outcome' from rb_r where k = 'cash') || '|' || pg_temp.
           || '|' || (select coalesce(block_reason, 'none') from public.calendar_events where uid = 'rb-block-cash@airbnb.com'),
   'note_required|0/0/0|none', 'cash without a note returns note_required and writes nothing');
 select is(pg_temp.rec(jsonb_build_object('key', 'rb-key-cash-withnote1', 'checkin', pg_temp.d(390)::text, 'checkout', pg_temp.d(392)::text, 'method', 'cash', 'ref', null,
-                                         'note', 'cash at the desk, Marifel received')) ->> 'outcome',
+                                         'note', 'cash at the desk, host received')) ->> 'outcome',
   'recorded', 'cash with a note is recorded without a reference');
+-- a key whose booking is no longer confirmed does not answer 'recorded'
+update public.booking_inquiries set status = 'expired' where id = pg_temp.bid('rb-key-cash-withnote1');
+select is((select (r ->> 'outcome') || '|' || (r ->> 'status') || '|' || (r ->> 'ok') from (select pg_temp.rec(jsonb_build_object('key', 'rb-key-cash-withnote1', 'checkin', pg_temp.d(390)::text, 'checkout', pg_temp.d(392)::text, 'method', 'cash', 'ref', null, 'note', 'cash at the desk, host received')) r) x),
+  'invalid_state|expired|false', 'a replay of a booking that is no longer confirmed answers invalid_state with its status');
 
 insert into rb_r values ('partly', pg_temp.rec(jsonb_build_object('key', 'rb-key-partly-paid-1', 'checkin', pg_temp.d(400)::text, 'checkout', pg_temp.d(404)::text,
                                                                    'total', 6000, 'paid', 2500, 'method', 'bank', 'ref', 'BANK12345678')));
@@ -215,7 +219,7 @@ select is(pg_temp.rec(jsonb_build_object('key', 'rb-key-thread-past-01', 'checki
 select is(pg_temp.rec(jsonb_build_object('key', 'rb-key-thread-junk-01', 'checkin', pg_temp.d(444)::text, 'checkout', pg_temp.d(446)::text, 'psid', 'rb-psid-junk', 'ref', 'THRJUNK12345')) ->> 'outcome',
   'recorded', 'a thread flow with a malformed booking_id does not break the call');
 
-insert into rb_r values ('t_save', pg_temp.rec(jsonb_build_object('key', 'rb-key-thread-save-01', 'checkin', pg_temp.d(450)::text, 'checkout', pg_temp.d(452)::text, 'psid', 'rb-psid-save', 'ref', 'THRSAVE12345', 'total', 3000, 'paid', 1500)));
+insert into rb_r values ('t_save', pg_temp.rec(jsonb_build_object('key', 'rb-key-thread-save-01', 'checkin', pg_temp.d(450)::text, 'checkout', pg_temp.d(452)::text, 'psid', 'rb-psid-save', 'ref', 'THRSAVE12345', 'total', 3000, 'paid', 1500, 'phone', '09179990001')));
 select is((select booking_flow ->> 'booking_id' || '|' || (booking_flow ->> 'step') || '|' || (booking_flow ->> 'ref') || '|' || (booking_flow ->> 'lang') || '|' || (booking_flow ->> 'checkin')
                   || '|' || (booking_flow ->> 'total') || '|' || (booking_flow ->> 'deposit') || '|' || (booking_flow ->> 'pax') || '|' || (booking_flow ->> 'name')
              from public.concierge_threads where psid = 'rb-psid-save'),
@@ -223,8 +227,8 @@ select is((select booking_flow ->> 'booking_id' || '|' || (booking_flow ->> 'ste
   'thread flow carries booking_id after a save');
 select is((select p.messenger_psid from public.guest_profile_details p join public.booking_inquiries b on b.guest_id = p.guest_id where b.id = pg_temp.bid('rb-key-thread-save-01')), 'rb-psid-save',
   'the guest takes the PSID when it had none');
--- same guest (same phone) books again from another thread: the first PSID is kept
-select pg_temp.rec(jsonb_build_object('key', 'rb-key-thread-save-02', 'checkin', pg_temp.d(455)::text, 'checkout', pg_temp.d(457)::text, 'psid', 'rb-psid-second', 'ref', 'THRSAVE54321'));
+-- same guest (same phone, one no other booking above uses) books again from another thread: the first PSID is kept
+select pg_temp.rec(jsonb_build_object('key', 'rb-key-thread-save-02', 'checkin', pg_temp.d(455)::text, 'checkout', pg_temp.d(457)::text, 'psid', 'rb-psid-second', 'ref', 'THRSAVE54321', 'phone', '09179990001'));
 select is((select p.messenger_psid from public.guest_profile_details p join public.booking_inquiries b on b.guest_id = p.guest_id where b.id = pg_temp.bid('rb-key-thread-save-02')) || '|'
           || (select booking_flow ->> 'booking_id' from public.concierge_threads where psid = 'rb-psid-second'),
   'rb-psid-save|' || pg_temp.bid('rb-key-thread-save-02')::text, 'a guest that already has a PSID keeps it; the new thread still points at the booking');
@@ -237,11 +241,13 @@ insert into public.calendar_events(property_id, uid, source, status, checkin_dat
 insert into public.calendar_events(property_id, uid, source, status, checkin_date, checkout_date, recon_status, block_reason, block_reason_source, block_note) values
   ('ab0f0000-0000-4000-8000-0000000000a1', 'rb-block-site@airbnb.com', 'airbnb', 'blocked', pg_temp.d(460), pg_temp.d(462), 'skipped', 'direct', 'auto', 'DIR AB0F0E02 confirmed');
 select is(coalesce(current_setting('cascade.offline_booking_id', true), ''), '', 'the offline setting is empty after a recorded booking');
+select ok((select position('coalesce(current_setting(''cascade.offline_booking_id'', true), '''') = v_booking.id::text' in prosrc) > 0 from pg_proc where oid = 'public.decide_direct_booking_without_finance_review(uuid,text,text)'::regprocedure),
+  'the engine predicate reads an unset setting as empty (coalesce), so an unset and an empty setting behave alike');
 select set_config('request.jwt.claims', json_build_object('sub', 'ab0f0000-0000-4000-8000-0000000000b1', 'role', 'authenticated', 'aal', 'aal1', 'iat', extract(epoch from now())::bigint)::text, true);
 set local role authenticated;
 select set_config('rb.site1', public.staff_confirm_direct_booking_v1('ab0f0e02-0000-4000-8000-0000000000e2', 'cash', null, 2000, 'paid at the desk, synthetic', null, 'rb-site-confirm-key-0001')::text, true);
 reset role;
-select is((current_setting('rb.site1')::jsonb) ->> 'outcome', 'conflict', 'a site confirm over a direct-labelled block still conflicts (setting absent)');
+select is((current_setting('rb.site1')::jsonb) ->> 'outcome', 'conflict', 'a site confirm over a direct-labelled block still conflicts (setting empty; a backend that never set it reads NULL, which the coalesce turns into the same empty string)');
 -- the setting names ANOTHER booking: still a conflict
 select set_config('cascade.offline_booking_id', 'ab0f0000-0000-4000-8000-0000000000ff', true);
 select set_config('request.jwt.claims', json_build_object('sub', 'ab0f0000-0000-4000-8000-0000000000b1', 'role', 'authenticated', 'aal', 'aal1', 'iat', extract(epoch from now())::bigint)::text, true);
@@ -251,6 +257,35 @@ reset role;
 select is((current_setting('rb.site2')::jsonb) ->> 'outcome', 'conflict', 'the engine keeps conflicting when the setting names another booking');
 select set_config('cascade.offline_booking_id', '', true);
 select is((select status from public.booking_inquiries where id = 'ab0f0e02-0000-4000-8000-0000000000e2'), 'pending', 'the refused site booking stays pending');
+
+-- a key already used by a staff confirm for another booking writes nothing here (the core answers confirmed + already_processed for it)
+insert into public.booking_inquiries(id, property_id, guest_name, guest_phone, checkin_date, checkout_date, pax, status, source, total_amount, deposit_amount) values
+  ('ab0f0e03-0000-4000-8000-0000000000e3', 'ab0f0000-0000-4000-8000-0000000000a1', 'Synthetic Staff Key', '09170000010', pg_temp.d(470), pg_temp.d(472), 2, 'pending', 'direct', 2000, 1000);
+insert into public.calendar_events(property_id, uid, source, status, checkin_date, checkout_date, recon_status) values
+  ('ab0f0000-0000-4000-8000-0000000000a1', 'direct:ab0f0e03-0000-4000-8000-0000000000e3', 'direct', 'blocked', pg_temp.d(470), pg_temp.d(472), 'manual_entry');
+select set_config('request.jwt.claims', json_build_object('sub', 'ab0f0000-0000-4000-8000-0000000000b1', 'role', 'authenticated', 'aal', 'aal1', 'iat', extract(epoch from now())::bigint)::text, true);
+set local role authenticated;
+select set_config('rb.site3', public.staff_confirm_direct_booking_v1('ab0f0e03-0000-4000-8000-0000000000e3', 'cash', null, 2000, 'paid at the desk, synthetic', null, 'rb-shared-key-000001')::text, true);
+reset role;
+select is((current_setting('rb.site3')::jsonb) ->> 'outcome', 'confirmed', 'fixture: the staff confirm that holds the shared key succeeded');
+insert into rb_r values ('shared_key', pg_temp.rec(jsonb_build_object('key', 'rb-shared-key-000001', 'checkin', pg_temp.d(475)::text, 'checkout', pg_temp.d(477)::text, 'ref', 'SHARED123456')));
+select is((select (r ->> 'outcome') || '|' || (r ->> 'field') || '|' || (r ->> 'ok') from rb_r where k = 'shared_key') || '|' || pg_temp.rows_of('rb-shared-key-000001')
+          || '|' || (select count(*) from public.booking_decisions where idempotency_key = 'onetap:rb-shared-key-000001')::text,
+  'invalid_input|idempotency_key|false|0/0/0|1', 'a key already used by a staff confirm for another booking writes nothing');
+
+-- a manual calendar block that is not a brownout hold
+insert into public.calendar_events(property_id, uid, source, status, checkin_date, checkout_date, guest_name) values
+  ('ab0f0000-0000-4000-8000-0000000000a1', 'rb-manual-block-1', 'manual', 'blocked', pg_temp.d(500), pg_temp.d(502), 'Synthetic Manual Block');
+select is((select (r ->> 'outcome') || '|' || (r ->> 'reason') from (select pg_temp.rec(jsonb_build_object('key', 'rb-key-manual-block-1', 'checkin', pg_temp.d(501)::text, 'checkout', pg_temp.d(503)::text, 'ref', 'MANUAL123456')) r) x)
+          || '|' || pg_temp.rows_of('rb-key-manual-block-1'),
+  'conflict|manual_block|0/0/0', 'a manual block that is not a brownout hold conflicts as manual_block and nothing is written');
+
+-- a NULL in the override list names no block (it must not switch the block check off)
+insert into public.calendar_events(property_id, uid, source, status, checkin_date, checkout_date, recon_status, block_reason, block_reason_source) values
+  ('ab0f0000-0000-4000-8000-0000000000a1', 'rb-block-null-override@airbnb.com', 'airbnb', 'blocked', pg_temp.d(510), pg_temp.d(512), 'admin_block', 'owner_use', 'staff');
+select is((select (r ->> 'outcome') || '|' || (r ->> 'reason') from (select pg_temp.rec(jsonb_build_object('key', 'rb-key-null-override1', 'checkin', pg_temp.d(510)::text, 'checkout', pg_temp.d(512)::text, 'ref', 'NULLOV123456', 'override', '[null]'::jsonb)) r) x)
+          || '|' || pg_temp.rows_of('rb-key-null-override1'),
+  'conflict|labelled_block|0/0/0', 'an override list holding a NULL still refuses a labelled block');
 
 -- 8. what a recorded booking leaves behind -----------------------------------------------------------------------------------------------------------
 select ok(exists (select 1 from public.automation_outbox where event_type = 'booking.confirmed' and aggregate_id = pg_temp.bid('rb-key-block-unexpl1')),
